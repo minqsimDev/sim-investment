@@ -1,0 +1,23 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Data & reports
+reports/*.xlsx
+reports/*.csv
+*.db
+*.sqlite
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Playwright
+.playwright-mcp/

@@ -1,0 +1,230 @@
+# sinvest asset configuration
+# Edit this file to change what is monitored — no code changes needed.
+# Korean ETF tickers use .KS suffix for yfinance. Verify each one before use.
+
+user:
+  timezone: "Asia/Seoul"
+  base_currency: "KRW"
+  report_time: "08:00"
+
+my_etfs:
+  - name: "Silver Futures ETF"
+    ticker: "130680.KS"       # TODO: verify — KODEX 은선물(H)
+    currency: KRW
+    category: commodities
+    hedged: true
+    benchmark: "SLV"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "Silver"
+      - "USD/KRW"
+      - "DXY"
+      - "US10Y"
+
+  - name: "Gold Spot ETF"
+    ticker: "411060.KS"       # TODO: verify — ACE KRX 금현물
+    currency: KRW
+    category: commodities
+    hedged: false
+    benchmark: "GLD"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "Gold"
+      - "USD/KRW"
+      - "DXY"
+      - "US10Y"
+
+  - name: "Nasdaq Technology ETF"
+    ticker: "379810.KS"       # TODO: verify — KODEX 미국나스닥100
+    currency: KRW
+    category: equity_us
+    hedged: false
+    benchmark: "QQQ"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "QQQ"
+      - "Nasdaq"
+      - "US10Y"
+      - "USD/KRW"
+      - "NVDA"
+      - "MSFT"
+      - "AAPL"
+
+  - name: "Big Tech 10 Currency-Hedged ETF"
+    ticker: "314250.KS"       # KODEX 미국빅테크10(H) — NYSE FANG+ Index 추종, 환헤지
+    currency: KRW
+    category: equity_us
+    hedged: true
+    benchmark: "QQQ"
+    currency_exposure: "currency-hedged"
+    drivers:
+      - "QQQ"
+      - "AAPL"
+      - "MSFT"
+      - "NVDA"
+      - "META"
+      - "AMZN"
+      - "GOOGL"
+
+  - name: "Philadelphia Semiconductor ETF"
+    ticker: "381180.KS"       # TODO: verify — KODEX 필라델피아반도체나스닥
+    currency: KRW
+    category: equity_semiconductor
+    hedged: false
+    benchmark: "SOXX"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "SOXX"
+      - "SMH"
+      - "NVDA"
+      - "AMD"
+      - "AVGO"
+      - "TSM"
+      - "MU"
+
+  - name: "China Humanoid / Robotics ETF"
+    ticker: "396520.KS"       # TODO: verify — 실제 티커 확인 필요
+    currency: KRW
+    category: equity_china
+    hedged: false
+    benchmark: "KWEB"
+    currency_exposure: "KRW/CNY/USD-sensitive"
+    drivers:
+      - "KWEB"
+      - "CQQQ"
+      - "China Tech"
+      - "Robotics"
+      - "USD/CNH"
+
+benchmark_etfs:
+  - ticker: QQQ
+    name: "Invesco QQQ (Nasdaq 100)"
+    category: equity_us
+
+  - ticker: SPY
+    name: "SPDR S&P 500"
+    category: equity_us
+
+  - ticker: SOXX
+    name: "iShares PHLX Semiconductor"
+    category: equity_semiconductor
+
+  - ticker: SMH
+    name: "VanEck Semiconductor"
+    category: equity_semiconductor
+
+  - ticker: GLD
+    name: "SPDR Gold Shares"
+    category: commodities
+
+  - ticker: SLV
+    name: "iShares Silver Trust"
+    category: commodities
+
+  - ticker: TLT
+    name: "iShares 20+ Year Treasury"
+    category: bonds
+
+  - ticker: KWEB
+    name: "KraneShares CSI China Internet"
+    category: equity_china
+
+  - ticker: CQQQ
+    name: "Invesco China Technology"
+    category: equity_china
+
+us_stocks:
+  - ticker: NVDA
+    name: "NVIDIA"
+    sector: semiconductor
+
+  - ticker: AMD
+    name: "Advanced Micro Devices"
+    sector: semiconductor
+
+  - ticker: AVGO
+    name: "Broadcom"
+    sector: semiconductor
+
+  - ticker: MU
+    name: "Micron Technology"
+    sector: semiconductor
+
+  - ticker: TSM
+    name: "Taiwan Semiconductor"
+    sector: semiconductor
+
+  - ticker: AAPL
+    name: "Apple"
+    sector: big_tech
+
+  - ticker: MSFT
+    name: "Microsoft"
+    sector: big_tech
+
+  - ticker: GOOGL
+    name: "Alphabet"
+    sector: big_tech
+
+  - ticker: AMZN
+    name: "Amazon"
+    sector: big_tech
+
+  - ticker: META
+    name: "Meta Platforms"
+    sector: big_tech
+
+  - ticker: TSLA
+    name: "Tesla"
+    sector: ev_auto
+
+commodities:
+  gold: "GC=F"
+  silver: "SI=F"
+  copper: "HG=F"
+  wti_crude: "CL=F"
+  brent_crude: "BZ=F"
+  natural_gas: "NG=F"
+
+fx:
+  usd_krw:
+    ticker: "USDKRW=X"
+    priority: high
+  jpy_krw:
+    ticker: "JPYKRW=X"
+    priority: medium
+  eur_krw:
+    ticker: "EURKRW=X"
+    priority: medium
+  usd_jpy:
+    ticker: "USDJPY=X"
+    priority: medium
+  dxy:
+    ticker: "DX-Y.NYB"
+    priority: high
+
+macro:
+  fred_series:
+    us_10y: "DGS10"
+    us_2y: "DGS2"
+    spread_10y_2y: "T10Y2Y"
+    fed_funds: "FEDFUNDS"
+    cpi: "CPIAUCSL"
+    core_cpi: "CPILFESL"
+    pce: "PCEPI"
+    core_pce: "PCEPILFE"
+    unemployment: "UNRATE"
+    nonfarm_payrolls: "PAYEMS"
+
+  korea:
+    # Bank of Korea — not on FRED; placeholder for future BOK provider
+    base_rate:
+      id: "BOK_BASE_RATE"
+      provider: bok
+    cpi:
+      id: "BOK_CPI"
+      provider: bok
+
+report:
+  output_dir: "reports"
+  daily_filename_format: "daily_{date}.md"
