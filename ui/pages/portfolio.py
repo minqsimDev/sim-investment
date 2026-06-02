@@ -2,10 +2,27 @@ import streamlit as st
 import pandas as pd
 from data.fetcher import fetch_all
 from core.config_loader import load_config
+from src.analyst import fetch_analyst_targets
+from ui.components.analyst_fmp import render_fmp_drilldown
 from ui.components.dash_style import (
     inject_css, section_header, timestamp_bar,
     style_returns, numeric, csv_bytes, excel_bytes,
 )
+
+_STOCK_KOR = {
+    "NVDA":  "엔비디아",
+    "AMD":   "AMD",
+    "AVGO":  "브로드컴",
+    "MU":    "마이크론",
+    "TSM":   "TSMC",
+    "AAPL":  "애플",
+    "MSFT":  "마이크로소프트",
+    "GOOGL": "알파벳",
+    "AMZN":  "아마존",
+    "META":  "메타",
+    "TSLA":  "테슬라",
+    "PLTR":  "팔란티어",
+}
 
 _ETF  = {"name":"종목명","ticker":"티커","category":"분류","price":"현재가",
          "change_pct":"등락률(%)","benchmark":"벤치마크","hedged":"환헤지"}
@@ -15,6 +32,11 @@ _DRV  = {"드라이버":"드라이버","구분":"구분","현재값":"현재값"
 @st.cache_data(ttl=300)
 def _load():
     return fetch_all()
+
+
+@st.cache_data(ttl=3600)
+def _analyst_targets() -> pd.DataFrame:
+    return fetch_analyst_targets(list(_STOCK_KOR.keys()))
 
 
 def render():
@@ -121,6 +143,69 @@ def render():
                 column_config={"등락률(%)": st.column_config.NumberColumn(format="%.2f%%")},
                 use_container_width=True, hide_index=True,
             )
+
+
+    # ── 애널리스트 전망 ────────────────────────────────────────────────────────
+    st.markdown(section_header("보유 ETF 주요 편입 종목 애널리스트 전망",
+                               "Yahoo Finance 컨센서스 목표가 — 나스닥·반도체·빅테크 ETF 편입 종목"),
+                unsafe_allow_html=True)
+
+    analyst_df = _analyst_targets()
+
+    if not analyst_df.empty:
+        _REC_COLOR = {
+            "강력매수": "color:#276749;font-weight:700",
+            "매수":     "color:#276749;font-weight:600",
+            "보유":     "color:#718096",
+            "시장하회": "color:#9B2335;font-weight:600",
+            "매도":     "color:#9B2335;font-weight:700",
+            "강력매도": "color:#9B2335;font-weight:700",
+        }
+
+        def _rec_style(v):
+            return _REC_COLOR.get(v, "")
+
+        def _upside_style(v):
+            if not isinstance(v, (int, float)) or pd.isna(v): return ""
+            if v >= 10:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
+            if v <= -5:  return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
+            return ""
+
+        rows_a = []
+        for _, r in analyst_df.iterrows():
+            tk = r["ticker"]
+            rows_a.append({
+                "종목":        f"{_STOCK_KOR.get(tk, tk)}  ({tk})",
+                "현재가":      r.get("현재가"),
+                "목표가(평균)": r.get("목표가_평균"),
+                "목표가(최고)": r.get("목표가_최고"),
+                "목표가(최저)": r.get("목표가_최저"),
+                "상승여력%":   r.get("상승여력%"),
+                "투자의견":    r.get("투자의견") or "—",
+                "애널리스트수": r.get("애널리스트수"),
+            })
+
+        atbl = pd.DataFrame(rows_a)
+        price_cols = ["현재가", "목표가(평균)", "목표가(최고)", "목표가(최저)"]
+        for c in price_cols:
+            atbl[c] = pd.to_numeric(atbl[c], errors="coerce")
+        atbl["상승여력%"]   = pd.to_numeric(atbl["상승여력%"],   errors="coerce")
+        atbl["애널리스트수"] = pd.to_numeric(atbl["애널리스트수"], errors="coerce")
+
+        styled_a = (
+            atbl.style
+            .map(_upside_style, subset=["상승여력%"])
+            .map(_rec_style,    subset=["투자의견"])
+        )
+        cfg_a = {c: st.column_config.NumberColumn(format="$%,.2f") for c in price_cols}
+        cfg_a["상승여력%"]   = st.column_config.NumberColumn(format="%.1f%%")
+        cfg_a["애널리스트수"] = st.column_config.NumberColumn(format="%d명")
+        st.dataframe(styled_a, column_config=cfg_a, use_container_width=True, hide_index=True)
+        st.caption("출처: Yahoo Finance 애널리스트 컨센서스 — 투자 참고용, 매매 권유 아님 · 1시간마다 업데이트")
+    else:
+        st.info("애널리스트 데이터를 불러올 수 없습니다.")
+
+    render_fmp_drilldown(list(_STOCK_KOR.keys()), _STOCK_KOR, section_title="주요 편입 종목 증권사별 목표가")
 
 
 # ── Style helpers ─────────────────────────────────────────────────────────────

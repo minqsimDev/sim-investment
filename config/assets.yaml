@@ -1,4 +1,4 @@
-# sinvest asset configuration
+# SIMvest asset configuration
 # Edit this file to change what is monitored — no code changes needed.
 # Korean ETF tickers use .KS suffix for yfinance. Verify each one before use.
 
@@ -176,7 +176,11 @@ us_stocks:
 
   - ticker: TSLA
     name: "Tesla"
-    sector: ev_auto
+    sector: big_tech
+
+  - ticker: PLTR
+    name: "Palantir"
+    sector: big_tech
 
 commodities:
   gold: "GC=F"

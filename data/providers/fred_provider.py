@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from fredapi import Fred
 from .base import BaseProvider
@@ -27,5 +28,8 @@ class FredProvider(BaseProvider):
             return None
 
     def fetch_series_bulk(self, series_map: dict[str, str]) -> dict[str, dict | None]:
-        """series_map: {key: fred_series_id}"""
-        return {key: self.fetch_series(sid) for key, sid in series_map.items()}
+        def _fetch(item):
+            key, sid = item
+            return key, self.fetch_series(sid)
+        with ThreadPoolExecutor(max_workers=min(len(series_map), 8)) as ex:
+            return dict(ex.map(_fetch, series_map.items()))

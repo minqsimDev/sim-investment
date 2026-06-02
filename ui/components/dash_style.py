@@ -98,29 +98,60 @@ div[data-testid="stCaption"] {{ font-size:10.5px !important; color:{META} !impor
 </style>"""
 
 _METRIC_CSS = """<style>
-.ms{{display:flex;background:#fff;border:1px solid #E2E8F0;border-radius:2px;overflow-x:auto;margin:0 0 4px}}
-.mc{{flex:1;min-width:95px;padding:9px 14px;border-right:1px solid #E2E8F0}}
-.mc:last-child{{border-right:none}}
-.ml{{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#718096;margin-bottom:3px}}
-.mv{{font-size:16px;font-weight:700;color:#1C2B3A;font-variant-numeric:tabular-nums;font-family:'SF Mono','Cascadia Code',ui-monospace,monospace;line-height:1.3}}
-.md{{font-size:10px;font-weight:600;margin-top:1px;font-variant-numeric:tabular-nums;font-family:'SF Mono','Cascadia Code',ui-monospace,monospace}}
-.mp{{color:#276749}}.mn{{color:#9B2335}}.mna{{color:#A0AEC0}}
+.ms{display:flex;background:#fff;border:1px solid #E2E8F0;border-radius:2px;overflow-x:auto;margin:0 0 4px}
+.mc{flex:1;min-width:95px;padding:9px 14px;border-right:1px solid #E2E8F0}
+.mc:last-child{border-right:none}
+.ml{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#718096;margin-bottom:3px}
+.mv{font-size:16px;font-weight:700;color:#1C2B3A;font-variant-numeric:tabular-nums;font-family:'SF Mono','Cascadia Code',ui-monospace,monospace;line-height:1.3}
+.md{font-size:10px;font-weight:600;margin-top:1px;font-variant-numeric:tabular-nums;font-family:'SF Mono','Cascadia Code',ui-monospace,monospace}
+.mp{color:#276749}.mn{color:#9B2335}.mna{color:#A0AEC0}
 </style>"""
 
 _SH_CSS = """<style>
-.sh{{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #2D3748;padding-bottom:4px;margin:16px 0 8px}}
-.sh-t{{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.3px;color:#2D3748}}
-.sh-s{{font-size:9.5px;color:#A0AEC0}}
+.sh{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #2D3748;padding-bottom:4px;margin:16px 0 8px}
+.sh-t{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.3px;color:#2D3748}
+.sh-s{font-size:9.5px;color:#A0AEC0}
 </style>"""
 
 _TS_CSS = """<style>
-.ts{{font-size:10px;color:#A0AEC0;font-family:'SF Mono',ui-monospace,monospace;margin:2px 0 10px;}}
+.ts{font-size:10px;color:#A0AEC0;font-family:'SF Mono',ui-monospace,monospace;margin:2px 0 10px;}
+</style>"""
+
+
+_FIN_CSS = f"""<style>
+/* ── Compact financial table ─────────────────────────────────── */
+.fin-t{{background:{WHITE};border:1px solid {BORDER};border-radius:2px;overflow-x:auto;margin-bottom:4px}}
+.fin-t table{{width:100%;border-collapse:collapse}}
+.fin-t thead th{{background:{CHARCOAL};color:#CBD5E0;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:6px 12px;text-align:left;white-space:nowrap}}
+.fin-t thead th.r{{text-align:right}}
+.fin-t tbody tr:nth-child(even){{background:#FAFBFC}}
+.fin-t tbody tr:hover td{{background:#EEF2F7}}
+.fin-t td{{padding:4px 12px;color:{TEXT};border-bottom:1px solid #F0F4F8;white-space:nowrap;font-size:12px}}
+.fin-t td.r{{text-align:right;font-family:'SF Mono','Cascadia Code',ui-monospace,monospace;font-variant-numeric:tabular-nums}}
+.fin-t .sym{{font-weight:700;font-size:11px;color:{NAVY};font-family:'SF Mono',ui-monospace,monospace}}
+.fin-t .nm{{color:{META};font-size:10.5px}}
+.fin-t .pos{{color:{POS};font-weight:600}}
+.fin-t .neg{{color:{NEG};font-weight:600}}
+.fin-t .neu{{color:{META}}}
+.fin-t .bull{{font-size:9px;padding:1px 6px;border-radius:2px;background:{POS_BG};color:{POS};font-weight:700}}
+.fin-t .bear{{font-size:9px;padding:1px 6px;border-radius:2px;background:{NEG_BG};color:{NEG};font-weight:700}}
+.fin-t .neut{{font-size:9px;padding:1px 6px;border-radius:2px;background:{BG};color:{META};font-weight:600}}
+.fin-t .sep td{{border-top:1px solid #CBD5E0}}
+/* ── Regime level badges ─────────────────────────────────────── */
+.rl-high{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:9px;font-weight:700;background:{NEG_BG};color:{NEG};white-space:nowrap}}
+.rl-mid{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:9px;font-weight:700;background:#FFFBEB;color:#92400E;white-space:nowrap}}
+.rl-low{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:9px;font-weight:700;background:{POS_BG};color:{POS};white-space:nowrap}}
+.rl-na{{display:inline-block;padding:1px 7px;border-radius:2px;font-size:9px;font-weight:600;background:{BG};color:#A0AEC0;white-space:nowrap}}
+.fin-t .sig{{font-weight:600;font-size:11px;color:{CHARCOAL};white-space:nowrap}}
+.fin-t .cmt{{color:#4A5568;font-size:11px}}
 </style>"""
 
 
 def inject_css():
-    import streamlit as st
-    st.markdown(GLOBAL_CSS + _METRIC_CSS + _SH_CSS + _TS_CSS, unsafe_allow_html=True)
+    import re, streamlit as st
+    combined = GLOBAL_CSS + _METRIC_CSS + _SH_CSS + _TS_CSS + _FIN_CSS
+    parts = re.findall(r"<style>(.*?)</style>", combined, re.DOTALL)
+    st.markdown("<style>" + "\n".join(parts) + "</style>", unsafe_allow_html=True)
 
 
 def metric_strip(items: list[dict]) -> str:

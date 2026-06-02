@@ -1,4 +1,5 @@
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from core.config_loader import load_config
@@ -19,7 +20,13 @@ def fetch_all(config: dict | None = None) -> dict:
     fx_tickers = [v["ticker"] for v in config["fx"].values()]
 
     all_tickers = etf_tickers + bench_tickers + stock_tickers + comm_tickers + fx_tickers
-    prices = yf.fetch_prices_bulk(all_tickers)
+
+    # Run yfinance bulk download and FRED macro fetch in parallel
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        prices_future = ex.submit(yf.fetch_prices_bulk, all_tickers)
+        macro_future  = ex.submit(_fetch_macro, config)
+        prices = prices_future.result()
+        macro  = macro_future.result()
 
     results = {
         "fetched_at": datetime.now().isoformat(),
@@ -28,7 +35,7 @@ def fetch_all(config: dict | None = None) -> dict:
         "us_stocks": _build_price_df(config["us_stocks"], prices, extra_cols=["name", "sector"]),
         "commodities": _build_commodities_df(config["commodities"], prices),
         "fx": _build_fx_df(config["fx"], prices),
-        "macro": _fetch_macro(config),
+        "macro": macro,
     }
 
     return results
