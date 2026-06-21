@@ -1,0 +1,6 @@
+# 도메인으로 들어오는 트래픽을 앱(8520)으로. HTTPS 인증서는 Caddy가
+# Let's Encrypt로 자동 발급·갱신(추가 비용 0). 웹소켓(Streamlit)은 자동 통과.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8520
+}
