@@ -21,3 +21,10 @@ reports/*.csv
 
 # Playwright
 .playwright-mcp/
+
+# HTTP disk cache
+.cache/
+
+# 백업 잡파일
+아카이브.zip
+*.zip
