@@ -19,31 +19,24 @@ _DETAIL_CSS = """<style>
 /* 종목상세는 콘텐츠가 적어 전폭(1380)이면 휑함 → 이 페이지만 폭을 좁혀 밀도를 높인다(스코프: 렌더 시에만 주입) */
 [data-testid="stAppViewBlockContainer"], .block-container{max-width:960px!important}
 .sd-toprow{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px;gap:12px}
-.sd-head{display:flex;align-items:center;justify-content:flex-start;gap:24px;row-gap:14px;margin:0 0 12px;flex-wrap:wrap;
+/* 헤더 카드 = 종목명(좌) + 현재가(우) */
+.sd-head{display:flex;align-items:center;justify-content:space-between;gap:20px;row-gap:12px;margin:0 0 10px;flex-wrap:wrap;
   background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 20px}
-/* 첫 셀 = 이름+카테고리/티커+현재가 묶음 */
-.sd-id{min-width:0;flex-shrink:0}
+.sd-id{min-width:0}
 .sd-id h2{margin:0;color:#E7E9EE;font-size:23px;font-weight:950;letter-spacing:-.02em}
-.sd-id .sd-price{margin-top:8px;font-size:22px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
 .sd-starx.on{color:#D9A441}
 .sd-starx:hover{color:#D9A441}
 .sd-chart-hd{font-size:13px;font-weight:900;color:#E7E9EE;padding-top:7px}
-/* 헤더 메트릭 — 현재가·(보유 시)비중·평가액·손익률·오늘을 균일 그리드로(남은 폭 고르게 채움) */
-.sd-metrics{flex:1 1 260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));
-  gap:12px 14px;align-items:end}
-.sd-metrics>div{min-width:0}
-.sd-metrics .k{font-size:10px;font-weight:850;color:#7E8694;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
-.sd-metrics .v{font-size:17px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap}
-.sd-metrics .v.up{color:#F25560}.sd-metrics .v.down{color:#4D90F0}
-.sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:5px}
+.sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:6px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
   border:1px solid #262A33;border-radius:999px;padding:3px 10px;margin-right:6px}
-.sd-px{text-align:left}
-.sd-px .v{font-size:26px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
-.sd-px .d{font-size:13px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
+.sd-px{text-align:right;flex-shrink:0}
+.sd-px .v{font-size:25px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+.sd-px .d{font-size:12.5px;font-weight:900;margin-top:5px;font-variant-numeric:tabular-nums}
 .sd-px .d.up{color:#F25560}.sd-px .d.down{color:#4D90F0}
-.sd-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0 0 14px}
+/* 카드 그리드(보유 항목·지표) — auto-fit로 개수에 맞춰 고르게 채움 */
+.sd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:0 0 14px}
 @media(max-width:760px){.sd-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .sd-cell{background:#16181F;border:1px solid #262A33;border-radius:12px;padding:11px 12px}
 .sd-cell .k{font-size:10px;font-weight:850;color:#7E8694;text-transform:uppercase;letter-spacing:.04em}
@@ -238,28 +231,28 @@ def render() -> None:
     dcls = "up" if (chg or 0) >= 0 else "down"
     dtxt = f'{"+" if (chg or 0) >= 0 else ""}{chg:.2f}%' if isinstance(chg, (int, float)) else "—"
 
-    pos = _my_holding(ticker, data)
-
-    def _mc(k, v, cls=""):
-        return f'<div><div class="k">{k}</div><div class="v {cls}">{v}</div></div>'
-
-    # 나머지 지표는 각각 한 그리드 셀(비중·평가액·손익률 = 보유 시 / 오늘 = 항상)
-    metrics = ""
-    if pos:
-        gl = pos.get("gain_loss_pct"); gcls = "up" if (gl or 0) >= 0 else "down"
-        metrics += _mc("비중", f'{(pos.get("weight") or 0):.1f}%')
-        metrics += _mc("평가액", won(pos.get("market_value")))
-        metrics += _mc("손익률", f'{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%', gcls)
-    metrics += _mc("오늘", dtxt, dcls)
+    # ── 헤더 카드: 종목명·카테고리/티커(좌) + 현재가·오늘(우) ──
     st.markdown(
-        # 첫 셀: 이름 + 카테고리/티커 + 현재가  /  나머지: 각 지표 셀  /  PC는 한 줄
         f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2>'
         f'<div class="sd-meta"><span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
-        f'<span style="color:{sig};font-weight:850">{ticker}</span></div>'
-        f'<div class="sd-price">{price_html}</div></div>'
-        f'<div class="sd-metrics">{metrics}</div></div>',
+        f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
+        f'<div class="sd-px"><div class="v">{price_html}</div>'
+        f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>',
         unsafe_allow_html=True,
     )
+
+    # ── 보유 종목이면 비중·평가액·손익률을 각각 별도 카드로 ──
+    pos = _my_holding(ticker, data)
+    if pos:
+        gl = pos.get("gain_loss_pct"); gcls = "up" if (gl or 0) >= 0 else "down"
+        def _cell(k, v, cls=""):
+            return f'<div class="sd-cell"><div class="k">{k}</div><div class="v {cls}">{v}</div></div>'
+        st.markdown(
+            '<div class="sd-grid">'
+            + _cell("비중", f'{(pos.get("weight") or 0):.1f}%')
+            + _cell("평가액", won(pos.get("market_value")))
+            + _cell("손익률", f'{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%', gcls)
+            + '</div>', unsafe_allow_html=True)
 
     # ── 전문가용 지표(변동성·52주 위치·MA 이격·모멘텀) — DB indicator_summary ──
     _render_indicators(ticker)
