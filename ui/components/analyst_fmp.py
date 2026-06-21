@@ -8,9 +8,10 @@ import streamlit as st
 import pandas as pd
 
 from src.analyst import fetch_fmp_target_trends_bulk, fmp_available
+from ui.components.dash_style import show_skeleton, empty_state, data_source_note
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fmp_trends_cached(tickers_key: str) -> dict:
     tickers = tickers_key.split(",")
     return fetch_fmp_target_trends_bulk(tickers)
@@ -40,9 +41,9 @@ def _upside_style(v):
     if not isinstance(v, (int, float)) or pd.isna(v):
         return ""
     if v >= 10:
-        return "background-color:#F0FFF6;color:#276749;font-weight:600"
+        return "background-color:rgba(242,85,96,0.13);color:#F25560;font-weight:600"
     if v <= -5:
-        return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
+        return "background-color:rgba(77,144,240,0.13);color:#4D90F0;font-weight:600"
     return ""
 
 
@@ -51,10 +52,10 @@ def _trend_style(v):
     if not isinstance(v, str):
         return ""
     if "▲" in v:
-        return "color:#276749;font-weight:700"
+        return "color:#F25560;font-weight:700"
     if "▼" in v:
-        return "color:#9B2335;font-weight:700"
-    return "color:#718096"
+        return "color:#4D90F0;font-weight:700"
+    return "color:#7E8694"
 
 
 def render_fmp_drilldown(
@@ -66,7 +67,7 @@ def render_fmp_drilldown(
     Renders an expander showing FMP period-over-period price target trends.
     Columns: 종목, 컨센서스, 중앙값, 최고, 최저, 1M평균, 1Q평균, 1Y평균, 추이, 참여수(1M)
     """
-    with st.expander(f"📊 {section_title} (FMP)", expanded=False):
+    with st.expander(f"{section_title} (FMP)", expanded=False):
         if not fmp_available():
             st.info(
                 "Financial Modeling Prep API 키를 `.env` 파일에 추가하면 "
@@ -76,9 +77,10 @@ def render_fmp_drilldown(
             )
             return
 
-        with st.spinner("FMP 데이터 로딩 중..."):
-            cache_key = ",".join(tickers)
-            trends = _fmp_trends_cached(cache_key)
+        _ph = show_skeleton()
+        cache_key = ",".join(tickers)
+        trends = _fmp_trends_cached(cache_key)
+        _ph.empty()
 
         rows = []
         for tk in tickers:
@@ -113,7 +115,7 @@ def render_fmp_drilldown(
             })
 
         if not rows:
-            st.info("FMP 데이터를 불러올 수 없습니다.")
+            empty_state("애널리스트 목표가 준비 중")
             return
 
         df = pd.DataFrame(rows)
@@ -123,13 +125,11 @@ def render_fmp_drilldown(
         if "참여(1M)" in df.columns:
             df["참여(1M)"] = pd.to_numeric(df["참여(1M)"], errors="coerce")
 
-        styled = df.style.map(_trend_style, subset=["목표가 추이"])
+        afmt = {c: "${:,.2f}" for c in price_cols}
+        if "참여(1M)" in df.columns:
+            afmt["참여(1M)"] = "{:.0f}명"
+        styled = df.style.map(_trend_style, subset=["목표가 추이"]).format(afmt, na_rep="—")
 
-        cfg = {c: st.column_config.NumberColumn(format="$%,.2f") for c in price_cols}
-        cfg["참여(1M)"] = st.column_config.NumberColumn(format="%d명")
-
-        st.dataframe(styled, column_config=cfg, use_container_width=True, hide_index=True)
-        st.caption(
-            "출처: Financial Modeling Prep  ·  추이 = 최근 1개월 평균 vs 직전 분기 평균  ·  "
-            "투자 참고용, 매매 권유 아님  ·  1시간마다 업데이트"
-        )
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.caption(data_source_note("Financial Modeling Prep", cached="1시간",
+                                    extra="추이 = 최근 1개월 평균 vs 직전 분기 평균"))
