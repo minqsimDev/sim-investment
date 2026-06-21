@@ -1048,14 +1048,16 @@ def glossary_expander(*keys: str) -> None:
         )
 
 
-_PERIOD_DAYS = {"1주": 7, "1개월": 30, "3개월": 92, "6개월": 183, "1년": 366}
+_PERIOD_DAYS = {"1W": 7, "1M": 30, "3M": 92, "6M": 183, "1Y": 366}
 
 
-def period_toggle(key: str, options=("1주", "1개월", "3개월"), default: str = "3개월"):
+def period_toggle(key: str, options=("1W", "1M", "3M"), default: str = "3M"):
     """차트 기간 토글(공통). (선택 라벨, 일수) 반환.
 
     데이터가 이미 받아온 기간을 '슬라이스'하는 용도 — 옵션은 받아온 범위 안에서만 제공할 것.
+    스타일·라벨은 가격 추이 비교(period_radio)와 통일: 우측 정렬·가운데 칩, 1W/1M/3M/6M.
     """
+    st.markdown(_PERIOD_RADIO_CSS, unsafe_allow_html=True)
     opts = list(options)
     idx = opts.index(default) if default in opts else len(opts) - 1
     sel = st.radio("기간", opts, index=idx, horizontal=True,

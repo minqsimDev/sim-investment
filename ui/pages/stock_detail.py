@@ -269,7 +269,7 @@ def _render_chart(ticker: str, info: dict, cur: str) -> None:
 def L_period():
     """기간 토글(공통 컴포넌트 재사용) — 6개월 데이터 슬라이스."""
     from ui.components.dash_style import period_toggle
-    return period_toggle("sd_period", options=("1주", "1개월", "3개월", "6개월"), default="3개월")
+    return period_toggle("sd_period", options=("1W", "1M", "3M", "6M"), default="3M")
 
 
 def _render_analyst(ticker: str, info: dict) -> None:
