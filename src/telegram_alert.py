@@ -29,7 +29,9 @@ _API = "https://api.telegram.org/bot{token}/{method}"
 _CFG = Path.home() / ".siminvest_alerts.json"
 _COOLDOWN_H = 12  # 같은 알림 재발송 최소 간격(시간) — 중복 발송 방지
 _BRAND = "SIM INVESTMENT"
-_SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 메시지 서명(이탤릭)
+_SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 기본 서명(이탤릭)
+# 위험 알림용 서명 — 면책(매매 권유 아님) 한 줄을 얹어 정체성 유지
+_ALERT_SIGN = "\n\n_점검을 돕는 참고 정보일 뿐, 판단은 늘 직접._" + _SIGN
 
 _DEFAULT_CFG = {
     "chat_id": None,
@@ -107,8 +109,10 @@ def send_message(text: str, chat_id=None) -> bool:
 def send_test(chat_id=None) -> bool:
     """연결 확인용 환영 메시지 — 세련된 브랜드 톤."""
     msg = (f"✦ *{_BRAND}*\n"
-           f"알림이 연결되었습니다.\n\n"
-           f"앞으로 시장·보유 위험 신호가 감지되면 이 대화로 조용히 전해드립니다."
+           f"알림이 연결되었어요.\n\n"
+           f"앞으로 시장과 보유 자산에 의미 있는 위험 신호가 보일 때만 "
+           f"이 대화로 조용히 전해드릴게요.\n"
+           f"평소엔 울리지 않는, 꼭 필요한 순간의 알림입니다."
            f"{_SIGN}")
     return send_message(msg, chat_id)
 
@@ -237,11 +241,11 @@ def run(verbose: bool = True) -> list[str]:
         score, nh, nm, nl = risk_score_now()
         thr = r1.get("threshold", 80)
         if score >= thr and _cooldown_ok(cfg, "risk_score", now):
-            msg = (f"⚠️  *종합 위험 {score}* — 방어 우선 구간\n"
-                   f"시장 국면 신호가 위험 쪽으로 기울었습니다.\n"
+            msg = (f"⚠️ *종합 위험 {score}*  ·  방어 우선 구간\n\n"
+                   f"시장 국면 신호가 위험 쪽으로 기울었어요.\n"
                    f"`위험 {nh}   주의 {nm}   완충 {nl}`\n\n"
-                   f"*대응* · 보유 비중과 헤지 여부를 점검해 보세요."
-                   f"{_SIGN}")
+                   f"› 점검 포인트 — 보유 비중과 헤지 여부"
+                   f"{_ALERT_SIGN}")
             if send_message(msg, cfg["chat_id"]):
                 cfg["last_sent"]["risk_score"] = now.isoformat()
                 sent.append("risk_score")
@@ -254,10 +258,10 @@ def run(verbose: bool = True) -> list[str]:
             if h["d1"] <= thr:
                 key = f"holding_drop:{h['ticker']}"
                 if _cooldown_ok(cfg, key, now):
-                    msg = (f"🔻  *{h['name']}*  {h['d1']:+.1f}% — 보유 종목 급락\n"
-                           f"오늘 큰 폭으로 하락했습니다. (경보 기준 {thr:+.0f}%)\n\n"
-                           f"*대응* · 비중과 추가 하방 리스크를 점검해 보세요."
-                           f"{_SIGN}")
+                    msg = (f"🔻 *{h['name']}*  {h['d1']:+.1f}%  ·  보유 종목 급락\n\n"
+                           f"오늘 하루 큰 폭으로 내렸어요.  _(경보 기준 {thr:+.0f}%)_\n\n"
+                           f"› 점검 포인트 — 비중과 추가 하방 위험"
+                           f"{_ALERT_SIGN}")
                     if send_message(msg, cfg["chat_id"]):
                         cfg["last_sent"][key] = now.isoformat()
                         sent.append(key)
