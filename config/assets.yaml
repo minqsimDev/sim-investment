@@ -1,43 +1,21 @@
-# SIMvest asset configuration
+# SIM INVESTMENT asset configuration
 # Edit this file to change what is monitored — no code changes needed.
-# Korean ETF tickers use .KS suffix for yfinance. Verify each one before use.
+# Korean ETF tickers use .KS suffix for yfinance.
+# Note: alphanumeric .KS codes (e.g. 0053L0.KS) may not be supported by yfinance.
 
 user:
   timezone: "Asia/Seoul"
   base_currency: "KRW"
   report_time: "08:00"
 
+
+# ── 보유 ETF ────────────────────────────────────────────────────────────────────
 my_etfs:
-  - name: "Silver Futures ETF"
-    ticker: "130680.KS"       # TODO: verify — KODEX 은선물(H)
+  # 미국 나스닥 / S&P500
+  - name: "TIGER 미국나스닥100"
+    ticker: "133690.KS"
     currency: KRW
-    category: commodities
-    hedged: true
-    benchmark: "SLV"
-    currency_exposure: "KRW/USD-sensitive"
-    drivers:
-      - "Silver"
-      - "USD/KRW"
-      - "DXY"
-      - "US10Y"
-
-  - name: "Gold Spot ETF"
-    ticker: "411060.KS"       # TODO: verify — ACE KRX 금현물
-    currency: KRW
-    category: commodities
-    hedged: false
-    benchmark: "GLD"
-    currency_exposure: "KRW/USD-sensitive"
-    drivers:
-      - "Gold"
-      - "USD/KRW"
-      - "DXY"
-      - "US10Y"
-
-  - name: "Nasdaq Technology ETF"
-    ticker: "379810.KS"       # TODO: verify — KODEX 미국나스닥100
-    currency: KRW
-    category: equity_us
+    category: us_nasdaq
     hedged: false
     benchmark: "QQQ"
     currency_exposure: "KRW/USD-sensitive"
@@ -50,138 +28,402 @@ my_etfs:
       - "MSFT"
       - "AAPL"
 
-  - name: "Big Tech 10 Currency-Hedged ETF"
-    ticker: "314250.KS"       # KODEX 미국빅테크10(H) — NYSE FANG+ Index 추종, 환헤지
+  - name: "RISE 미국S&P500"
+    ticker: "379780.KS"
     currency: KRW
-    category: equity_us
+    category: us_sp500
+    hedged: false
+    benchmark: "SPY"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "SPY"
+      - "US10Y"
+      - "USD/KRW"
+      - "DXY"
+
+  - name: "PLUS 미국나스닥테크"
+    ticker: "287180.KS"
+    currency: KRW
+    category: us_nasdaq_technology
+    hedged: false
+    benchmark: "QQQ"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "QQQ"
+      - "Nasdaq"
+      - "US10Y"
+      - "USD/KRW"
+      - "NVDA"
+      - "MSFT"
+      - "AAPL"
+
+  # 빅테크 / AI
+  - name: "KODEX 미국빅테크10(H)"
+    ticker: "314250.KS"
+    currency: KRW
+    category: us_bigtech_hedged
     hedged: true
     benchmark: "QQQ"
     currency_exposure: "currency-hedged"
     drivers:
       - "QQQ"
-      - "AAPL"
-      - "MSFT"
       - "NVDA"
+      - "MSFT"
+      - "AAPL"
       - "META"
       - "AMZN"
       - "GOOGL"
 
-  - name: "Philadelphia Semiconductor ETF"
-    ticker: "381180.KS"       # TODO: verify — KODEX 필라델피아반도체나스닥
+  - name: "KODEX 미국AI테크TOP10"
+    ticker: "485540.KS"
     currency: KRW
-    category: equity_semiconductor
+    category: us_ai_bigtech
+    hedged: false
+    benchmark: "QQQ"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "NVDA"
+      - "MSFT"
+      - "AVGO"
+      - "AMZN"
+      - "GOOGL"
+      - "US10Y"
+
+  - name: "KODEX 미국AI테크TOP10타겟커버드콜"
+    ticker: "483280.KS"
+    currency: KRW
+    category: us_ai_bigtech_covered_call
+    hedged: false
+    benchmark: "QQQ"
+    currency_exposure: "KRW/USD-sensitive"
+    note: "covered call — upside capped"
+    drivers:
+      - "QQQ"
+      - "NVDA"
+      - "MSFT"
+      - "US10Y"
+
+  - name: "KODEX 미국배당커버드콜액티브"
+    ticker: "441640.KS"
+    currency: KRW
+    category: us_dividend_covered_call
+    hedged: false
+    benchmark: "SPY"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "SPY"
+      - "USD/KRW"
+      - "US10Y"
+
+  # 반도체
+  - name: "TIGER 미국필라델피아반도체나스닥"
+    ticker: "381180.KS"
+    currency: KRW
+    category: us_semiconductor
     hedged: false
     benchmark: "SOXX"
     currency_exposure: "KRW/USD-sensitive"
     drivers:
       - "SOXX"
-      - "SMH"
+      - "SOX"
       - "NVDA"
       - "AMD"
       - "AVGO"
       - "TSM"
+      - "ASML"
       - "MU"
 
-  - name: "China Humanoid / Robotics ETF"
-    ticker: "396520.KS"       # TODO: verify — 실제 티커 확인 필요
+  - name: "TIGER 미국필라델피아반도체레버리지(합성)"
+    ticker: "423920.KS"
     currency: KRW
-    category: equity_china
+    category: us_semiconductor_leverage
+    hedged: false
+    benchmark: "SOXX"
+    currency_exposure: "KRW/USD-sensitive"
+    note: "2x leveraged — high volatility"
+    drivers:
+      - "SOXX"
+      - "SOX"
+      - "NVDA"
+      - "AMD"
+      - "AVGO"
+      - "TSM"
+      - "ASML"
+      - "MU"
+
+  # 원자재
+  - name: "ACE KRX금현물"
+    ticker: "411060.KS"
+    currency: KRW
+    category: gold
+    hedged: false
+    benchmark: "GLD"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "Gold"
+      - "DXY"
+      - "USD/KRW"
+      - "US10Y"
+
+  - name: "TIGER KRX금현물"
+    ticker: "465610.KS"
+    currency: KRW
+    category: gold
+    hedged: false
+    benchmark: "GLD"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "Gold"
+      - "DXY"
+      - "USD/KRW"
+      - "US10Y"
+
+  - name: "KODEX 은선물(H)"
+    ticker: "144600.KS"
+    currency: KRW
+    category: silver_hedged
+    hedged: true
+    benchmark: "SLV"
+    currency_exposure: "currency-hedged"
+    drivers:
+      - "Silver"
+      - "DXY"
+      - "US10Y"
+
+  - name: "TIGER 구리실물"
+    ticker: "160580.KS"
+    currency: KRW
+    category: copper
+    hedged: false
+    benchmark: "HG=F"
+    currency_exposure: "KRW/USD-sensitive"
+    drivers:
+      - "Copper"
+      - "USD/KRW"
+      - "DXY"
+
+  # 중국 휴머노이드 / 로봇
+  - name: "TIGER 차이나휴머노이드로봇"
+    ticker: "0053L0.KS"    # alphanumeric code — yfinance may not resolve
+    currency: KRW
+    category: china_humanoid_robotics
     hedged: false
     benchmark: "KWEB"
     currency_exposure: "KRW/CNY/USD-sensitive"
+    note: "alphanumeric ticker — yfinance support unconfirmed"
     drivers:
-      - "KWEB"
-      - "CQQQ"
-      - "China Tech"
+      - "China tech"
       - "Robotics"
-      - "USD/CNH"
+      - "USD/KRW"
 
+  - name: "KODEX 차이나휴머노이드로봇"
+    ticker: "0048K0.KS"    # alphanumeric code — yfinance may not resolve
+    currency: KRW
+    category: china_humanoid_robotics
+    hedged: false
+    benchmark: "KWEB"
+    currency_exposure: "KRW/CNY/USD-sensitive"
+    note: "alphanumeric ticker — yfinance support unconfirmed"
+    drivers:
+      - "China tech"
+      - "Robotics"
+      - "USD/KRW"
+
+
+# ── 벤치마크 ETF ─────────────────────────────────────────────────────────────────
 benchmark_etfs:
   - ticker: QQQ
-    name: "Invesco QQQ (Nasdaq 100)"
+    name: "나스닥100 ETF (QQQ)"
     category: equity_us
 
   - ticker: SPY
-    name: "SPDR S&P 500"
+    name: "S&P500 ETF (SPY)"
     category: equity_us
 
   - ticker: SOXX
-    name: "iShares PHLX Semiconductor"
+    name: "반도체 ETF (SOXX)"
     category: equity_semiconductor
 
   - ticker: SMH
-    name: "VanEck Semiconductor"
+    name: "반도체 ETF (SMH)"
     category: equity_semiconductor
 
   - ticker: GLD
-    name: "SPDR Gold Shares"
+    name: "금 ETF (GLD)"
     category: commodities
 
   - ticker: SLV
-    name: "iShares Silver Trust"
+    name: "은 ETF (SLV)"
     category: commodities
 
   - ticker: TLT
-    name: "iShares 20+ Year Treasury"
+    name: "미국장기채 ETF (TLT)"
     category: bonds
 
-  - ticker: KWEB
-    name: "KraneShares CSI China Internet"
-    category: equity_china
 
-  - ticker: CQQQ
-    name: "Invesco China Technology"
-    category: equity_china
-
+# ── 보유 미국 주식 + ETF 드라이버 모니터링 종목 ──────────────────────────────────────
 us_stocks:
-  - ticker: NVDA
-    name: "NVIDIA"
-    sector: semiconductor
-
-  - ticker: AMD
-    name: "Advanced Micro Devices"
-    sector: semiconductor
-
-  - ticker: AVGO
-    name: "Broadcom"
-    sector: semiconductor
-
-  - ticker: MU
-    name: "Micron Technology"
-    sector: semiconductor
-
-  - ticker: TSM
-    name: "Taiwan Semiconductor"
-    sector: semiconductor
+  # 직접 보유
+  - ticker: TSLA
+    name: "테슬라"
+    sector: ev_ai_robotics
+    mktcap_rank: 7
+    role: actual_holding
 
   - ticker: AAPL
-    name: "Apple"
+    name: "애플"
     sector: big_tech
+    mktcap_rank: 2
+    role: actual_holding
 
   - ticker: MSFT
-    name: "Microsoft"
-    sector: big_tech
+    name: "마이크로소프트"
+    sector: ai_bigtech
+    mktcap_rank: 3
+    role: actual_holding
 
-  - ticker: GOOGL
-    name: "Alphabet"
+  - ticker: NVDA
+    name: "엔비디아"
+    sector: ai_semiconductor
+    mktcap_rank: 1
+    role: actual_holding
+
+  # ETF 편입 / 드라이버 모니터링
+  - ticker: META
+    name: "메타"
     sector: big_tech
+    mktcap_rank: 5
+    role: monitoring
 
   - ticker: AMZN
-    name: "Amazon"
+    name: "아마존"
     sector: big_tech
+    mktcap_rank: 4
+    role: monitoring
 
-  - ticker: META
-    name: "Meta Platforms"
+  - ticker: GOOGL
+    name: "알파벳"
     sector: big_tech
+    mktcap_rank: 6
+    role: monitoring
 
-  - ticker: TSLA
-    name: "Tesla"
-    sector: big_tech
+  - ticker: AVGO
+    name: "브로드컴"
+    sector: semiconductor
+    mktcap_rank: 8
+    role: monitoring
 
-  - ticker: PLTR
-    name: "Palantir"
-    sector: big_tech
+  - ticker: ASML
+    name: "ASML"
+    sector: semiconductor
+    mktcap_rank: 9
+    role: monitoring
 
+  - ticker: TSM
+    name: "TSMC"
+    sector: semiconductor
+    mktcap_rank: 10
+    role: monitoring
+
+  - ticker: AMD
+    name: "AMD"
+    sector: semiconductor
+    mktcap_rank: 11
+    role: monitoring
+
+  - ticker: MU
+    name: "마이크론"
+    sector: semiconductor
+    mktcap_rank: 12
+    role: monitoring
+
+
+# ── 보유 크립토 ──────────────────────────────────────────────────────────────────
+# Note: fetcher does not yet process this section — placeholder for future support
+crypto:
+  - ticker: BTC-USD
+    name: "비트코인"
+    symbol: BTC
+    category: crypto_core
+    role: actual_holding
+
+  - ticker: ETH-USD
+    name: "이더리움"
+    symbol: ETH
+    category: crypto_core
+    role: actual_holding
+
+  - ticker: SOL-USD
+    name: "솔라나"
+    symbol: SOL
+    category: crypto_high_beta
+    role: actual_holding
+
+
+# ── 국내 주식 ────────────────────────────────────────────────────────────────────
+kr_stocks:
+  - ticker: "005930.KS"
+    name: "삼성전자"
+    sector: "반도체/전자"
+    mktcap_rank: 1
+    role: monitoring
+
+  - ticker: "000660.KS"
+    name: "SK하이닉스"
+    sector: "반도체"
+    mktcap_rank: 2
+    role: monitoring
+
+  - ticker: "207940.KS"
+    name: "삼성바이오로직스"
+    sector: "바이오"
+    mktcap_rank: 3
+    role: monitoring
+
+  - ticker: "005380.KS"
+    name: "현대차"
+    sector: "자동차"
+    mktcap_rank: 4
+    role: monitoring
+
+  - ticker: "000270.KS"
+    name: "기아"
+    sector: "자동차"
+    mktcap_rank: 5
+    role: monitoring
+
+  - ticker: "051910.KS"
+    name: "LG화학"
+    sector: "이차전지"
+    mktcap_rank: 6
+    role: monitoring
+
+  - ticker: "006400.KS"
+    name: "삼성SDI"
+    sector: "이차전지"
+    mktcap_rank: 7
+    role: monitoring
+
+  - ticker: "035420.KS"
+    name: "NAVER"
+    sector: "IT/플랫폼"
+    mktcap_rank: 8
+    role: monitoring
+
+  - ticker: "105560.KS"
+    name: "KB금융"
+    sector: "금융"
+    mktcap_rank: 9
+    role: monitoring
+
+  - ticker: "055550.KS"
+    name: "신한지주"
+    sector: "금융"
+    mktcap_rank: 10
+    role: monitoring
+
+
+# ── 원자재 ──────────────────────────────────────────────────────────────────────
 commodities:
   gold: "GC=F"
   silver: "SI=F"
@@ -190,6 +432,8 @@ commodities:
   brent_crude: "BZ=F"
   natural_gas: "NG=F"
 
+
+# ── 환율 ─────────────────────────────────────────────────────────────────────────
 fx:
   usd_krw:
     ticker: "USDKRW=X"
@@ -207,6 +451,8 @@ fx:
     ticker: "DX-Y.NYB"
     priority: high
 
+
+# ── 매크로 ───────────────────────────────────────────────────────────────────────
 macro:
   fred_series:
     us_10y: "DGS10"
@@ -220,14 +466,19 @@ macro:
     unemployment: "UNRATE"
     nonfarm_payrolls: "PAYEMS"
 
+  # yfinance로 실시간 조회 가능한 주요 지수
+  yfinance_indices:
+    vix: "^VIX"
+    sox: "^SOX"
+
   korea:
-    # Bank of Korea — not on FRED; placeholder for future BOK provider
     base_rate:
       id: "BOK_BASE_RATE"
       provider: bok
     cpi:
       id: "BOK_CPI"
       provider: bok
+
 
 report:
   output_dir: "reports"
