@@ -731,7 +731,7 @@ def _render_action_checklist(actions: list[str], is_guest: bool) -> None:
 def _telegram_settings():
     """📲 텔레그램 위험 알림 — 연결·규칙·테스트 (성장_로드맵 C). 최상위 expander(중첩 금지)."""
     from src import telegram_alert as tg
-    with st.expander("📲 텔레그램 위험 알림", expanded=False):
+    with st.expander("📲 텔레그램으로 위험 알림 받기", expanded=False):
         if not tg.is_configured():
             st.warning("봇 토큰 미설정 — `.env`에 `TELEGRAM_BOT_TOKEN` 추가 후 앱을 재시작하세요.")
             return
