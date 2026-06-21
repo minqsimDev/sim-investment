@@ -59,6 +59,12 @@ _CAT_OF = {  # 시장 데이터 테이블 → 카테고리 라벨
     "benchmarks": "지수·ETF", "commodities": "원자재", "crypto": "크립토",
 }
 
+# 카테고리 시그니처 색(포트폴리오 _CAT_COLOR와 동일 체계) — '미국주식' 등 마커 색
+_CAT_SIG = {
+    "미국주식": "#8A2B48", "국내주식": "#563460", "ETF": "#7E6BD6",
+    "지수·ETF": "#7E6BD6", "크립토": "#F0A030", "원자재": "#9E7B3B",
+}
+
 
 def _auth_qs() -> str:
     role = st.session_state.get("auth_role")
@@ -193,8 +199,9 @@ def render() -> None:
     ticker = info["ticker"]
     cur = info["currency"]
 
-    # ── 헤더: 이름+별표 · 가격(이름 옆) · 카테고리/티커(시그니처색) ──
-    sig = _sig_color(ticker, info["category"])
+    # ── 헤더: 이름+별표 · 가격(이름 옆) · 카테고리(카테고리색)/티커(종목색) ──
+    sig = _sig_color(ticker, info["category"])          # 종목 고유색(티커·차트)
+    catc = _CAT_SIG.get(info["category"], sig)          # 카테고리 시그니처색(미국주식 등 마커)
     # 워치리스트 토글 — 별표 인라인 링크(쿼리파라미터). 토글 후 watch 플래그 제거하고 재실행.
     _wkey = f"_watch_done_{ticker}"
     if st.query_params.get("watch") == "1":
@@ -216,7 +223,7 @@ def render() -> None:
         f'<div class="sd-head"><div class="sd-id">'
         f'<div class="sd-title-row"><h2>{info["name"]}</h2>'
         f'<a class="sd-starx {"on" if on else ""}" href="{_star_href}" target="_self" title="워치리스트">{"★" if on else "☆"}</a></div>'
-        f'<div class="sd-meta"><span class="sd-cat" style="color:{sig};background:{sig}1A;border-color:{sig}66">{info["category"]}</span>'
+        f'<div class="sd-meta"><span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
         f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
         f'<div class="sd-px"><div class="v">{price_html}</div>'
         f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>',
