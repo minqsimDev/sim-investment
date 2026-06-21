@@ -29,7 +29,9 @@ _API = "https://api.telegram.org/bot{token}/{method}"
 _CFG = Path.home() / ".siminvest_alerts.json"
 _COOLDOWN_H = 12  # 같은 알림 재발송 최소 간격(시간) — 중복 발송 방지
 _BRAND = "SIM INVESTMENT"
-_SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 메시지 서명(이탤릭)
+_SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 기본 서명(이탤릭)
+# 위험 알림용 서명 — 면책(매매 권유 아님) 한 줄을 얹어 정체성 유지
+_ALERT_SIGN = "\n\n_점검을 돕는 참고 정보일 뿐, 판단은 늘 직접._" + _SIGN
 
 _DEFAULT_CFG = {
     "chat_id": None,
@@ -107,8 +109,10 @@ def send_message(text: str, chat_id=None) -> bool:
 def send_test(chat_id=None) -> bool:
     """연결 확인용 환영 메시지 — 세련된 브랜드 톤."""
     msg = (f"✦ *{_BRAND}*\n"
-           f"알림이 연결되었습니다.\n\n"
-           f"앞으로 시장·보유 위험 신호가 감지되면 이 대화로 조용히 전해드립니다."
+           f"알림이 연결되었어요.\n\n"
+           f"앞으로 시장과 보유 자산에 의미 있는 위험 신호가 보일 때만 "
+           f"이 대화로 조용히 전해드릴게요.\n"
+           f"평소엔 울리지 않는, 꼭 필요한 순간의 알림입니다."
            f"{_SIGN}")
     return send_message(msg, chat_id)
 
@@ -129,6 +133,47 @@ def connect() -> int | None:
     cfg["chat_id"] = cid
     save_cfg(cfg)
     return cid
+
+
+def poll_register() -> list[tuple[str, int]]:
+    """getUpdates 로 /start <nonce> 를 받아 유저 계정에 chat_id 저장. 등록 목록 반환."""
+    from core.telegram_link import resolve_nonce, consume_nonce
+    from core import accounts
+
+    cfg = load_cfg()
+    offset = cfg.get("update_offset")
+    updates = _api("getUpdates", offset=offset, timeout=0)
+    registered: list[tuple[str, int]] = []
+    consumed: list[str] = []
+    seen: set[str] = set()  # 같은 배치 내 중복 /start → 1회만(환영 중복 방지)
+    for u in updates:
+        cfg["update_offset"] = u.get("update_id", 0) + 1
+        msg = u.get("message") or {}
+        text = (msg.get("text") or "").strip()
+        chat = msg.get("chat") or {}
+        cid = chat.get("id")
+        if cid and text.startswith("/start"):
+            parts = text.split(maxsplit=1)
+            if len(parts) == 2:
+                nonce = parts[1].strip()
+                if nonce in seen:
+                    continue
+                username = resolve_nonce(nonce)
+                if username:
+                    seen.add(nonce)
+                    accounts.set_setting(username, "telegram_chat_id", cid)
+                    consumed.append(nonce)
+                    try:
+                        send_test(cid)
+                    except Exception:
+                        pass
+                    registered.append((username, cid))
+    # update_offset(중복 방지) 부터 저장 후 nonce 소비 — 같은 상태 파일을 공유할 때
+    # save_cfg 가 소비된 nonce 를 되살리지 않도록 소비를 마지막에 둔다.
+    save_cfg(cfg)
+    for nonce in consumed:
+        consume_nonce(nonce)
+    return registered
 
 
 # ── 규칙 평가 ───────────────────────────────────────────────────────────────
@@ -191,23 +236,20 @@ def _daily_change(tickers: list[str]) -> dict:
     return out
 
 
-def _holdings_daily() -> list[dict]:
-    """저장된 증권사 자격증명으로 보유 재조회 → [{name, ticker, d1}]. 미연동/실패 시 []."""
-    try:
-        from core.auth import load_saved_credentials, login_with_brokerage
-        creds = load_saved_credentials()
-        if not creds:
-            return []
-        res = login_with_brokerage(**{k: creds[k] for k in
-                                      ("provider", "app_key", "app_secret", "account_no")})
-        holds = res.get("holdings") or []
-    except Exception as e:
-        print(f"[telegram] 보유 조회 실패(건너뜀): {e}", file=sys.stderr)
+def _portfolio_daily(username: str) -> list[dict]:
+    """유저의 저장 포트폴리오 보유 종목 → [{name, ticker, d1}]. 일일%는 지표 DB/시세에서."""
+    from core import accounts
+    tickers, names = [], {}
+    for p in accounts.get_portfolios(username):
+        for h in (p.get("holdings") or []):
+            tk = h.get("ticker")
+            if tk:
+                tickers.append(tk)
+                names[tk] = h.get("name") or tk
+    if not tickers:
         return []
-    tickers = [h.get("ticker") for h in holds if h.get("ticker")]
-    d1 = _daily_change(tickers)
-    return [{"name": h.get("name") or h.get("ticker"), "ticker": h["ticker"], "d1": d1[h["ticker"]]}
-            for h in holds if h.get("ticker") in d1]
+    d1 = _daily_change(list(dict.fromkeys(tickers)))
+    return [{"name": names[tk], "ticker": tk, "d1": d1[tk]} for tk in d1]
 
 
 def _cooldown_ok(cfg: dict, key: str, now: datetime) -> bool:
@@ -221,47 +263,43 @@ def _cooldown_ok(cfg: dict, key: str, now: datetime) -> bool:
 
 
 def run(verbose: bool = True) -> list[str]:
-    """규칙 평가 후 충족 항목 발송(쿨다운 적용). 반환=발송한 규칙 키 목록."""
+    """연결된 유저별로 시장위험 + 본인 보유급락 평가·발송. 반환=발송 키 목록."""
+    from core import accounts
     cfg = load_cfg()
-    if not cfg.get("chat_id"):
-        if verbose:
-            print("[telegram] chat_id 미설정 — 건너뜀 (먼저 connect)")
-        return []
     now = datetime.now(timezone.utc)
-    rules = cfg["rules"]
+    rules = cfg.get("rules", _DEFAULT_CFG["rules"])
+    cfg.setdefault("last_sent", {})
     sent: list[str] = []
 
-    # 규칙 ①: 종합 위험 점수
-    r1 = rules.get("risk_score", {})
-    if r1.get("enabled"):
-        score, nh, nm, nl = risk_score_now()
-        thr = r1.get("threshold", 80)
-        if score >= thr and _cooldown_ok(cfg, "risk_score", now):
-            msg = (f"⚠️  *종합 위험 {score}* — 방어 우선 구간\n"
-                   f"시장 국면 신호가 위험 쪽으로 기울었습니다.\n"
-                   f"`위험 {nh}   주의 {nm}   완충 {nl}`\n\n"
-                   f"*대응* · 보유 비중과 헤지 여부를 점검해 보세요."
-                   f"{_SIGN}")
-            if send_message(msg, cfg["chat_id"]):
-                cfg["last_sent"]["risk_score"] = now.isoformat()
-                sent.append("risk_score")
+    score, nh, nm, nl = risk_score_now() if rules.get("risk_score", {}).get("enabled") else (0, 0, 0, 0)
 
-    # 규칙 ②: 보유 종목 일일 급락
-    r2 = rules.get("holding_drop", {})
-    if r2.get("enabled"):
-        thr = r2.get("threshold", -5.0)
-        for h in _holdings_daily():
-            if h["d1"] <= thr:
-                key = f"holding_drop:{h['ticker']}"
-                if _cooldown_ok(cfg, key, now):
-                    msg = (f"🔻  *{h['name']}*  {h['d1']:+.1f}% — 보유 종목 급락\n"
-                           f"오늘 큰 폭으로 하락했습니다. (경보 기준 {thr:+.0f}%)\n\n"
-                           f"*대응* · 비중과 추가 하방 리스크를 점검해 보세요."
-                           f"{_SIGN}")
-                    if send_message(msg, cfg["chat_id"]):
-                        cfg["last_sent"][key] = now.isoformat()
-                        sent.append(key)
-
+    for username, cid in accounts.users_with_telegram():
+        # 규칙 ①: 시장 종합 위험(공통 점수, 쿨다운은 유저별)
+        r1 = rules.get("risk_score", {})
+        if r1.get("enabled") and score >= r1.get("threshold", 80):
+            key = f"{username}:risk_score"
+            if _cooldown_ok(cfg, key, now):
+                msg = (f"⚠️ *종합 위험 {score}*  ·  방어 우선 구간\n\n"
+                       f"시장 국면 신호가 위험 쪽으로 기울었어요.\n"
+                       f"`위험 {nh}   주의 {nm}   완충 {nl}`\n\n"
+                       f"› 점검 포인트 — 보유 비중과 헤지 여부{_ALERT_SIGN}")
+                if send_message(msg, cid):
+                    cfg["last_sent"][key] = now.isoformat()
+                    sent.append(key)
+        # 규칙 ②: 본인 보유 종목 급락
+        r2 = rules.get("holding_drop", {})
+        if r2.get("enabled"):
+            thr = r2.get("threshold", -5.0)
+            for h in _portfolio_daily(username):
+                if h["d1"] <= thr:
+                    key = f"{username}:holding_drop:{h['ticker']}"
+                    if _cooldown_ok(cfg, key, now):
+                        msg = (f"🔻 *{h['name']}*  {h['d1']:+.1f}%  ·  보유 종목 급락\n\n"
+                               f"오늘 하루 큰 폭으로 내렸어요.  _(경보 기준 {thr:+.0f}%)_\n\n"
+                               f"› 점검 포인트 — 비중과 추가 하방 위험{_ALERT_SIGN}")
+                        if send_message(msg, cid):
+                            cfg["last_sent"][key] = now.isoformat()
+                            sent.append(key)
     save_cfg(cfg)
     if verbose:
         print(f"[telegram] 발송 {len(sent)}건: {sent}")
