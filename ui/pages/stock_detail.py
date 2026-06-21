@@ -31,7 +31,7 @@ _DETAIL_CSS = """<style>
 .sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#D9A441!important;flex-shrink:0;transition:color .15s}
 .sd-starx.on{color:#D9A441!important}
 .sd-starx:hover{color:#E7C06A!important}
-.sd-chart-hd{font-size:16px;font-weight:900;color:#E7E9EE;padding-top:7px;display:flex;align-items:baseline;gap:12px}
+.sd-chart-hd{font-size:16px;font-weight:900;color:#E7E9EE;padding-top:7px;display:flex;align-items:baseline;gap:10px}
 .sd-chart-hd .p{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
 .sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:6px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
@@ -314,18 +314,16 @@ def _render_indicators(ticker: str) -> None:
 def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
     import plotly.graph_objects as go
     from ui.components.dash_style import period_radio
-    # '가격 추이 +X%' 라벨(좌) + 기간 라디오(우, 시장 페이지와 동일·가운데 정렬) 같은 라인
-    _hd, _ctrl = st.columns([1, 1.15])
-    with _ctrl:
-        _pd_label, _pd_code = period_radio("sd_period")   # 1M/3M/6M/1Y/5Y → yfinance 코드
+    # '가격 추이 +X%' 라벨(위) → 기간 라디오 풀폭 세그먼트(위 카드 너비에 맞춤, 한 줄) → 차트
+    _hd_ph = st.empty()
+    _pd_label, _pd_code = period_radio("sd_period", align="fill")   # 1M/3M/6M/1Y/5Y → yfinance 코드
     h = _chart(ticker, _pd_code)
     if h.empty:
         empty_state("차트 데이터 준비 중")
         return
     pct = (h["Close"].iloc[-1] / h["Close"].iloc[0] - 1) * 100
     color = UP if pct >= 0 else DOWN
-    with _hd:
-        st.markdown(f'<div class="sd-chart-hd"><span>가격 추이</span>'
+    _hd_ph.markdown(f'<div class="sd-chart-hd"><span>가격 추이</span>'
                     f'<span class="p" style="color:{color}">{"+" if pct>=0 else ""}{pct:.1f}% ({_pd_label})</span></div>',
                     unsafe_allow_html=True)
     _sh = sig.lstrip("#")
