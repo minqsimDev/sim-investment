@@ -155,21 +155,24 @@ ALL_BROKERAGES: list[dict] = [
 BROKERAGE_BY_KEY: dict[str, dict] = {b["key"]: b for b in ALL_BROKERAGES}
 
 
-def save_credentials(provider: str, app_key: str, app_secret: str, account_no: str) -> None:
-    # 원자적 저장 — 쓰기 중 크래시에도 기존 자격증명 보존
-    import os
-    payload = json.dumps({
-        "provider": provider,
-        "app_key": app_key,
-        "app_secret": app_secret,
-        "account_no": account_no,
-    }, ensure_ascii=False)
-    tmp = _CREDS_FILE.with_suffix(".json.tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, _CREDS_FILE)
+def save_credentials(username, provider: str, app_key: str, app_secret: str, account_no: str) -> None:
+    """계정별 저장. username 없으면(게스트) 저장하지 않는다."""
+    if not username:
+        return
+    from core import accounts
+    accounts.set_setting(username, "brokerage", {
+        "provider": provider, "app_key": app_key,
+        "app_secret": app_secret, "account_no": account_no,
+    })
 
 
-def load_saved_credentials() -> dict | None:
+def load_saved_credentials(username=None) -> dict | None:
+    """계정별 우선, 없으면 전역 파일(레거시) 폴백."""
+    if username:
+        from core import accounts
+        data = accounts.get_setting(username, "brokerage")
+        if data and all(k in data for k in ("provider", "app_key", "app_secret", "account_no")):
+            return data
     try:
         data = json.loads(_CREDS_FILE.read_text())
         if all(k in data for k in ("provider", "app_key", "app_secret", "account_no")):
@@ -179,7 +182,10 @@ def load_saved_credentials() -> dict | None:
     return None
 
 
-def delete_saved_credentials() -> None:
+def delete_saved_credentials(username=None) -> None:
+    if username:
+        from core import accounts
+        accounts.set_setting(username, "brokerage", None)
     try:
         _CREDS_FILE.unlink(missing_ok=True)
     except Exception:
