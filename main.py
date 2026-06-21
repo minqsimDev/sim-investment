@@ -1,5 +1,5 @@
 """
-SIMvest CLI — daily data pipeline.
+SIM INVESTMENT CLI — daily data pipeline.
 Usage: python main.py
 
 Fetches price history → calculates indicators → saves to SQLite → prints summary.
@@ -27,7 +27,7 @@ pd.set_option("display.float_format", "{:,.2f}".format)
 
 def main():
     config = load_config()
-    print(f"SIMvest  |  base currency: {config['user']['base_currency']}")
+    print(f"SIM INVESTMENT  |  base currency: {config['user']['base_currency']}")
 
     # ── DB setup ──────────────────────────────────────────────────────────────
     Path("data").mkdir(exist_ok=True)
@@ -77,7 +77,7 @@ def main():
         print("\nNo indicator data to display.")
         return
 
-    order = ["my_etf", "benchmark", "us_stock", "commodity", "fx"]
+    order = ["my_etf", "benchmark", "us_stock", "commodity", "fx", "crypto"]
     disp  = [
         "symbol", "name", "latest_date", "latest_close",
         "return_1d_pct", "return_1w_pct", "return_1m_pct", "return_3m_pct",
@@ -104,6 +104,14 @@ def main():
         for s in signals:
             print(f"  {s['signal']:<30}  {s['lv']:<12}  {s['note']}")
         print()
+
+    # 텔레그램 위험 알림 — 데이터 갱신 후 규칙 평가·발송(설정된 경우). 파이프라인과 분리(best-effort).
+    try:
+        from src.telegram_alert import run as run_alerts, is_configured
+        if is_configured():
+            run_alerts(verbose=True)
+    except Exception as e:
+        print(f"[telegram] 알림 평가 건너뜀: {e}")
 
     print("Done. Dashboard pages will reflect this data on next load.")
 
