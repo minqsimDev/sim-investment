@@ -1,260 +1,3660 @@
+import html as html_lib
+import re
+from datetime import datetime, timedelta
+
 import streamlit as st
 import pandas as pd
-from data.fetcher import fetch_all
-from core.config_loader import load_config
-from src.analyst import fetch_analyst_targets
-from ui.components.analyst_fmp import render_fmp_drilldown
+import yfinance as yf
+import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
+from data.loader import load_market_data
+from core.journey import pct_weight  # 비중(%) 정수 기본 포맷(전 화면 공통)
 from ui.components.dash_style import (
-    inject_css, section_header, timestamp_bar,
-    style_returns, numeric, csv_bytes, excel_bytes,
+    inject_css, jj_footer, mark_active_nav, show_skeleton, color_change,
 )
+from siminvest_theme import DOWN  # 하락=파랑 (벤치마크 막대 음수 처리)
+from format import won, currency as _cur  # 금액 표기 단일 출처
+from ui.components.mountain_scene import render_mountain
+from ui.components.live_refresh import live_refresh, live_badge_html
+from data.analyst_data import ANALYST_NOTES as _ANALYST_NOTES, COMM_TICKER_TO_NOTE as _COMM_TICKER_TO_NOTE
 
-_STOCK_KOR = {
-    "NVDA":  "엔비디아",
-    "AMD":   "AMD",
-    "AVGO":  "브로드컴",
-    "MU":    "마이크론",
-    "TSM":   "TSMC",
-    "AAPL":  "애플",
-    "MSFT":  "마이크로소프트",
-    "GOOGL": "알파벳",
-    "AMZN":  "아마존",
-    "META":  "메타",
-    "TSLA":  "테슬라",
-    "PLTR":  "팔란티어",
+
+def _fetch_target_prices() -> dict[str, float]:
+    from data.loader import load_target_prices
+    return load_target_prices()
+
+
+def _resolve_note_key(item: dict) -> str:
+    code = item.get("code", "")
+    if code in _ANALYST_NOTES:
+        return code
+    mapped = _COMM_TICKER_TO_NOTE.get(code.upper(), "")
+    if mapped:
+        return mapped
+    return ""
+
+
+def _parse_price_num(price_str: str) -> float | None:
+    try:
+        return float(price_str.replace("$", "").replace("₩", "").replace(",", "").strip())
+    except (ValueError, AttributeError):
+        return None
+
+
+_COMM_KOR = {
+    "gold": "금",
+    "silver": "은",
+    "copper": "구리",
+    "wti_crude": "WTI 원유",
+    "brent_crude": "브렌트",
+    "natural_gas": "천연가스",
 }
 
-_ETF  = {"name":"종목명","ticker":"티커","category":"분류","price":"현재가",
-         "change_pct":"등락률(%)","benchmark":"벤치마크","hedged":"환헤지"}
-_DRV  = {"드라이버":"드라이버","구분":"구분","현재값":"현재값","등락률(%)":"등락률(%)"}
+_LOGO_DOMAINS = {
+    "TSLA": "tesla.com",
+    "AAPL": "apple.com",
+    "MSFT": "microsoft.com",
+    "NVDA": "nvidia.com",
+    "META": "meta.com",
+    "AMZN": "amazon.com",
+    "GOOGL": "abc.xyz",
+    "AVGO": "broadcom.com",
+    "ASML": "asml.com",
+    "TSM": "tsmc.com",
+    "AMD": "amd.com",
+    "MU": "micron.com",
+    "005930": "samsung.com",
+    "000660": "skhynix.com",
+    "207940": "samsungbiologics.com",
+    "005380": "hyundai.com",
+    "000270": "kia.com",
+    "051910": "lgchem.com",
+    "006400": "samsungsdi.com",
+    "035420": "naver.com",
+    "105560": "kbfg.com",
+    "055550": "shinhangroup.com",
+}
+
+_BRAND_CLASSES = {
+    "TSLA": "brand-red",
+    "AAPL": "brand-dark",
+    "MSFT": "brand-blue",
+    "NVDA": "brand-green",
+    "META": "brand-blue",
+    "AMZN": "brand-gold",
+    "GOOGL": "brand-violet",
+    "005930": "brand-blue",
+    "000660": "brand-red",
+    "207940": "brand-blue",
+    "005380": "brand-blue",
+    "000270": "brand-dark",
+    "051910": "brand-red",
+    "006400": "brand-blue",
+    "035420": "brand-green",
+    "105560": "brand-gold",
+    "055550": "brand-blue",
+}
+
+_ISSUER_CLASSES = {
+    "TIGER": "issuer-tiger",
+    "KODEX": "issuer-kodex",
+    "RISE": "issuer-rise",
+    "PLUS": "issuer-plus",
+    "ACE": "issuer-ace",
+}
+
+_METAL_VISUALS = {
+    "금": ("Au", "metal-gold"),
+    "은": ("Ag", "metal-silver"),
+    "구리": ("Cu", "metal-copper"),
+    "WTI 원유": ("Oil", "metal-energy"),
+    "브렌트": ("Oil", "metal-energy"),
+    "천연가스": ("Gas", "metal-energy"),
+}
+
+_CRYPTO_VISUALS = {
+    "BTC": ("BTC", "coin-btc"),
+    "ETH": ("ETH", "coin-eth"),
+    "SOL": ("SOL", "coin-sol"),
+}
+
+_PORT_CSS = """<style>
+/* 포트폴리오 보기/정렬 라디오 우측 정렬 */
+[data-testid="stRadio"] > div[role="radiogroup"]{justify-content:flex-end!important}
+.port-simple-head{margin:2px 0 12px}
+.port-simple-head h2{margin:0!important;color:#E7E9EE!important;font-size:24px!important;font-weight:950!important;letter-spacing:0!important;line-height:1.1!important}
+.port-simple-head p{margin:5px 0 0!important;color:#7E8694!important;font-size:13px!important;font-weight:800!important}
+.port-map-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:6px 0 12px}
+.port-map-head h3{margin:0;color:#E7E9EE;font-size:18px;font-weight:900;letter-spacing:0}
+.port-map-head span{color:#7E8694;font-size:12px;font-weight:850}
+.port-detail-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:22px 0 14px}
+.port-detail-head h3{margin:0;color:#E7E9EE;font-size:18px;font-weight:950;letter-spacing:0}
+.port-detail-head span{color:#7E8694;font-size:12px;font-weight:850}
+.hold-summary-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:#9AA0AD;font-size:12px;font-weight:800;margin:0 0 8px}
+.hold-summary-pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#1E2029;color:#9AA0AD;padding:5px 9px;font-size:11px;font-weight:900}
+.hold-list{display:grid;gap:8px;margin-top:10px}
+.hold-row{display:grid;grid-template-columns:52px minmax(0,1fr) 96px 78px 96px;gap:10px;align-items:center;
+  background:rgba(22,24,31,0.92);border:1px solid #262A33;border-radius:14px;padding:10px 12px}
+.hold-rank{font-size:12px;color:#7E8694;font-weight:950;font-variant-numeric:tabular-nums}
+.hold-main{min-width:0}
+.hold-main b{display:block;color:#E7E9EE;font-size:13px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-main span{display:block;color:#7E8694;font-size:11px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-cat{justify-self:start;border-radius:999px;padding:5px 8px;background:#1E2029;color:#9AA0AD;font-size:10px;font-weight:900;white-space:nowrap}
+.hold-row-price{font-size:12px;color:#E7E9EE;font-weight:950;text-align:right;font-variant-numeric:tabular-nums}
+.hold-row-chg{font-size:12px;font-weight:950;text-align:right;font-variant-numeric:tabular-nums}
+.hold-row-note{font-size:11px;color:#7E8694;font-weight:850;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-section{margin:0 0 22px}
+.hold-section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 10px}
+.hold-section-head h4{margin:0;color:#E7E9EE;font-size:15px;font-weight:950;letter-spacing:0}
+.hold-section-head span{color:#7E8694;font-size:12px;font-weight:850}
+.hold-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:14px;margin-bottom:18px}
+.hold-card{background:rgba(22,24,31,0.94);border:1px solid #262A33;border-radius:20px;padding:14px 16px;
+  min-height:142px;box-shadow:0 10px 24px rgba(0,0,0,0.30);display:flex;flex-direction:column;gap:11px}
+.hold-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.hold-name{min-width:0}
+.hold-name b{display:block;color:#E7E9EE;font-size:14px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-name span{display:block;color:#7E8694;font-size:11px;font-weight:800;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-badge{flex:0 0 auto;border-radius:999px;padding:5px 8px;background:#1E2029;color:#9AA0AD;font-size:10px;font-weight:900}
+.hold-price{font-size:22px;font-weight:950;color:#E7E9EE;line-height:1;font-variant-numeric:tabular-nums}
+.hold-bottom{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto}
+.hold-stat{background:#1E2029;border:1px solid #262A33;border-radius:14px;padding:8px}
+.hold-stat span{display:block;color:#7E8694;font-size:10px;font-weight:850;margin-bottom:3px}
+.hold-stat b{font-size:12px;font-weight:950}
+.pct-pos{color:#F25560}.pct-neg{color:#4D90F0}.pct-flat{color:#9AA0AD}
+.hold-empty{background:rgba(22,24,31,0.70);border:1px dashed #262A33;border-radius:18px;padding:16px;color:#9AA0AD;font-size:13px;font-weight:800}
+.hold-cat-section{margin:0 0 16px}
+.hold-cat-section:last-child{margin-bottom:0}
+.hold-cat-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px}
+.hold-cat-title b{color:#E7E9EE;font-size:14px;font-weight:950}
+.hold-cat-title span{color:#7E8694;font-size:11px;font-weight:850}
+.hold-cat-summary{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.hold-cat-summary span{border-radius:999px;background:#1E2029;color:#9AA0AD;padding:4px 8px;font-size:10px;font-weight:900}
+.hold-det-stack{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px}
+details.hold-det{border-radius:12px;overflow:hidden;min-width:0}
+details.hold-det summary{
+  list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:7px;
+  min-height:54px;padding:8px 9px;border-radius:12px;cursor:pointer;
+  border:1px solid rgba(38,42,51,0.75);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  transition:filter .12s,transform .12s}
+details.hold-det summary::-webkit-details-marker{display:none}
+details.hold-det summary:hover{filter:brightness(0.98)}
+details.hold-det[open] summary{border-radius:12px 12px 0 0;border-bottom:none}
+.hold-det-main{min-width:0}
+.hold-det-main b{display:block;color:#E7E9EE;font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-det-main span{display:block;color:#7E8694;font-size:9px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-det-price{display:none;color:#E7E9EE;font-size:12px;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hold-det-chg{font-size:11.5px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hold-det-arrow{display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#7E8694;transition:transform .18s;flex-shrink:0}
+details.hold-det[open] .hold-det-arrow{transform:rotate(180deg);color:#9AA0AD}
+summary.hold-pos-bg{background:rgba(242,85,96,0.12);border-color:rgba(242,85,96,0.30)!important}
+summary.hold-neg-bg{background:rgba(77,144,240,0.12);border-color:rgba(77,144,240,0.30)!important}
+summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.72)!important}
+.hold-det-body{
+  background:rgba(30,32,41,0.94);border:1px solid rgba(38,42,51,0.72);border-top:none;
+  border-radius:0 0 12px 12px;padding:9px}
+.hold-det-note{color:#9AA0AD;font-size:10.5px;line-height:1.45;font-weight:700;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.hold-det-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.hold-det-meta span{
+  display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 7px;
+  background:#1E2029;color:#9AA0AD;font-size:9px;font-weight:900}
+.hold-logo{position:relative;flex:0 0 32px;width:32px;height:32px;border-radius:7px;overflow:hidden;display:grid;place-items:center;
+  background:#1E2029;border:1px solid #262A33;color:#E7E9EE;font-size:8.5px;font-weight:950;text-align:center;line-height:1}
+.hold-logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#16181F;padding:4px;box-sizing:border-box}
+.hold-logo span{position:relative;z-index:0;max-width:29px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-logo-company{background:#1E2029}
+.brand-red{background:linear-gradient(135deg,#d74333,#f2a15c);color:#fff}
+.brand-dark{background:linear-gradient(135deg,#222831,#6f7c84);color:#fff}
+.brand-blue{background:linear-gradient(135deg,#1f5fae,#61b4dc);color:#fff}
+.brand-green{background:linear-gradient(135deg,#186c5f,#8acb91);color:#fff}
+.brand-violet{background:linear-gradient(135deg,#4942a4,#b65bcf);color:#fff}
+.brand-gold{background:linear-gradient(135deg,#9b6a16,#e6b84d);color:#251607}
+.hold-logo-issuer{font-size:9px;letter-spacing:0;color:#fff;border:0}
+.issuer-tiger{background:linear-gradient(135deg,#e24a34,#f5b43c)}
+.issuer-kodex{background:linear-gradient(135deg,#2257a8,#48a2d8)}
+.issuer-rise{background:linear-gradient(135deg,#202a44,#8fc6d8)}
+.issuer-plus{background:linear-gradient(135deg,#5d45a5,#d45185)}
+.issuer-ace{background:linear-gradient(135deg,#176b5c,#7dc88c)}
+.issuer-etf{background:linear-gradient(135deg,#40515a,#91a6aa)}
+.hold-logo-metal{border-radius:50%;border:0;font-size:12px;box-shadow:inset 0 2px 8px rgba(255,255,255,0.48),inset 0 -6px 10px rgba(0,0,0,0.14)}
+.metal-gold{background:radial-gradient(circle at 31% 28%,#fff6b8,#e6ac2f 54%,#9a6617);color:#4a2b0b}
+.metal-silver{background:radial-gradient(circle at 31% 28%,#ffffff,#cdd8de 55%,#758590);color:#293842}
+.metal-copper{background:radial-gradient(circle at 31% 28%,#ffd7b0,#bd6c36 56%,#6d351d);color:#38180b}
+.metal-energy{background:radial-gradient(circle at 31% 28%,#d7f1ff,#376f8a 58%,#16394d);color:#f8fbfa}
+.coin-btc{background:linear-gradient(135deg,#f7931a,#ffca68);color:#3b2100}
+.coin-eth{background:linear-gradient(135deg,#627eea,#9fb2ff);color:#111a3a}
+.coin-sol{background:linear-gradient(135deg,#14f195,#9945ff);color:#10131f}
+.issue-section{margin:16px 0 4px;background:rgba(22,24,31,0.94);border:1px solid #262A33;border-radius:18px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,0.30)}
+.issue-head{padding:9px 16px;background:#1E2029;border-bottom:1px solid #262A33;font-size:11px;font-weight:800;color:#9AA0AD;text-transform:uppercase;letter-spacing:.6px;display:flex;justify-content:space-between;align-items:center}
+.issue-head span{font-size:10px;font-weight:700;color:#7E8694;text-transform:none;letter-spacing:0}
+.issue-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 16px;border-bottom:1px solid #262A33;align-items:start}
+.issue-row:last-child{border-bottom:none}
+.issue-name{font-size:13px;font-weight:950;color:#E7E9EE;margin-bottom:5px}
+.issue-note{font-size:12px;color:#9AA0AD;line-height:1.65;font-weight:650}
+.issue-tp-block{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;min-width:88px}
+.issue-tp{font-size:11px;font-weight:800;color:#9AA0AD;font-family:'SF Mono',ui-monospace,monospace;white-space:nowrap}
+.issue-upside{font-size:14px;font-weight:950;font-family:'SF Mono',ui-monospace,monospace;white-space:nowrap}
+.issue-upside.pos{color:#F25560}.issue-upside.neg{color:#4D90F0}.issue-upside.neu{color:#9AA0AD}
+.issue-no-tp{font-size:11px;font-weight:700;color:#7E8694;white-space:nowrap}
+@media(max-width:920px){
+  .hold-grid{grid-template-columns:1fr}
+  .hold-det-stack{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+  details.hold-det summary{grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px;padding:7px 7px;min-height:50px}
+  .hold-logo{width:28px;height:28px;flex-basis:28px}
+  .hold-det-main b{font-size:10px}
+  .hold-det-main span{display:none}
+  .hold-det-chg{font-size:10.5px}
+  .hold-row{grid-template-columns:38px minmax(0,1fr) 74px;gap:8px}
+  .hold-cat,.hold-row-note{display:none}.hold-row-price{font-size:11px}
+  .hold-det-price{display:none}
+}
+@media(min-width:921px) and (max-width:1180px){
+  .hold-det-stack{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:640px){
+  .hold-det-stack{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .hold-det-main span{display:block}
+}
+.pd-header{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin:22px 0 12px}
+.pd-header h3{margin:0;color:#E7E9EE;font-size:20px;font-weight:800;letter-spacing:-.01em}  /* 2배·굵게 */
+.pd-header p{margin:0;color:#7E8694;font-size:12px;font-weight:850}
+.pd-header-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pd-header .bk-badge{background:#1E2029;color:#9AA0AD;border-radius:999px;padding:4px 10px;
+  font-size:10px;font-weight:900;white-space:nowrap}
+.pd-source{display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;background:#1E2029;color:#9AA0AD;
+  border:1px solid #262A33;font-size:11px;font-weight:950;white-space:nowrap}
+.pd-card{background:rgba(22,24,31,0.84);border:1px solid rgba(38,42,51,0.86);border-radius:20px;
+  box-shadow:0 8px 28px rgba(0,0,0,0.30);padding:18px 20px}
+.pd-summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:10px}
+.pd-summary-card{min-height:92px;background:rgba(22,24,31,0.92);border:1px solid #262A33;border-radius:18px;
+  padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between}
+.pd-summary-card span{color:#7E8694;font-size:11px;font-weight:900}
+.pd-summary-card b{color:#E7E9EE;font-size:20px;font-weight:950;letter-spacing:0;font-variant-numeric:tabular-nums}
+.pd-summary-card small{color:#7E8694;font-size:10px;font-weight:850;line-height:1.35}
+.pd-pos{color:#F25560!important}.pd-neg{color:#4D90F0!important}.pd-neu{color:#9AA0AD!important}.pd-warn{color:#E08A3C!important}
+.pd-section-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:14px;margin-bottom:14px}
+.pd-section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 12px}
+.pd-section-title b{color:#E7E9EE;font-size:14px;font-weight:950}
+.pd-section-title span{color:#7E8694;font-size:11px;font-weight:850}
+.pd-alloc-list{display:grid;gap:10px}
+.pd-alloc-row{display:grid;grid-template-columns:86px minmax(0,1fr) 58px;align-items:center;gap:10px}
+.pd-alloc-name{color:#E7E9EE;font-size:12px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-alloc-track{height:9px;border-radius:999px;background:#1E2029;overflow:hidden}
+.pd-alloc-fill{height:100%;border-radius:999px;background:#D9A441}
+.pd-alloc-pct{text-align:right;color:#9AA0AD;font-size:11px;font-weight:950;font-variant-numeric:tabular-nums}
+.pd-risk-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media(max-width:760px){.pd-risk-list{grid-template-columns:1fr}}
+.pd-risk-item{border:1px solid #262A33;border-radius:14px;background:#1E2029;padding:13px 15px;min-width:0}
+.pd-risk-item b{display:block;color:#E7E9EE;font-size:12.5px;font-weight:950;margin-bottom:5px}
+.pd-risk-item span{display:block;color:#9AA0AD;font-size:11.5px;font-weight:760;line-height:1.5}
+.pd-empty{border:1px dashed #262A33;border-radius:18px;background:rgba(22,24,31,0.74);padding:18px;margin-bottom:12px}
+.pd-empty b{display:block;color:#E7E9EE;font-size:15px;font-weight:950;margin-bottom:6px}
+.pd-empty p{margin:0;color:#9AA0AD;font-size:12px;font-weight:760;line-height:1.65}
+.pd-empty code{font-family:'SF Mono',ui-monospace,monospace;color:#9AA0AD;background:#1E2029;border-radius:7px;padding:2px 5px}
+.pd-toggle-row{display:flex;justify-content:flex-end;margin:0 0 10px}
+.pd-cat-section{margin:0 0 16px}
+.pd-cat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 10px}
+.pd-cat-head h4{margin:0;color:#E7E9EE;font-size:15px;font-weight:950}
+.pd-cat-head span{color:#7E8694;font-size:11px;font-weight:850;text-align:right}
+.pd-holding-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.pd-holding-card{position:relative;overflow:hidden;background:rgba(22,24,31,0.94);border:1px solid #262A33;border-radius:20px;
+  padding:16px 18px;box-shadow:0 8px 22px rgba(0,0,0,0.30);min-height:256px}
+.pd-holding-top{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:9px;align-items:center;margin-bottom:10px}
+.pd-holding-name{min-width:0}
+.pd-holding-name b{display:block;color:#E7E9EE;font-size:13px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-holding-name span{display:block;color:#7E8694;font-size:10px;font-weight:850;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-weight{border-radius:999px;padding:5px 8px;background:#1E2029;color:#9AA0AD;font-size:10px;font-weight:950}
+.pd-value-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin:2px 0 9px}
+.pd-value-main span,.pd-day span{display:block;color:#7E8694;font-size:10px;font-weight:900;margin-bottom:3px}
+.pd-value-main b{display:block;color:#E7E9EE;font-size:21px;font-weight:950;font-variant-numeric:tabular-nums}
+.pd-day{text-align:right}
+.pd-day b{font-size:12px;font-weight:950;font-variant-numeric:tabular-nums}
+.pd-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:9px 0}
+.pd-stat{border:1px solid #262A33;background:#1E2029;border-radius:12px;padding:8px;min-width:0}
+.pd-stat span{display:block;color:#7E8694;font-size:9.5px;font-weight:900;margin-bottom:3px}
+.pd-stat b{display:block;color:#E7E9EE;font-size:11.5px;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-spark{position:absolute;bottom:0;left:0;right:0;height:72px;opacity:0.09;pointer-events:none;z-index:0;margin:0}
+.pd-spark svg{width:100%;height:72px;display:block}
+.pd-holding-top,.pd-value-row,.pd-stat-grid,.pd-insight{position:relative;z-index:1}
+.pd-insight{margin-top:9px;border-radius:13px;overflow:hidden;border:1px solid #262A33;background:#1E2029;display:flex;flex-direction:column-reverse}
+.pd-insight summary{list-style:none;cursor:pointer;padding:9px 10px;color:#9AA0AD;font-size:11px;font-weight:950}
+.pd-insight summary::-webkit-details-marker{display:none}
+.pd-insight-body{border-bottom:1px solid #262A33;padding:10px;color:#9AA0AD;font-size:11px;font-weight:740;line-height:1.55}
+.pd-insight-body b{color:#E7E9EE}
+@media(max-width:1080px){.pd-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pd-section-grid{grid-template-columns:1fr}}
+@media(max-width:640px){
+  .pd-summary-grid{grid-template-columns:1fr;gap:8px}
+  .pd-header{display:block;margin:18px 0 10px}
+  .pd-header h3{font-size:19px}  /* 헤더 크기(모바일) */
+  .pd-header p{font-size:11.5px}
+  .pd-source{margin-top:8px}
+  .pd-card{padding:12px;border-radius:17px}
+  .pd-summary-card{min-height:78px;padding:11px 12px}
+  .pd-summary-card b{font-size:18px}
+  .pd-section-title{display:block}
+  .pd-section-title span{display:block;text-align:left;margin-top:3px}
+  .pd-alloc-row{grid-template-columns:72px minmax(0,1fr) 48px;gap:8px}
+  .pd-holding-grid{grid-template-columns:1fr;gap:9px}
+  .pd-holding-card{min-height:0;padding:12px;border-radius:16px}
+  .pd-value-main b{font-size:19px}
+  .pd-stat-grid{gap:6px}
+  .pd-cat-head{display:block}
+  .pd-cat-head span{display:block;text-align:left;margin-top:4px}
+}
+@media(max-width:420px){
+  .pd-stat-grid{grid-template-columns:1fr}
+  .pd-value-row{grid-template-columns:1fr}
+  .pd-day{text-align:left}
+  .pd-weight{padding:4px 7px;font-size:9px}
+}
+.pd-header{margin:8px 0 12px}
+.pd-header h3{font-size:20px;font-weight:800}  /* 2배·굵게 */
+.pd-mode-wrap{margin:4px 0 12px}
+.pd-overview{display:grid;grid-template-columns:1.25fr repeat(2,minmax(0,.72fr));gap:10px;margin:0 0 10px}
+.pd-hero,.pd-metric,.pd-alert,.pd-diagnosis,.pd-table-card,.pd-rebalance-card{
+  background:rgba(22,24,31,0.92);border:1px solid rgba(38,42,51,0.94);border-radius:12px;
+  box-shadow:0 4px 14px rgba(0,0,0,0.30)}
+.pd-hero{padding:16px 18px;min-height:112px;display:flex;flex-direction:column;justify-content:space-between}
+.pd-hero span,.pd-metric span{display:block;color:#7E8694;font-size:11px;font-weight:900;margin-bottom:4px}
+/* 총액 hero 무게 ↓(#12): 위험 카드(21px 헤드라인)가 1순위 앵커 — 총액은 보조 무게로 */
+.pd-hero b{display:block;color:#D7DAE1;font-size:22px;font-weight:800;letter-spacing:0;font-variant-numeric:tabular-nums;line-height:1.1}
+.pd-hero small,.pd-metric small{display:block;color:#7E8694;font-size:11px;font-weight:800;line-height:1.4;margin-top:5px}
+.pd-hero-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.pd-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#1E2029;border:1px solid #262A33;
+  color:#9AA0AD;padding:5px 8px;font-size:10px;font-weight:950;white-space:nowrap}
+/* 경고 채널 = 주황(주의 #E08A3C / 위험 #E2683C). 손익 빨강(#F25560)·강조 골드(#D9A441)와 분리 */
+.pd-chip.warn{background:rgba(224,138,60,0.14);border-color:rgba(224,138,60,0.32);color:#E08A3C}
+.pd-chip.danger{background:rgba(226,104,60,0.14);border-color:rgba(226,104,60,0.34);color:#E2683C}
+/* 집중 위험 — 주황(위험)으로 통일 */
+.pd-chip.conc{background:rgba(226,104,60,0.13);border-color:rgba(226,104,60,0.34);color:#E2683C}
+.pd-cau{display:inline-block!important;font-size:9px;font-weight:800;color:#E08A3C;
+  background:rgba(224,138,60,0.14);border-radius:5px;padding:1px 5px;margin-left:5px;letter-spacing:.02em}
+.pd-metric{padding:13px 14px;min-height:112px;display:flex;flex-direction:column;justify-content:space-between}
+.pd-metric b{display:block;color:#E7E9EE;font-size:20px;font-weight:950;font-variant-numeric:tabular-nums;line-height:1.15}
+.pd-metric-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:0 0 8px}
+.pd-overview-note{font-size:11.5px;font-weight:750;color:#7E8694;line-height:1.5;margin:0 0 12px}
+.pd-overview-note b{color:#9AA0AD;font-weight:900}
+/* 포트폴리오 진단 — 카드 밖으로(플랫): 테두리·배경·그림자 제거 */
+.pd-diagnosis{padding:2px 0 10px;margin:0 0 14px;background:transparent;border:0;box-shadow:none}
+.pd-diagnosis-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px}
+.pd-diagnosis-head b{color:#E7E9EE;font-size:20px;font-weight:800}  /* 헤더 크기·굵게 */
+.pd-diagnosis-head span{color:#7E8694;font-size:11px;font-weight:850}
+.pd-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pd-header-sub .lv-badge{margin:0}
+/* 골드 강조 링크 — Streamlit 기본 링크색(파랑, 하락色과 혼동)을 덮도록 !important */
+.pd-jump{display:inline-flex;align-items:center;font-size:11px;font-weight:850;color:#D9A441!important;
+  text-decoration:none;background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.34);
+  border-radius:999px;padding:3px 11px;white-space:nowrap}
+.pd-jump:hover{background:rgba(217,164,65,0.18);border-color:#D9A441}
+.pd-back{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:850;color:#9AA0AD!important;
+  text-decoration:none;margin:2px 0 10px}
+.pd-back:hover{color:#E7E9EE}
+.pd-diagnosis-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px}
+.pd-diagnosis-item{border:1px solid #262A33;border-radius:10px;background:#1E2029;padding:10px 11px;border-left:3px solid #262A33}
+.pd-diagnosis-item strong{display:block;color:#E7E9EE;font-size:12px;font-weight:950;margin-bottom:4px}
+.pd-diagnosis-item span{display:block;color:#9AA0AD;font-size:11px;font-weight:760;line-height:1.45}
+/* 진단 심각도 — 경고는 주황(주의/위험), 비중-매칭(gold/olive)은 골드 계열 유지 */
+.pd-diagnosis-item.warn{border-left-color:#E08A3C}
+.pd-diagnosis-item.gold{border-left-color:#C99A3C}
+.pd-diagnosis-item.olive{border-left-color:#8C7A3E}
+.pd-diagnosis-item.danger{border-left-color:#E2683C;background:linear-gradient(135deg,rgba(226,104,60,0.08),#1E2029 60%)}
+.pd-diagnosis-item.danger strong{color:#E2683C}
+/* C3: 보기 라디오를 진단 카드 상단에 붙임 */
+[data-testid="stRadio"]{background:#16181F;border:1px solid #262A33;border-radius:14px;
+  padding:8px 14px 4px;margin-bottom:8px}
+[data-testid="stRadio"] > label{font-size:11px!important;color:#7E8694!important;font-weight:800!important}
+.pd-mini-alloc{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#1E2029;border:1px solid #262A33;margin:8px 0 10px}
+.pd-mini-alloc i{display:block;height:100%;min-width:2px}
+.pd-mini-legend{display:flex;flex-wrap:wrap;gap:6px;color:#9AA0AD;font-size:10px;font-weight:900}
+.pd-mini-legend span{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#1E2029;border:1px solid #262A33;padding:4px 7px}
+.pd-mini-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.pd-conc-label{font-size:11px;font-weight:900;color:#9AA0AD;margin:2px 0 6px;display:flex;align-items:baseline;gap:7px}
+.pd-conc-label span{font-size:10px;font-weight:800;color:#7E8694}
+/* 탐욕 지수 바 — 회색(공포/중립) → 주황(탐욕=과열 경고). 골드(강조) 아님: 탐욕은 경고 채널 */
+.gd-block{margin-top:16px;padding-top:13px;border-top:1px solid #23262E}  /* 위 자산군 바와 구분 */
+.gd-track{position:relative;height:12px;border-radius:999px;border:1px solid #262A33;margin:8px 0 7px;
+  background:linear-gradient(90deg,#5A5F52 0%,#C9882F 52%,#E08A3C 100%)}  /* 회색(공포)→주황(탐욕 과열) */
+.gd-marker{position:absolute;top:50%;width:3px;height:18px;border-radius:3px;background:#E7E9EE;
+  transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(14,15,19,.65)}
+.gd-scale{display:flex;justify-content:space-between;font-size:10px;font-weight:850;color:#7E8694;margin:0 0 4px}
+/* 핵심 보유종목 — 카드 밖으로(플랫): 패널 테두리·배경·그림자 제거, 표만 남김 */
+.pd-list-panel{background:transparent;border:0;box-shadow:none;padding:0;margin:0 0 14px}
+.pd-list-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 10px}  /* C1 좌측 기준선 통일 */
+.pd-list-head b{color:#E7E9EE;font-size:20px;font-weight:800}  /* 2배·굵게 */
+.pd-list-head span{color:#7E8694;font-size:11px;font-weight:850}
+.pd-table-card{overflow:hidden;margin:0;border-radius:10px;border:1px solid #262A33;background:#16181F}
+.pd-table-head,.pd-row{display:grid;grid-template-columns:minmax(190px,1.55fr) 74px 126px 88px 74px 56px;gap:8px;align-items:center}
+.pd-table-head{padding:8px 12px;background:#1E2029;border-bottom:1px solid #262A33;color:#9AA0AD;font-size:9.5px;font-weight:950;text-transform:uppercase;letter-spacing:0}
+.pd-row{min-height:54px;padding:8px 12px;border-bottom:1px solid #262A33;background:rgba(22,24,31,0.78)}
+.pd-row:last-child{border-bottom:none}
+.pd-row-main{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;align-items:center;min-width:0}
+.pd-row-main .hold-logo{width:28px;height:28px;border-radius:8px;font-size:8.5px}
+.pd-row-name{min-width:0}.pd-row-name b{display:block;color:#E7E9EE;font-size:12px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-row-name span{display:block;color:#7E8694;font-size:10px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.pd-row-num{text-align:right;color:#E7E9EE;font-size:11.5px;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pd-row-num small{display:block;color:#7E8694;font-size:9px;font-weight:850;margin-top:1px;white-space:nowrap}
+.pd-row-actions{border:1px solid #262A33;border-radius:10px;background:#1E2029;overflow:hidden}
+.pd-row-actions[open]{grid-column:1/-1}
+.pd-row-actions[open] summary{width:52px;margin-left:auto;border-left:1px solid #262A33}
+.pd-row-actions summary{list-style:none;cursor:pointer;padding:6px 7px;text-align:center}
+.pd-row-actions summary::-webkit-details-marker{display:none}
+.pd-row-actions summary .pd-caret{display:inline-block;transition:transform .18s;font-size:11px;color:#7E8694}
+.pd-row-actions summary:hover .pd-caret{color:#9AA0AD}
+.pd-row-actions[open] summary .pd-caret{transform:rotate(180deg);color:#9AA0AD}
+.pd-row-detail{border-top:1px solid #262A33;padding:10px;color:#9AA0AD;font-size:11px;font-weight:740;line-height:1.55}
+.pd-row-detail b{color:#E7E9EE}
+/* D3 핵심 보유종목 — 카드형 행(이름 15px + 섹터·주수 12px + 비중 바 | 평가 15px + 손익 12.5px | 펼침). C2 하한 준수 */
+.hl-card{overflow:hidden}
+.hl-row{display:grid;grid-template-columns:minmax(0,1fr) auto 30px;gap:12px;align-items:center;
+  padding:12px 14px;border-bottom:1px solid #262A33;background:rgba(22,24,31,0.78)}
+.hl-row:last-child{border-bottom:0}
+.hl-main{display:grid;grid-template-columns:34px minmax(0,1fr);gap:11px;align-items:center;min-width:0}
+.hl-main .hold-logo{width:34px;height:34px;border-radius:9px;font-size:11px}
+.hl-info{min-width:0}
+.hl-name{display:block;color:#E7E9EE;font-size:15px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl-sub{display:block;color:#9AA0AD;font-size:12px;font-weight:750;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl-wbar{height:5px;border-radius:999px;background:rgba(255,255,255,0.06);overflow:hidden;margin-top:8px;max-width:240px}
+.hl-wbar i{display:block;height:100%;border-radius:999px}
+.hl-vals{text-align:right;white-space:nowrap;min-width:0}
+.hl-val{display:block;color:#E7E9EE;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+/* C2: 손익률/금액/오늘을 점(·) 없이 간격(gap)으로 구분. 오늘은 한 단계 옅게 de-emphasize */
+.hl-ret{display:flex;justify-content:flex-end;align-items:baseline;flex-wrap:wrap;gap:1px 12px;
+  font-size:12.5px;font-weight:850;margin-top:4px;font-variant-numeric:tabular-nums;color:#9AA0AD}
+.hl-ret-amt{font-weight:800}
+.hl-ret-today{color:#7E8694;font-size:11.5px;font-weight:750}
+.hl-ret-today b{font-weight:850}
+.hl-exp{justify-self:end}
+.hl-exp summary{list-style:none;cursor:pointer;width:30px;height:30px;display:grid;place-items:center;
+  border:1px solid #262A33;border-radius:9px;background:#1E2029}
+.hl-exp summary::-webkit-details-marker{display:none}
+.hl-caret{font-size:12px;color:#7E8694;transition:transform .18s}
+.hl-exp summary:hover .hl-caret{color:#9AA0AD}
+.hl-exp[open]{grid-column:1/-1;margin-top:2px}
+.hl-exp[open] summary{margin-left:auto}
+.hl-exp[open] .hl-caret{transform:rotate(180deg);color:#9AA0AD}
+.hl-detail{border-top:1px solid #262A33;margin-top:10px;padding-top:10px;color:#9AA0AD;
+  font-size:12px;font-weight:740;line-height:1.6}
+.hl-detail b{color:#E7E9EE}
+@media(max-width:640px){
+  .hl-row{grid-template-columns:minmax(0,1fr) auto 30px;gap:10px}
+  .hl-wbar{max-width:none}
+}
+.pd-rebalance-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 12px}
+.pd-rebalance-card{padding:14px 16px}
+.pd-rebalance-card b{display:block;color:#E7E9EE;font-size:14px;font-weight:950;margin-bottom:6px}
+.pd-rebalance-card p{margin:0;color:#9AA0AD;font-size:12px;font-weight:760;line-height:1.6}
+/* 리밸런싱 종목별 조정 표 — 현재→목표→조정→금액 (매도 블루 / 매수 레드) */
+.rb-tbl{margin:0 0 4px}
+.rb-thead,.rb-trow{display:grid;grid-template-columns:1.4fr .8fr .8fr 1fr 1.1fr;gap:8px;align-items:center}
+.rb-thead{font-size:10px;font-weight:900;color:#7E8694;text-transform:uppercase;letter-spacing:.04em;
+  padding:0 12px 8px}
+.rb-trow{min-height:46px;padding:8px 12px;border-top:1px solid #262A33;font-size:12.5px}
+.rb-nm{font-weight:850;color:#E7E9EE;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb-cur,.rb-tgt{font-variant-numeric:tabular-nums;font-weight:800;color:#C9CEDA}
+.rb-tgt{color:#E7E9EE}
+.rb-adj,.rb-amt{font-variant-numeric:tabular-nums;font-weight:850;text-align:right}
+.rb-sell{color:#4D90F0}   /* 매도 = 블루(한국식) */
+.rb-buy{color:#F25560}    /* 매수 = 레드(한국식) */
+.rb-keep{color:#7E8694;font-weight:750}
+.rb-move{color:#C99A3C}   /* 이동처 유입 = 골드(매수 권유 아님, 분산 방향) */
+.rb-num{text-align:right}
+/* 앱 vs 사용자 역할 분리 */
+.rb-split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 4px}
+.rb-role{background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:12px 14px}
+.rb-role.app{border-left:3px solid #C99A3C}
+.rb-role.user{border-left:3px solid #5A5F52}
+.rb-role-k{font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;margin-bottom:7px}
+.rb-role.app .rb-role-k{color:#C99A3C}
+.rb-role.user .rb-role-k{color:#9AA0AD}
+.rb-role ul{margin:0;padding-left:16px}
+.rb-role li{color:#C9CEDA;font-size:11.5px;font-weight:730;line-height:1.7}
+@media(max-width:1080px){.rb-split{grid-template-columns:1fr}}
+.rb-foot{font-size:11.5px;font-weight:700;color:#9AA0AD;line-height:1.55;margin-top:10px;
+  padding-top:9px;border-top:1px solid #262A33}
+@media(max-width:1080px){
+  .rb-thead{display:none}
+  .rb-trow{grid-template-columns:1fr 1fr;gap:4px 8px;padding:10px 12px}
+  .rb-nm{grid-column:1/-1}
+}
+/* 운용 방식(철학) 레이어 — 추천 골드 테두리, 출처 라벨, 차이 표 */
+.rbm-diag{background:rgba(217,164,65,0.08);border:1px solid #D9A441;border-radius:12px;
+  padding:11px 15px;margin:2px 0 12px;font-size:12.5px;font-weight:750;color:#E7E9EE;line-height:1.55}
+.rbm-diag b{color:#D9A441;font-weight:900}
+.rbm-diag-k{display:inline-block;font-size:9px;font-weight:900;color:#D9A441;letter-spacing:.06em;
+  text-transform:uppercase;background:rgba(217,164,65,0.15);border-radius:6px;padding:2px 7px;margin-right:8px}
+.rbm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.rbm-card{background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:13px 14px}
+.rbm-card.rec{border-color:#D9A441;box-shadow:0 0 0 1px rgba(217,164,65,0.25)}
+.rbm-card.sel{background:#23262E}
+.rbm-h{display:flex;align-items:center;gap:7px;color:#E7E9EE;font-size:13px;font-weight:950;margin-bottom:6px}
+.rbm-badge{font-size:9px;font-weight:900;color:#D9A441;background:rgba(217,164,65,0.15);
+  border-radius:6px;padding:2px 7px;letter-spacing:.04em}
+.rbm-badge.sm{margin-left:5px}
+.rbm-d{color:#9AA0AD;font-size:11.5px;font-weight:730;line-height:1.5;min-height:50px}
+.rbm-src{margin-top:8px;font-size:10px;font-weight:800;color:#8C7A3E;line-height:1.5}
+.rbm-soon{display:block;color:#7E8694;font-weight:750;margin-top:3px}
+.rbm-pending-p{margin:0 0 8px;color:#C9CEDA;font-size:12px;font-weight:750;line-height:1.6}
+.rbm-pending-note{margin:0;color:#9AA0AD;font-size:11.5px;font-weight:700;line-height:1.55}
+.rbm-pending-note b{color:#D9A441}
+.rbm-tbl{margin:2px 0}
+.rbm-thead,.rbm-trow{display:grid;grid-template-columns:1fr 1.3fr 1.1fr 1.3fr;gap:8px;align-items:center}
+.rbm-thead{font-size:10px;font-weight:900;color:#7E8694;text-transform:uppercase;letter-spacing:.04em;padding:0 12px 8px}
+.rbm-trow{min-height:42px;padding:8px 12px;border-top:1px solid #262A33;font-size:12px;font-weight:730;color:#C9CEDA;line-height:1.45}
+.rbm-tnm{font-weight:900;color:#E7E9EE}
+.rbm-honest{margin-top:11px;padding-top:10px;border-top:1px solid #262A33;
+  font-size:11.5px;font-weight:700;color:#9AA0AD;line-height:1.55}
+.rbm-honest b{color:#E7E9EE}
+.rbm-refs{margin-top:8px;font-size:10px;font-weight:800;color:#7E8694;letter-spacing:.02em}
+@media(max-width:1080px){
+  .rbm-grid{grid-template-columns:1fr}
+  .rbm-thead{display:none}
+  .rbm-trow{grid-template-columns:1fr 1fr;gap:4px 8px}
+  .rbm-tnm{grid-column:1/-1}
+}
+@media(max-width:1080px){
+  .pd-overview{grid-template-columns:1fr 1fr}.pd-hero{grid-column:1/-1}.pd-metric-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pd-diagnosis-grid,.pd-rebalance-grid{grid-template-columns:1fr}
+  .pd-table-head{display:none}.pd-row{grid-template-columns:1fr 1fr;gap:8px}.pd-row-main{grid-column:1/-1}
+  .pd-row-actions{grid-column:1/-1}.pd-row-num{text-align:left}
+}
+@media(max-width:640px){
+  .pd-overview,.pd-metric-row{grid-template-columns:1fr}
+  .pd-hero b{font-size:20px}
+  .pd-row{grid-template-columns:1fr}
+}
+.hcv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:16px}
+.hcv-card{position:relative;overflow:hidden;background:rgba(22,24,31,0.96);border:1px solid #262A33;
+  border-radius:18px;padding:16px 18px 18px;box-shadow:0 4px 18px rgba(0,0,0,0.30);
+  display:flex;flex-direction:column;transition:box-shadow .15s}
+.hcv-card:hover{box-shadow:0 8px 28px rgba(0,0,0,0.40)}
+.hcv-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.hcv-info{flex:1;min-width:0}
+.hcv-info b{display:block;color:#E7E9EE;font-size:14px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcv-info span{display:block;color:#7E8694;font-size:10.5px;font-weight:850;margin-top:2px}
+.hcv-wt{flex-shrink:0;border-radius:999px;padding:4px 9px;background:#1E2029;color:#9AA0AD;font-size:10.5px;font-weight:950}
+.hcv-val{margin-bottom:12px}
+.hcv-val-num{color:#E7E9EE;font-size:25px;font-weight:950;font-variant-numeric:tabular-nums;letter-spacing:-0.025em;line-height:1.05}
+.hcv-val-sub{color:#7E8694;font-size:10.5px;font-weight:850;margin-top:3px}
+.hcv-pills{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}
+.hcv-pill{border-radius:11px;padding:9px 11px;background:#1E2029;border:1px solid #262A33}
+.hcv-pill span{display:block;color:#7E8694;font-size:9px;font-weight:950;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px}
+.hcv-pill b{display:block;font-size:14px;font-weight:950;font-variant-numeric:tabular-nums;line-height:1}
+.hcv-pill small{display:block;color:#7E8694;font-size:10px;font-weight:850;margin-top:3px}
+.hcv-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:auto}
+.hcv-st{background:#1E2029;border:1px solid #262A33;border-radius:9px;padding:7px 9px}
+.hcv-st span{display:block;color:#7E8694;font-size:9px;font-weight:950;letter-spacing:.04em;text-transform:uppercase;margin-bottom:3px}
+.hcv-st b{display:block;color:#E7E9EE;font-size:11px;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcv-spark{position:absolute;bottom:0;left:0;right:0;height:56px;opacity:0.07;pointer-events:none;z-index:0}
+.hcv-spark svg{width:100%;height:56px;display:block}
+.hcv-head,.hcv-val,.hcv-pills,.hcv-stats{position:relative;z-index:1}
+@media(max-width:960px){.hcv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.hcv-grid{grid-template-columns:1fr}}
+</style>"""
 
 
-@st.cache_data(ttl=300)
-def _load():
-    return fetch_all()
+def _krw_short(value: float) -> str:
+    from core.journey import krw_compact  # 전 화면 공통 단일 포맷
+    return krw_compact(value)
 
 
-@st.cache_data(ttl=3600)
-def _analyst_targets() -> pd.DataFrame:
-    return fetch_analyst_targets(list(_STOCK_KOR.keys()))
+def _num(value) -> float | None:
+    if isinstance(value, str):
+        cleaned = value.replace(",", "").replace("$", "").replace("₩", "").strip()
+        if cleaned.upper() in {"", "N/A", "NA", "NONE", "NULL", "—", "-"}:
+            return None
+        value = cleaned
+    try:
+        f = float(value)
+        if pd.isna(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
+def _price(value, currency: str) -> str:
+    f = _num(value)
+    if f is None:
+        return "N/A"
+    return _cur(f, currency)  # ₩/$ 심볼 표기 단일 출처
+
+
+def _pct(value) -> tuple[str, str]:
+    f = _num(value)
+    if f is None:
+        return "N/A", "pct-flat"
+    cls = "pct-pos" if f > 0 else ("pct-neg" if f < 0 else "pct-flat")
+    return f"{f:+.2f}%", cls
+
+
+def _escape(value) -> str:
+    return html_lib.escape(str(value or ""))
+
+
+def _ticker_key(code: str) -> str:
+    return str(code or "").replace(".KS", "").replace(".KQ", "").upper()
+
+
+def _issuer_from_name(name: str) -> str:
+    first = str(name or "ETF").split()[0].strip()
+    return first if first else "ETF"
+
+
+def _logo_html(item: dict) -> str:
+    group = item.get("group", "")
+    name = str(item.get("name", ""))
+    code = str(item.get("code", ""))
+
+    if group == "ETF":
+        issuer = _issuer_from_name(name)
+        cls = _ISSUER_CLASSES.get(issuer.upper(), "issuer-etf")
+        return f'<div class="hold-logo hold-logo-issuer {cls}"><span>{_escape(issuer.upper())}</span></div>'
+
+    if group == "원자재":
+        label, cls = _METAL_VISUALS.get(name, ("Com", "metal-energy"))
+        return f'<div class="hold-logo hold-logo-metal {cls}"><span>{_escape(label)}</span></div>'
+
+    if group == "크립토":
+        symbol = _ticker_key(code).replace("-USD", "")
+        label, cls = _CRYPTO_VISUALS.get(symbol, (symbol[:3] or "COIN", "issuer-etf"))
+        return f'<div class="hold-logo hold-logo-issuer {cls}"><span>{_escape(label)}</span></div>'
+
+    key = _ticker_key(code)
+    fallback = (key[:4] if group == "미국주식" else name[:2]) or key[:4] or "LOGO"
+    cls = _BRAND_CLASSES.get(key, "brand-dark")
+    return f'<div class="hold-logo hold-logo-company {cls}"><span>{_escape(fallback)}</span></div>'
+
+
+_DETAIL_CATEGORY_ORDER = ["미국주식", "ETF", "크립토", "원자재", "국내주식", "현금"]
+
+
+def _first(row: dict, *keys: str):
+    lowered = {str(k).lower(): v for k, v in row.items()}
+    for key in keys:
+        if key in row and row.get(key) not in (None, "", "N/A", "NA", "—"):
+            return row.get(key)
+        val = lowered.get(key.lower())
+        if val not in (None, "", "N/A", "NA", "—"):
+            return val
+    return None
+
+
+def _records_from_holdings(raw) -> list[dict]:
+    if raw is None:
+        return []
+    if isinstance(raw, pd.DataFrame):
+        return raw.to_dict("records")
+    if isinstance(raw, list):
+        return [dict(x) for x in raw if isinstance(x, dict)]
+    if isinstance(raw, dict):
+        for key in ("items", "holdings", "positions"):
+            if isinstance(raw.get(key), list):
+                return [dict(x) for x in raw[key] if isinstance(x, dict)]
+    return []
+
+
+def _market_price_maps(data: dict) -> dict[str, dict]:
+    maps: dict[str, dict] = {}
+    for table_name, key_col in [
+        ("us_stocks", "ticker"),
+        ("kr_stocks", "ticker"),
+        ("my_etfs", "ticker"),
+        ("crypto", "ticker"),
+        ("commodities", "ticker"),
+    ]:
+        df = data.get(table_name, pd.DataFrame())
+        if df is not None and not df.empty and key_col in df.columns:
+            for _, row in df.iterrows():
+                maps[str(row.get(key_col, "")).upper()] = dict(row)
+    return maps
+
+
+# 둘 다 실패(완전 오프라인)할 때만 쓰는 최후 폴백. 평시엔 yfinance→보조 FX API가 실시간 반영.
+_FX_FALLBACK = 1450.0
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_live_usdkrw() -> float | None:
+    """yfinance 환율(USDKRW=X)이 실패할 때 보조 실시간 USD/KRW — 무료 FX API(키 불필요, 15분 캐시)."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=6) as r:
+            rate = json.load(r).get("rates", {}).get("KRW")
+        return float(rate) if rate else None
+    except Exception:
+        return None
+
+
+def _usdkrw(data: dict) -> float | None:
+    """실시간 USD/KRW. 1순위 시장데이터(yfinance USDKRW=X), 실패 시 보조 FX API로 실시간 폴백."""
+    fx = data.get("fx", pd.DataFrame())
+    if fx is not None and not fx.empty and "pair" in fx.columns:
+        row = fx[fx["pair"] == "usd_krw"]
+        if not row.empty:
+            rate = _num(row.iloc[0].get("rate"))
+            if rate:
+                return rate
+    return _fetch_live_usdkrw()   # 시장데이터에 환율 없으면 보조 실시간 API(상수 폴백 아님)
+
+
+def _category_for_holding(row: dict, ticker: str) -> str:
+    raw = str(_first(row, "asset_class", "assetType", "type", "category", "group") or "").lower()
+    name = str(_first(row, "name", "asset_name", "display_name") or "")
+    if "cash" in raw or "현금" in raw or ticker.upper() in {"CASH", "KRW", "USD"}:
+        return "현금"
+    if "crypto" in raw or ticker.upper().endswith("-USD"):
+        return "크립토"
+    if "commodity" in raw or "원자재" in raw:
+        return "원자재"
+    if "etf" in raw or any(name.upper().startswith(prefix) for prefix in _ISSUER_CLASSES):
+        return "ETF"
+    if "kr" in raw or ticker.endswith(".KS") or ticker.endswith(".KQ"):
+        return "국내주식"
+    if "us" in raw or ticker:
+        return "미국주식"
+    return "기타"
+
+
+def _money(value: float | None, currency: str = "KRW", signed: bool = False, compact: bool = False) -> str:
+    # 표기는 format.py 단일 출처에 위임. None 만 포트폴리오 문구('데이터 대기')로 처리.
+    if value is None:
+        return "데이터 대기"
+    if compact and currency == "KRW":
+        return won(value, signed=signed)          # 억·만, 심볼 없음(기존 _krw_short 동작)
+    return _cur(value, currency, signed=signed)    # ₩/$ 심볼 표기
+
+
+def _fmt_qty(value: float | None, est: bool = False) -> str:
+    if value is None:
+        return "데이터 대기"
+    if est:  # 평가액÷현재가 추정치 → '약 N주'
+        return f"약 {round(value):,}주"
+    if abs(value - round(value)) < 0.000001:
+        return f"{value:,.0f}주"
+    return f"{value:,.4f}".rstrip("0").rstrip(".") + "주"
+
+
+def _tone(value: float | None, threshold: float = 0.0) -> str:
+    if value is None or abs(value) <= threshold:
+        return "pd-neu"
+    return "pd-pos" if value > 0 else "pd-neg"
+
+
+def _display_currency(row: dict, ticker: str, category: str) -> str:
+    currency = str(_first(row, "currency", "ccy") or "").upper()
+    if currency in {"KRW", "USD"}:
+        return currency
+    if category in {"국내주식", "ETF", "현금"} or ticker.endswith(".KS") or ticker.endswith(".KQ"):
+        return "KRW"
+    return "USD"
+
+
+def _norm_name(s) -> str:
+    """이름 매칭용 정규화 — 공백 제거 + 소문자(예: '미국나스닥 테크'='미국나스닥테크')."""
+    return re.sub(r"\s+", "", str(s or "")).lower()
+
+
+def _name_ticker_map(price_maps: dict[str, dict]) -> dict[str, str]:
+    """라이브 시세 표(my_etfs 등)의 name→ticker 맵. 티커 없는 보유(스크린샷 ETF) 시세 해소용."""
+    out: dict[str, str] = {}
+    for tk, mrow in price_maps.items():
+        nm = str(mrow.get("name") or "").strip()
+        if nm:
+            out.setdefault(_norm_name(nm), tk)
+    return out
+
+
+def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
+    raw_records = _records_from_holdings(data.get("holdings"))
+    price_maps = _market_price_maps(data)
+    name_to_ticker = _name_ticker_map(price_maps)  # 이름→티커(스크린샷 ETF 등 티커 없는 보유 해소)
+    fx = _usdkrw(data) or _FX_FALLBACK   # 환율 실패 시 폴백 — 미국 종목이 안 빠지게
+    positions: list[dict] = []
+    cash_balance = _num(data.get("cash_balance"))
+    cash_from_rows = 0.0
+
+    for idx, row in enumerate(raw_records):
+        ticker = str(_first(row, "ticker", "symbol", "code") or "").upper()
+        name = str(_first(row, "name", "asset_name", "display_name") or ticker or "현금")
+        if not ticker and name:  # 티커 없으면 이름으로 라이브 시세 매칭(ETF 오늘자 반영)
+            ticker = name_to_ticker.get(_norm_name(name), "")
+        category = _category_for_holding(row, ticker)
+        currency = _display_currency(row, ticker, category)
+        market_row = price_maps.get(ticker, {})
+        qty = _num(_first(row, "quantity", "qty", "shares", "units", "보유수량"))
+        current = _num(_first(row, "current_price", "last_price", "price", "현재가"))
+        if current is None:
+            current = _num(market_row.get("price"))
+        prev_close = _num(_first(row, "prev_close", "previous_close"))
+        if prev_close is None:
+            prev_close = _num(market_row.get("prev_close"))
+        change = _num(_first(row, "change", "day_change"))
+        if change is None:
+            change = _num(market_row.get("change"))
+        change_pct = _num(_first(row, "change_pct", "today_change_percent", "day_change_percent"))
+        if change_pct is None:
+            change_pct = _num(market_row.get("change_pct"))
+        avg_price = _num(_first(row, "average_price", "avg_price", "avg_cost", "average_cost", "평균단가"))
+        direct_market = _num(_first(row, "market_value", "marketValue", "평가금액", "position_value", "value"))
+        direct_cost = _num(_first(row, "cost_basis", "total_cost", "purchase_amount", "매입금액"))
+        direct_gain = _num(_first(row, "gain_loss", "unrealized_pnl", "pnl", "평가손익"))
+        direct_gain_pct = _num(_first(row, "gain_loss_percent", "pnl_percent", "return_pct", "수익률"))
+        direct_today = _num(_first(row, "today_change_amount", "day_change_amount", "오늘변동금액"))
+
+        if category == "현금":
+            cash_value = direct_market or _num(_first(row, "cash_balance", "balance", "amount")) or 0
+            if cash_value <= 0:
+                continue
+            cash_from_rows += cash_value
+            positions.append({
+                "id": ticker or f"CASH-{idx}",
+                "category": "현금",
+                "name": name or "현금/예수금",
+                "ticker": ticker or "CASH",
+                "currency": "KRW",
+                "quantity": None,
+                "current_price": None,
+                "avg_price": None,
+                "market_value": cash_value,
+                "cost_basis": cash_value,
+                "gain_loss": 0,
+                "gain_loss_pct": 0,
+                "today_change_amount": 0,
+                "today_change_pct": 0,
+                "source_row": row,
+            })
+            continue
+
+        fx_factor = fx if currency == "USD" and fx else 1
+
+        # ETF/qty-없는 종목: eval_amount로 포지션 생성
+        if qty is None or qty <= 0:
+            if direct_market and direct_market > 0:
+                cost_basis = direct_cost or direct_market
+                gain_loss = direct_gain or (direct_market - cost_basis if cost_basis else None)
+                gain_pct = direct_gain_pct or (gain_loss / cost_basis * 100 if gain_loss and cost_basis else None)
+                market_value_local = (direct_market / fx_factor) if fx_factor != 1 else direct_market
+                gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+                # 오늘 변동금액 — 스크린샷에 없으면 라이브 오늘% × 평가액으로 추정(ETF 오늘자 반영)
+                today_amt = direct_today
+                if today_amt is None and change_pct is not None:
+                    today_amt = direct_market * change_pct / 100
+                # 수량 추정 — 보유주수 미상이면 평가액(현지통화) ÷ 현재가
+                est_qty = None
+                if current and current > 0 and market_value_local:
+                    est_qty = market_value_local / current
+                positions.append({
+                    "id": ticker or name or f"HOLDING-{idx}",
+                    "category": category,
+                    "name": name,
+                    "ticker": ticker,
+                    "currency": currency,
+                    "quantity": est_qty,
+                    "quantity_est": est_qty is not None,
+                    "current_price": current,
+                    "avg_price": avg_price,
+                    "market_value": direct_market,
+                    "market_value_local": market_value_local,
+                    "cost_basis": cost_basis,
+                    "gain_loss": gain_loss,
+                    "gain_loss_local": gain_loss_local,
+                    "gain_loss_pct": gain_pct,
+                    "today_change_amount": today_amt,
+                    "today_change_pct": change_pct,
+                    "source_row": row,
+                })
+            continue
+
+        # USD eval_amount는 KRW로 환산
+        market_value = direct_market
+        if market_value is not None and fx_factor != 1:
+            market_value = direct_market * fx_factor
+        elif market_value is None and current is not None:
+            market_value = qty * current * fx_factor
+        cost_basis = direct_cost
+        if cost_basis is not None and fx_factor != 1:
+            cost_basis = direct_cost * fx_factor
+        elif cost_basis is None and avg_price is not None:
+            cost_basis = qty * avg_price * fx_factor
+        gain_loss = direct_gain
+        if gain_loss is not None and fx_factor != 1:
+            gain_loss = direct_gain * fx_factor
+        elif gain_loss is None and market_value is not None and cost_basis is not None:
+            gain_loss = market_value - cost_basis
+        gain_pct = direct_gain_pct
+        if gain_pct is None and gain_loss is not None and cost_basis:
+            gain_pct = gain_loss / cost_basis * 100
+        today_amount = direct_today
+        if today_amount is not None and fx_factor != 1:
+            today_amount = direct_today * fx_factor
+        elif today_amount is None and change is not None:
+            today_amount = qty * change * fx_factor
+
+        market_value_local = (market_value / fx_factor) if (fx_factor != 1 and market_value is not None) else market_value
+        gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+        positions.append({
+            "id": ticker or f"HOLDING-{idx}",
+            "category": category,
+            "name": name,
+            "ticker": ticker,
+            "currency": currency,
+            "quantity": qty,
+            "current_price": current,
+            "avg_price": avg_price,
+            "market_value": market_value,
+            "market_value_local": market_value_local,
+            "cost_basis": cost_basis,
+            "gain_loss": gain_loss,
+            "gain_loss_local": gain_loss_local,
+            "gain_loss_pct": gain_pct,
+            "today_change_amount": today_amount,
+            "today_change_pct": change_pct,
+            "source_row": row,
+        })
+
+    if cash_balance and cash_balance > 0 and not any(p["category"] == "현금" for p in positions):
+        positions.append({
+            "id": "CASH",
+            "category": "현금",
+            "name": "현금/예수금",
+            "ticker": "CASH",
+            "currency": "KRW",
+            "quantity": None,
+            "current_price": None,
+            "avg_price": None,
+            "market_value": cash_balance,
+            "cost_basis": cash_balance,
+            "gain_loss": 0,
+            "gain_loss_pct": 0,
+            "today_change_amount": 0,
+            "today_change_pct": 0,
+            "source_row": {"source": "cash_balance"},
+        })
+
+    total_value = sum(p["market_value"] or 0 for p in positions)
+    for p in positions:
+        p["weight"] = (p["market_value"] or 0) / total_value * 100 if total_value > 0 else 0
+
+    positions.sort(key=lambda x: x.get("market_value") or 0, reverse=True)
+    meta = {
+        "raw_count": len(raw_records),
+        "cash_balance": cash_balance if cash_balance is not None else (cash_from_rows if cash_from_rows > 0 else None),
+        "fx_usdkrw": fx,
+        "has_holdings_source": "holdings" in data,
+    }
+    return positions, meta
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _position_sparklines(tickers: tuple[str, ...]) -> dict[str, list[float]]:
+    tickers = tuple(t for t in tickers if t and t not in {"CASH", "KRW", "USD"})
+    if not tickers:
+        return {}
+    try:
+        from data.session import cached_download
+        raw = cached_download(list(dict.fromkeys(tickers)), period="1y", interval="1wk", progress=False, auto_adjust=True, ttl=3600)
+        if raw.empty:
+            return {}
+        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
+        multi = len(set(tickers)) > 1
+        out: dict[str, list[float]] = {}
+        for ticker in tickers:
+            s = closes[ticker].dropna() if multi and ticker in closes.columns else closes.dropna()
+            if len(s) >= 2:
+                base = float(s.iloc[0]) or 1
+                out[ticker] = [(float(v) / base - 1) * 100 for v in s]
+        return out
+    except Exception:
+        return {}
+
+
+def _sparkline_svg(values: list[float]) -> str:
+    if len(values) < 2:
+        return '<div style="color:#7E8694;font-size:10px;font-weight:850;padding-top:8px">차트 데이터 대기</div>'
+    width, height, pad = 160, 34, 2
+    mn, mx = min(values), max(values)
+    span = mx - mn or 0.1
+    terminal = float(values[-1])
+    color = "#F25560" if terminal > 3 else ("#4D90F0" if terminal < -3 else "#9AA0AD")
+    pts = []
+    for i, v in enumerate(values):
+        x = pad + (i / (len(values) - 1)) * (width - 2 * pad)
+        y = (height - pad) - ((v - mn) / span) * (height - 2 * pad)
+        pts.append((x, y))
+    line_d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area_d = line_d + f" L {width - pad},{height} L {pad},{height} Z"
+    return (
+        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
+        f'<path d="{area_d}" fill="{color}" fill-opacity="0.16"/>'
+        f'<path d="{line_d}" stroke="{color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '</svg>'
+    )
+
+
+def _portfolio_summary(positions: list[dict], meta: dict) -> dict:
+    if not positions:
+        return {
+            "has_data": False,
+            "total_market_value": None,
+            "total_cost_basis": None,
+            "total_gain_loss": None,
+            "total_gain_loss_pct": None,
+            "today_change_amount": None,
+            "today_change_pct": None,
+            "largest_position": None,
+            "top_gain_contributor": None,
+            "cash_balance": meta.get("cash_balance"),
+            "fx_usdkrw": meta.get("fx_usdkrw"),
+        }
+    total = sum(p["market_value"] or 0 for p in positions)
+    cost = sum(p["cost_basis"] or 0 for p in positions)
+    gain = sum(p["gain_loss"] or 0 for p in positions)
+    today = sum(p["today_change_amount"] or 0 for p in positions)
+    gain_pct = gain / cost * 100 if cost else None
+    today_pct = today / total * 100 if total else None
+    gainers = [p for p in positions if p.get("gain_loss") is not None]
+    return {
+        "has_data": True,
+        "total_market_value": total,
+        "total_cost_basis": cost,
+        "total_gain_loss": gain,
+        "total_gain_loss_pct": gain_pct,
+        "today_change_amount": today,
+        "today_change_pct": today_pct,
+        "largest_position": positions[0] if positions else None,
+        "top_gain_contributor": max(gainers, key=lambda x: x.get("gain_loss") or 0) if gainers else None,
+        "cash_balance": meta.get("cash_balance"),
+        "fx_usdkrw": meta.get("fx_usdkrw"),
+    }
+
+
+def _positions_by_category(positions: list[dict], show_empty: bool = False) -> list[dict]:
+    total = sum(p["market_value"] or 0 for p in positions)
+    grouped: list[dict] = []
+    categories = _DETAIL_CATEGORY_ORDER + sorted({p["category"] for p in positions} - set(_DETAIL_CATEGORY_ORDER))
+    for category in categories:
+        items = [p for p in positions if p["category"] == category]
+        if not items and not show_empty:
+            continue
+        value = sum(p["market_value"] or 0 for p in items)
+        cost = sum(p["cost_basis"] or 0 for p in items)
+        gain = sum(p["gain_loss"] or 0 for p in items)
+        today = sum(p["today_change_amount"] or 0 for p in items)
+        grouped.append({
+            "id": category,
+            "name": category,
+            "count": len(items),
+            "items": items,
+            "total_market_value": value,
+            "weight": value / total * 100 if total else 0,
+            "total_gain_loss": gain if items else None,
+            "total_gain_loss_pct": gain / cost * 100 if cost else None,
+            "today_change_amount": today if items else None,
+            "top_by_value": items[:3],
+        })
+    return grouped
+
+
+def _summary_card(label: str, value: str, sub: str = "", cls: str = "") -> str:
+    return (
+        '<div class="pd-summary-card">'
+        f'<span>{_escape(label)}</span>'
+        f'<b class="{cls}">{_escape(value)}</b>'
+        f'<small>{_escape(sub)}</small>'
+        '</div>'
+    )
+
+
+def _portfolio_today_state(summary: dict) -> tuple[str, str, str, str]:
+    amount = summary.get("today_change_amount")
+    pct = summary.get("today_change_pct")
+    total = summary.get("total_market_value") or 0
+    if amount is None or pct is None:
+        return "데이터 대기", "전일가 연결 필요", "pd-neu", "normal"
+    if abs(pct) > 50 or (total > 0 and abs(amount) > total * 0.5):
+        return "데이터 확인 필요", "수량·통화·전일가 중 하나가 비정상일 수 있습니다", "pd-warn", "outlier"
+    return _money(amount, "KRW", signed=True, compact=True), f"오늘 변동률 {pct:+.2f}%", _tone(amount), "normal"
+
+
+def _format_weight(value: float | None) -> str:
+    if value is None:
+        return "0%"
+    return f"{pct_weight(value)}%"
+
+
+def _target_upside(position: dict, target_prices: dict[str, float]) -> float | None:
+    target = target_prices.get(position["ticker"])
+    current = position.get("current_price")
+    if target and current:
+        return (target / current - 1) * 100
+    return None
+
+
+def _target_upside_html(position: dict, target_prices: dict[str, float]) -> str:
+    upside = _target_upside(position, target_prices)
+    if upside is None:
+        return '<span class="pd-neu">데이터 없음</span>'
+    cls = _tone(upside)
+    return f'<span class="{cls}">{upside:+.1f}%</span>'
+
+
+def _position_value_pair(position: dict, compact: bool = False) -> tuple[str, str]:
+    primary = _money(position.get("market_value"), "KRW", compact=compact)
+    currency = position.get("currency", "KRW")
+    local = position.get("market_value_local")
+    if currency == "USD" and local is not None:
+        return primary, f"≈ {_money(local, 'USD')}"
+    return primary, currency
+
+
+def _portfolio_overview_html(summary: dict, positions: list[dict], categories: list[dict]) -> str:
+    if not summary["has_data"]:
+        return (
+            '<div class="pd-overview">'
+            '<div class="pd-hero"><span>원화 환산 총액</span><b>API 데이터 없음</b>'
+            '<small>보유 수량과 평가금액이 연결되면 요약을 표시합니다.</small></div>'
+            '</div>'
+        )
+
+    total = summary.get("total_market_value")
+    gain = summary.get("total_gain_loss")
+    gain_pct = summary.get("total_gain_loss_pct")
+    today_value, today_sub, today_cls, today_state = _portfolio_today_state(summary)
+    cash = summary.get("cash_balance")
+    fx = summary.get("fx_usdkrw")
+    today_chip_cls = "warn" if today_state == "outlier" else ""
+    gain_sub = f"평가 수익률 {gain_pct:+.2f}%" if gain_pct is not None else "원가 데이터 대기"
+    fx_text = _cur(fx, "KRW") if fx else "데이터 대기"
+    # 집중도·USD 노출 수치는 위험 카드와 진단 탭에 한 곳씩만(single source of truth, Track W).
+    # 히어로 칩은 데이터 이상 '플래그'만 남긴다(중복 제거).
+    chips = [
+        f'<span class="pd-chip {today_chip_cls}">{_escape(today_value)}</span>' if today_state == "outlier" else "",
+    ]
+    # D1: 핵심 성과 3카드(총액·총손익·오늘)만. 참조값(현금·환율)은 총액 카드 보조 줄로 흡수(빈 카드 제거).
+    cash_disp = _money(cash, "KRW", compact=True) if cash is not None else "데이터 없음"
+    hero_sub = f"보유 {len(positions)}개 · 현금 {cash_disp} · USD/KRW {fx_text}"
+    return (
+        '<div class="pd-overview">'
+        '<div class="pd-hero">'
+        '<div><span>원화 환산 총액</span>'
+        f'<b>{_money(total, "KRW", compact=True)}</b>'
+        f'<small>{_escape(hero_sub)}</small></div>'
+        f'<div class="pd-hero-chips">{"".join(chips)}</div>'
+        '</div>'
+        f'<div class="pd-metric"><span>총 손익</span><b class="{_tone(gain)}">{_money(gain, "KRW", signed=True, compact=True)}</b>'
+        f'<small>{_escape(gain_sub)}</small></div>'
+        f'<div class="pd-metric"><span>오늘 변동</span><b class="{today_cls}">{_escape(today_value)}</b><small>{_escape(today_sub)}</small></div>'
+        '</div>'
+        '<div class="pd-overview-note">최대 비중·상위 3개 집중도와 USD 노출 상세는 '
+        '아래 <b>위험 카드</b>와 <b>진단</b> 탭에서 한 곳으로 모아 보여줍니다.</div>'
+    )
+
+
+# 집중도 색 팔레트 — 색 = 비중 차등(등락색 회피). 최대 집중만 레드 경고, 이후 골드→올리브→회색.
+_CONC_ALARM = "#E2683C"                                              # 최대 집중(과집중 위험) — 주황(경고 채널)
+_CONC_RAMP  = ["#C99A3C", "#8C7A3E", "#5A5F52", "#3E4450", "#2E333B"]  # 비중순 골드→회색
+_CONC_ETC   = "#23272F"                                              # 기타(가장 짙은 회색)
+_CONC_ALARM_MIN = 50.0   # 최대 종목이 이 비중↑이면 주황 위험 경고(=PB '위험' 기준). 미만이면 골드(비중)
+
+# 종목 집중도 바 = 각 종목 고유 브랜드 색(구성을 색으로 직관적으로 읽게). 브랜드 그라데이션의 대표 솔리드.
+_BRAND_SOLID = {
+    "brand-red": "#D74333", "brand-dark": "#6F7C84", "brand-blue": "#3B82C4",
+    "brand-green": "#3AA384", "brand-violet": "#7B6FD6", "brand-gold": "#D6A23A",
+}
+_STOCK_FALLBACK = ["#5E6573", "#4A515E", "#3E4450", "#33383F", "#2A2E36"]  # 브랜드 미상 종목(중립 회색)
+
+
+def _stock_bar_color(ticker: str, idx: int) -> str:
+    """종목 → 고유 브랜드 색(있으면), 없으면 중립 회색 차등."""
+    cls = _BRAND_CLASSES.get(_ticker_key(ticker), "")
+    return _BRAND_SOLID.get(cls, _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)])
+
+
+def _conc_color(rank: int, leader_alarm: bool) -> str:
+    """비중 내림차순 rank → 색. 1위는 과집중이면 레드, 아니면 골드. 이후 골드→회색 차등."""
+    if rank == 0:
+        return _CONC_ALARM if leader_alarm else _CONC_RAMP[0]
+    ri = (rank - 1) if leader_alarm else rank   # 레드면 2위가 골드, 골드면 2위가 올리브
+    return _CONC_RAMP[min(ri, len(_CONC_RAMP) - 1)]
+
+
+# 자산군 = 카테고리 상징색. 미국/한국은 국기 색을 '실제 면적 비율'로 가중 혼합한 대표색.
+_CAT_COLOR = {
+    "미국주식": "#8A2B48",   # 성조기 혼합(흰 제외): 빨강 66% + 파랑 34% → 와인/자주
+    "국내주식": "#563460",   # 태극기 혼합(흰 제외): 빨·파 각 44% + 검 12% → 짙은 플럼/남보라
+    "ETF": "#7E6BD6",        # 혼합 바스켓 = 바이올렛
+    "크립토": "#F0A030",     # 코인 앰버
+    "원자재": "#9E7B3B",     # 금속/원자재 = 브론즈
+    "현금": "#3FB27F",       # 현금 = 머니 그린
+}
+_CAT_FALLBACK = "#5A6270"
+
+
+def _mini_allocation_html(categories: list[dict]) -> str:
+    # 자산군 = 카테고리 상징색(미국·한국은 국기 면적비율 혼합색). 비중 내림차순 정렬.
+    active = sorted(
+        [c for c in categories if c["count"] > 0 and c["weight"] > 0],
+        key=lambda c: c["weight"], reverse=True,
+    )
+    if not active:
+        return '<div class="pd-empty"><b>자산군 비중 데이터 없음</b><p>보유 자산군 데이터가 연결되면 표시합니다.</p></div>'
+    bars = []
+    legends = []
+    for idx, cat in enumerate(active):
+        color = _CAT_COLOR.get(cat["name"], _CAT_FALLBACK)
+        width = min(100, max(0, cat["weight"]))
+        bars.append(f'<i style="width:{width:.1f}%;background:{color}" title="{_escape(cat["name"])} {pct_weight(cat["weight"])}%"></i>')
+        legends.append(
+            f'<span><i class="pd-mini-dot" style="background:{color}"></i>{_escape(cat["name"])} {pct_weight(cat["weight"])}%</span>'
+        )
+    return '<div class="pd-mini-alloc">' + "".join(bars) + '</div><div class="pd-mini-legend">' + "".join(legends) + '</div>'
+
+
+def _holdings_concentration_html(positions: list[dict]) -> str:
+    """종목 집중도 시각화 — 종목별 색 스택 바(막대만 봐도 구성이 읽히게).
+
+    색 = 각 종목 고유 브랜드 색(테슬라·애플·엔비디아 등). 과집중 '위험' 경고는 위험 카드(주황)가 담당.
+    종목 多(>5)면 상위 5개만 브랜드색 + 기타 회색.
+    """
+    colored = [p for p in positions[:5] if p.get("weight", 0) > 0]
+    if not colored:
+        return ""
+    shown = sum(p.get("weight", 0) for p in colored)
+    etc = max(0.0, 100.0 - shown)
+    bars, legends = [], []
+    for i, p in enumerate(colored):
+        w = p.get("weight", 0)
+        c = _stock_bar_color(p.get("ticker", ""), i)
+        nm = _escape(p.get("name", ""))
+        bars.append(f'<i style="width:{w:.1f}%;background:{c}" title="{nm} {pct_weight(w)}%"></i>')
+        legends.append(f'<span><i class="pd-mini-dot" style="background:{c}"></i>{nm} {pct_weight(w)}%</span>')
+    if etc > 0.5:
+        bars.append(f'<i style="width:{etc:.1f}%;background:{_CONC_ETC}"></i>')
+        legends.append(f'<span><i class="pd-mini-dot" style="background:{_CONC_ETC}"></i>기타 {pct_weight(etc)}%</span>')
+    return (
+        '<div class="pd-conc-label">종목 집중도 <span>종목별 고유색 · 비중순</span></div>'
+        '<div class="pd-mini-alloc">' + "".join(bars) + '</div>'
+        '<div class="pd-mini-legend">' + "".join(legends) + '</div>'
+    )
+
+
+def _greed_bar_html(g: dict) -> str:
+    """탐욕 지수 바(D1) — 종목 집중도 바와 같은 양식(라벨+12px 바)으로 바로 아래 한 쌍.
+    색은 회색→골드 그라데이션(파랑=하락 충돌 회피) + 흰 마커 + 공포/중립/탐욕 라벨로 읽게 한다(A+C)."""
+    score = max(0, min(100, int(g["score"])))
+    tone = ("과열 구간 — 점검 권장" if score >= 60 else
+            "균형 구간" if score >= 45 else "방어적 구간")
+    return (
+        '<div class="gd-block">'   # 위 자산군 바와 구분되게 약간의 간격+옅은 구분선
+        f'<div class="pd-conc-label">내 계좌 탐욕 지수 '
+        f'<span>{_escape(g["label"])} {score} · {tone} · 집중도·현금 기반(시장 아님)</span></div>'
+        f'<div class="gd-track"><i class="gd-marker" style="left:{score}%"></i></div>'
+        '<div class="gd-scale"><span>공포</span><span>중립</span><span>탐욕</span></div>'
+        '</div>'
+    )
+
+
+def _portfolio_diagnosis_html(positions: list[dict], categories: list[dict], summary: dict,
+                              actions: str = "", extra_html: str = "") -> str:
+    if not positions:
+        return (
+            '<div class="pd-diagnosis"><div class="pd-diagnosis-head"><b>포트폴리오 진단</b>'
+            '<span>데이터 대기</span></div><div class="pd-diagnosis-grid">'
+            '<div class="pd-diagnosis-item"><strong>계산 대기</strong><span>보유 수량과 평가금액이 연결되면 집중도와 환율 노출을 계산합니다.</span></div>'
+            '</div></div>'
+        )
+    largest = positions[0]
+    top3_weight = sum(p.get("weight", 0) for p in positions[:3])
+    fx_weight = sum(p.get("weight", 0) for p in positions if p.get("currency") == "USD")
+    active_cats = [c for c in categories if c["count"] > 0]
+    largest_cat = max(active_cats, key=lambda c: c["weight"]) if active_cats else None
+    today_value, today_sub, _, today_state = _portfolio_today_state(summary)
+    largest_w = largest.get("weight", 0)
+    # 카드 좌측 바 색 = 집중도 막대 색 매칭: 최대 집중(과집중)=레드, 아니면 골드 / 상위3=골드 / USD·자산군=올리브
+    leader_alarm = largest_w >= _CONC_ALARM_MIN
+    single_sev = "danger" if leader_alarm else "gold"
+    single_body = (
+        "단일 종목 비중이 과도합니다. 개별 악재 시 총 평가액이 크게 흔들릴 수 있어 분할 매도·분산을 우선 검토하세요."
+        if largest_w >= 50 else
+        "단일 종목 비중이 높아 해당 종목 뉴스가 총 평가액에 크게 반영됩니다."
+    )
+    items = [
+        # 비중 수치는 바로 위 '종목 집중도' 바에 표시 → 진단 항목은 종목명 + 액션만(중복 제거)
+        # sev 클래스 = 막대 색과 매칭(danger 레드 / gold 골드 / olive 올리브)
+        (f'{largest["name"]} 집중', single_body, single_sev),
+        (f"상위 3개 {_format_weight(top3_weight)}", "상위 포지션 중심입니다. 리밸런싱 시 먼저 볼 구간입니다.", "gold"),
+        (f"USD 노출 {_format_weight(fx_weight)}", "원/달러 변동이 원화 평가금액에 직접 반영됩니다.", "olive"),
+    ]
+    if largest_cat:
+        items.append((f'{largest_cat["name"]} {_format_weight(largest_cat.get("weight"))}', "자산군 분산 상태를 함께 확인하세요.", "olive"))
+    if today_state == "outlier":
+        items.append((today_value, today_sub, ""))
+    return (
+        '<div class="pd-diagnosis">'
+        '<div class="pd-diagnosis-head"><b>포트폴리오 진단</b>'
+        '<div class="pd-head-right"><span>한눈에 판단할 핵심 원인</span>' + actions + '</div></div>'
+        + _holdings_concentration_html(positions)   # 종목 집중 시각화(핵심)
+        + _mini_allocation_html(categories)          # 자산군 분산(보조)
+        + extra_html                                  # 탐욕 바 — 자산군 바 아래로(위치 스왑)
+        + '<div class="pd-diagnosis-grid">'
+        + "".join(f'<div class="pd-diagnosis-item {sev}"><strong>{_escape(title)}</strong><span>{_escape(body)}</span></div>' for title, body, sev in items[:4])
+        + '</div>'
+        + '</div>'
+    )
+
+
+def _sort_positions(positions: list[dict], target_prices: dict[str, float], sort_key: str) -> list[dict]:
+    if sort_key == "수익률순":
+        return sorted(positions, key=lambda p: p.get("gain_loss_pct") if p.get("gain_loss_pct") is not None else -999999, reverse=True)
+    if sort_key == "오늘 변동순":
+        return sorted(positions, key=lambda p: abs(p.get("today_change_pct") or 0), reverse=True)
+    if sort_key == "목표여력순":
+        return sorted(positions, key=lambda p: _target_upside(p, target_prices) if _target_upside(p, target_prices) is not None else -999999, reverse=True)
+    return sorted(positions, key=lambda p: p.get("weight") or 0, reverse=True)
+
+
+def _holdings_table_html(positions: list[dict], target_prices: dict[str, float], limit: int | None = None) -> str:
+    visible = positions[:limit] if limit else positions
+    if not visible:
+        return '<div class="pd-empty"><b>표시할 보유종목이 없습니다</b><p>포트폴리오 데이터가 연결되면 여기에 종목 리스트가 표시됩니다.</p></div>'
+    max_w = max((p.get("weight") or 0 for p in visible), default=0)
+    rows = []
+    for position in visible:
+        w = position.get("weight") or 0
+        gain_cls = _tone(position.get("gain_loss_pct"))
+        day_cls = _tone(position.get("today_change_pct"), 0.05)
+        primary_value, secondary_value = _position_value_pair(position)
+        target, _, _ = _target_info(position, target_prices)
+        upside = _target_upside(position, target_prices)
+        upside_label = f"{upside:+.1f}%" if upside is not None else "데이터 없음"
+        upside_cls = _tone(upside)
+        logo_item = {"group": position["category"], "name": position["name"], "code": position["ticker"]}
+        shares = _fmt_qty(position.get("quantity"), position.get("quantity_est", False))
+        # 비중 바: 최대 비중만 주황(집중 위험 — 경고 채널), 나머지 회색. 손익 빨강과 분리
+        bar_color = "#E2683C" if (max_w > 0 and w >= max_w) else "#5A5F52"
+        # 손익률·금액·오늘 — 한 줄, 색 적용(12.5px)
+        # C2: 점(·) 대신 간격으로 손익률 / 금액 / 오늘 구분(빽빽함 해소)
+        if position.get("gain_loss_pct") is not None:
+            ret = (f'<span class="hl-ret-pct {gain_cls}">{position["gain_loss_pct"]:+.1f}%</span>'
+                   f'<span class="hl-ret-amt {gain_cls}">{_money(position.get("gain_loss"), "KRW", signed=True, compact=True)}</span>')
+        else:
+            ret = '<span class="pd-neu">손익 대기</span>'
+        today = (f'<span class="hl-ret-today">오늘 <b class="{day_cls}">{position["today_change_pct"]:+.2f}%</b></span>'
+                 if position.get("today_change_pct") is not None else '')
+        rows.append(
+            '<div class="hl-row">'
+            '<div class="hl-main">'
+            f'{_logo_html(logo_item)}'
+            '<div class="hl-info">'
+            f'<b class="hl-name">{_escape(position["name"])}</b>'
+            f'<span class="hl-sub">{_escape(position["category"])} · {_escape(shares)} · 비중 {_format_weight(w)}</span>'
+            f'<div class="hl-wbar"><i style="width:{min(w,100):.0f}%;background:{bar_color}"></i></div>'
+            '</div></div>'
+            '<div class="hl-vals">'
+            f'<b class="hl-val">{_escape(primary_value)}</b>'
+            f'<span class="hl-ret">{ret}{today}</span>'
+            '</div>'
+            '<details class="hl-exp" name="hold-acc"><summary aria-label="상세 보기"><span class="hl-caret">▾</span></summary>'
+            f'<div class="hl-detail">{_insight_text(position, target_prices)}<br>'
+            f'<b>현재가</b> {_price(position.get("current_price"), position.get("currency", "KRW"))} · '
+            f'<b>평가액</b> {_escape(primary_value)} ({_escape(secondary_value)}) · '
+            f'<b>목표가</b> {_escape(target)} · <b>여력</b> <span class="{upside_cls}">{_escape(upside_label)}</span></div>'
+            '</details>'
+            '</div>'
+        )
+    return '<div class="pd-table-card hl-card">' + "".join(rows) + '</div>'
+
+
+def _holdings_panel_html(
+    title: str,
+    subtitle: str,
+    positions: list[dict],
+    target_prices: dict[str, float],
+    limit: int | None = None,
+    action: str = "",
+) -> str:
+    return (
+        '<div class="pd-list-panel">'
+        f'<div class="pd-list-head"><b>{_escape(title)}</b>'
+        f'<div class="pd-head-right"><span>{_escape(subtitle)}</span>{action}</div></div>'
+        + _holdings_table_html(positions, target_prices, limit=limit)
+        + '</div>'
+    )
+
+
+def _holdings_card_grid_html(
+    positions: list[dict],
+    target_prices: dict[str, float],
+    sparks: dict[str, list[float]],
+) -> str:
+    if not positions:
+        return '<div class="pd-empty"><b>표시할 보유종목이 없습니다</b></div>'
+    cards = []
+    for position in positions:
+        ret_cls = _tone(position.get("gain_loss_pct"))
+        day_cls = _tone(position.get("today_change_pct"), 0.05)
+        _, upside, upside_cls = _target_info(position, target_prices)
+        logo_item = {"group": position["category"], "name": position["name"], "code": position["ticker"]}
+        currency = position.get("currency", "KRW")
+        qty = position.get("quantity")
+        local = position.get("market_value_local")
+
+        # value sub-line: USD equiv + qty
+        sub_parts: list[str] = []
+        if currency == "USD" and local is not None:
+            sub_parts.append(f"= ${local:,.0f}")
+        if qty is not None:
+            sub_parts.append(f"{_fmt_qty(qty)}주")
+        val_sub = " · ".join(sub_parts) if sub_parts else ""
+
+        # return pill
+        if position.get("gain_loss_pct") is not None:
+            ret_val = f'{position["gain_loss_pct"]:+.2f}%'
+            ret_sub = _money(position.get("gain_loss"), "KRW", signed=True, compact=True)
+        else:
+            ret_val, ret_sub = "—", ""
+
+        # today pill
+        if position.get("today_change_pct") is not None:
+            day_val = f'{position["today_change_pct"]:+.2f}%'
+            day_sub = _money(position.get("today_change_amount"), "KRW", signed=True, compact=True) if position.get("today_change_amount") else ""
+        else:
+            day_val, day_sub, day_cls = "대기", "", "pd-neu"
+
+        cur_price = _price(position.get("current_price"), currency)
+        upside_str = upside if upside and upside != "—" else "데이터 없음"
+        qty_str = _fmt_qty(qty) if qty is not None else "—"
+        spark_svg = _sparkline_svg(sparks.get(position.get("ticker") or "", []))
+
+        cards.append(
+            '<article class="hcv-card">'
+            '<div class="hcv-head">'
+            f'{_logo_html(logo_item)}'
+            '<div class="hcv-info">'
+            f'<b>{_escape(position["name"])}</b>'
+            f'<span>{_escape(position.get("ticker") or "—")} · {_escape(position["category"])}</span>'
+            '</div>'
+            f'<div class="hcv-wt">{pct_weight(position.get("weight", 0))}%</div>'
+            '</div>'
+            '<div class="hcv-val">'
+            f'<div class="hcv-val-num">{_money(position.get("market_value"), "KRW")}</div>'
+            f'<div class="hcv-val-sub">{_escape(val_sub)}</div>'
+            '</div>'
+            '<div class="hcv-pills">'
+            f'<div class="hcv-pill"><span>수익률</span><b class="{ret_cls}">{_escape(ret_val)}</b>'
+            f'<small>{_escape(ret_sub)}</small></div>'
+            f'<div class="hcv-pill"><span>오늘</span><b class="{day_cls}">{_escape(day_val)}</b>'
+            f'<small>{_escape(day_sub)}</small></div>'
+            '</div>'
+            '<div class="hcv-stats">'
+            f'<div class="hcv-st"><span>현재가</span><b>{_escape(cur_price)}</b></div>'
+            f'<div class="hcv-st"><span>목표 여력</span><b class="{upside_cls}">{_escape(upside_str)}</b></div>'
+            f'<div class="hcv-st"><span>수량</span><b>{_escape(qty_str)}</b></div>'
+            '</div>'
+            f'<div class="hcv-spark">{spark_svg}</div>'
+            '</article>'
+        )
+    return '<div class="hcv-grid">' + "".join(cards) + '</div>'
+
+
+def _rebalance_html(positions: list[dict], summary: dict,
+                    cap: float = 25.0, threshold: float = 5.0) -> str:
+    """균형형(SAA + 임계 리밸런싱) 조정 표. cap=단일 종목 상한, threshold=±%p 임계 밴드."""
+    if not positions:
+        return '<div class="pd-empty"><b>리밸런싱 계산 대기</b><p>보유종목 데이터가 연결되면 집중도 완화 시나리오를 계산합니다.</p></div>'
+    largest = positions[0]
+    total = summary.get("total_market_value") or 0
+    current_weight = largest.get("weight") or 0
+    trim_amount = max(0, (largest.get("market_value") or 0) - total * (cap / 100))
+    top3_weight = sum(p.get("weight", 0) for p in positions[:3])
+    fx_weight = sum(p.get("weight", 0) for p in positions if p.get("currency") == "USD")
+
+    # ── 종목별 조정 표: 단일 종목 상한(cap%) + ±threshold%p 임계 리밸런싱. 금액 자동 산출 ──
+    from core.pb import friction_krw
+    rows = []
+    freed = 0.0
+    freed_fee = 0.0       # 매도 실행 마찰비용(거래세·수수료·환전) 개략 추정
+    freed_has_us = False
+    for p in positions[:8]:
+        w = p.get("weight", 0) or 0
+        tgt = min(w, cap)
+        delta = tgt - w                       # 음수 = 매도, 양수 = 매수
+        amt = delta / 100 * total
+        if abs(delta) < 0.05:
+            adj_html = '<span class="rb-keep">유지</span>'
+            amt_html = '<span class="rb-keep rb-num">—</span>'
+        elif abs(delta) < threshold:          # 임계 밴드 이내 → 거래 안 함(과잉 매매 방지)
+            adj_html = '<span class="rb-keep rb-num">유지 · 임계 이내</span>'
+            amt_html = '<span class="rb-keep rb-num">—</span>'
+        else:
+            cls = "rb-sell" if delta < 0 else "rb-buy"   # 매도=블루 / 매수=레드(한국식)
+            word = "매도" if delta < 0 else "매수"
+            adj_html = f'<span class="{cls} rb-num">{delta:+.1f}%p {word}</span>'
+            amt_html = f'<span class="{cls} rb-num">{_money(amt, "KRW", signed=True, compact=True)}</span>'
+            if delta < 0:
+                _is_us = p.get("currency") == "USD"
+                freed += -amt
+                freed_fee += friction_krw(-amt, is_us=_is_us)
+                freed_has_us = freed_has_us or _is_us
+        rows.append(
+            '<div class="rb-trow">'
+            f'<span class="rb-nm">{_escape(p.get("name", ""))}</span>'
+            f'<span class="rb-cur">{pct_weight(w)}%</span>'
+            f'<span class="rb-tgt">{pct_weight(tgt)}%</span>'
+            f'{adj_html}{amt_html}</div>'
+        )
+    foot = (
+        f'매도 재원 약 <b style="color:#4D90F0">{_money(freed, "KRW", compact=True)}</b>은 '
+        f'현금 비중 확대·다른 자산군 분산 매수에 배분하는 시나리오입니다. '
+        f'(단일 종목 상한 {pct_weight(cap)}% · ±{pct_weight(threshold)}%p 임계)<br>'
+        f'<span style="color:#7E8694">실행 비용 약 {_money(freed_fee, "KRW", compact=True)} 차감 시 '
+        f'순재원 약 {_money(max(freed - freed_fee, 0), "KRW", compact=True)} '
+        f'— 거래세·수수료{"·환전" if freed_has_us else ""} 추정'
+        f'{" · 해외 양도세는 실현손익에 따라 별도" if freed_has_us else ""}.</span>'
+        if freed > 0 else
+        f'단일 종목 상한 {pct_weight(cap)}% · ±{pct_weight(threshold)}%p 임계 이내 — 즉시 조정할 과집중 종목은 없습니다.'
+    )
+    table = (
+        '<div class="pd-diagnosis">'
+        '<div class="pd-diagnosis-head"><b>종목별 조정</b><span>현재 → 목표(상한) · 금액 자동 산출</span></div>'
+        '<div class="rb-tbl">'
+        '<div class="rb-thead"><span>종목</span><span>현재</span><span>목표</span>'
+        '<span class="rb-num">조정</span><span class="rb-num">금액(원화)</span></div>'
+        + "".join(rows)
+        + f'<div class="rb-foot">{foot}</div>'
+        '</div></div>'
+    )
+
+    # ── 매도 자금 이동처(자산군 수준) — 목표 배분에서 부족한 칸 채우기. 종목·상품 추천 금지 ──
+    cash = summary.get("cash_balance") or 0
+    cash_now = (cash / total * 100) if total else 0
+    div_now = sum((p.get("weight") or 0) for p in positions
+                  if p.get("category") in ("ETF", "원자재", "채권", "크립토"))
+    freed_pct = (freed / total * 100) if total else 0
+    cash_target = 10.0                                   # 현금 완충 목표(균형형 룰)
+    cash_move = min(freed_pct, max(0.0, cash_target - cash_now))   # 현금 부족분 우선 채움
+    div_move = max(0.0, freed_pct - cash_move)           # 나머지는 분산 자산군으로
+    dest = [
+        ("현금 완충", cash_now, cash_now + cash_move, cash_move),
+        ("분산 자산군 (ETF·채권 등 저상관)", div_now, div_now + div_move, div_move),
+    ]
+    drows = ""
+    for nm, cur, tgt, mv in dest:
+        if mv > 0.05:
+            mv_html = (f'<span class="rb-move rb-num">+{mv:.1f}%p</span>'
+                       f'<span class="rb-move rb-num">+{_money(mv / 100 * total, "KRW", compact=True)}</span>')
+        else:
+            mv_html = '<span class="rb-keep rb-num">유지</span><span class="rb-keep rb-num">—</span>'
+        drows += (
+            '<div class="rb-trow">'
+            f'<span class="rb-nm">{_escape(nm)}</span>'
+            f'<span class="rb-cur">{pct_weight(cur)}%</span>'
+            f'<span class="rb-tgt">{pct_weight(tgt)}%</span>'
+            f'{mv_html}</div>'
+        )
+    dest_block = (
+        '<div class="pd-diagnosis">'
+        '<div class="pd-diagnosis-head"><b>매도 자금 이동처</b><span>자산군 수준 · 종목·상품 추천 아님</span></div>'
+        '<div class="rb-tbl">'
+        '<div class="rb-thead"><span>자산군</span><span>현재</span><span>목표</span>'
+        '<span class="rb-num">이동</span><span class="rb-num">금액(원화)</span></div>'
+        + drows
+        + '<div class="rb-foot">이동처는 <b style="color:#C99A3C">자산군 분산 방향</b>이며 특정 종목·상품(예: 개별 주식·ETF 티커) 추천이 아닙니다. '
+          '구체 상품 선택과 최종 책임은 본인에게 있습니다.</div>'
+        '</div></div>'
+    ) if freed_pct > 0.05 else ""
+
+    # ── '앱이 돕는 것' vs '사용자가 정하는 것' 역할 분리 ──
+    reduction = max(0.0, current_weight - min(current_weight, cap))
+    roles_block = (
+        '<div class="rb-split">'
+        '<div class="rb-role app"><div class="rb-role-k">앱이 돕는 것</div>'
+        '<ul><li>부족한 자산군 식별(현금·분산)</li>'
+        '<li>균형까지 필요한 배분 금액 자동 산출</li>'
+        f'<li>집중 위험 감소폭: {pct_weight(current_weight)}% → {pct_weight(min(current_weight, cap))}% '
+        f'(−{reduction:.1f}%p)</li></ul></div>'
+        '<div class="rb-role user"><div class="rb-role-k">사용자가 정하는 것</div>'
+        '<ul><li>구체 종목·상품 선택</li><li>매수 타이밍</li><li>분할 매수 횟수</li></ul></div>'
+        '</div>'
+    )
+    return (
+        '<div class="pd-rebalance-grid">'
+        '<div class="pd-rebalance-card">'
+        f'<b>{_escape(largest["name"])} {pct_weight(cap)}% 시나리오</b>'
+        f'<p>현재 비중 {pct_weight(current_weight)}%에서 {pct_weight(cap)}%로 낮추려면 원화 기준 약 {_money(trim_amount, "KRW", compact=True)} 규모를 다른 자산군으로 옮기는 시나리오를 검토할 수 있습니다.</p>'
+        '</div>'
+        '<div class="pd-rebalance-card">'
+        '<b>우선순위</b>'
+        f'<p>상위 3개 비중 {pct_weight(top3_weight)}%, USD 노출 {pct_weight(fx_weight)}%입니다. 신규 매수 전에는 단일 종목과 환율 노출을 먼저 낮추는 선택지가 더 직접적입니다.</p>'
+        '</div></div>'
+        + table + dest_block + roles_block
+    )
+
+
+# ── 운용 방식(철학) 레이어 — 근거 출처 명시, 균형형만 실제 계산 구현 ──────────────
+_REBAL_METHODS = {
+    "균형형": {
+        "rec": True,
+        "desc": "전략적 목표비중(SAA)에 ±5%p 임계 리밸런싱 · 단일 종목 상한 25%.",
+        "src": "Vanguard·CFA 임계 · 골드만 SAA",
+        "rule": "SAA(전략적 자산배분)",
+        "when": "목표비중 ±5%p 이탈 시",
+        "fit": "대부분의 장기 투자자",
+        "engine": True,
+    },
+    "정량 최적화형": {
+        "rec": False,
+        "desc": "목표·위험성향을 입력해 수리 최적화로 배분을 도출.",
+        "src": "골드만 ISG robust optimization",
+        "rule": "목표·위험성향 → 최적화",
+        "when": "주기적 재최적화",
+        "fit": "수치 모델을 신뢰하는 투자자",
+        "engine": False,
+    },
+    "집중형": {
+        "rec": False,
+        "desc": "소수 확신 종목에 집중·장기 보유. 통상 단일 종목 ≤25%.",
+        "src": "버핏 / 버크셔 주주서한",
+        "rule": "확신 종목 집중",
+        "when": "투자 논리 훼손 시",
+        "fit": "깊은 리서치·고위험 감내",
+        "engine": False,
+    },
+}
+
+
+def _rebal_method_layer_html(selected: str, top_w: float) -> str:
+    """방식 3카드(추천 골드 테두리·출처 라벨) + '내게 적합' 진단."""
+    if top_w > 25:
+        diag = (f"최대 종목 {pct_weight(top_w)}%는 집중형 상한(25%)도 초과 — "
+                f"집중도부터 낮추는 <b>균형형</b>을 추천합니다.")
+    else:
+        diag = (f"최대 종목 {pct_weight(top_w)}% · 집중도는 양호합니다 — "
+                f"목적에 맞게 선택하세요(기본 <b>균형형</b>).")
+    cards = ""
+    for name, m in _REBAL_METHODS.items():
+        cls = "rbm-card" + (" rec" if m["rec"] else "") + (" sel" if name == selected else "")
+        badge = '<span class="rbm-badge">추천</span>' if m["rec"] else ""
+        impl = "" if m["engine"] else '<span class="rbm-soon">설명 제공 · 엔진 예정</span>'
+        cards += (
+            f'<div class="{cls}">'
+            f'<div class="rbm-h">{name}{badge}</div>'
+            f'<div class="rbm-d">{m["desc"]}</div>'
+            f'<div class="rbm-src">근거 · {_escape(m["src"])}{impl}</div>'
+            f'</div>'
+        )
+    return (
+        f'<div class="rbm-diag"><span class="rbm-diag-k">내게 적합</span>{diag}</div>'
+        f'<div class="rbm-grid">{cards}</div>'
+    )
+
+
+def _rebal_pending_html(method: str) -> str:
+    """엔진 미구현 방식 — 설명만(과구현 방지)."""
+    m = _REBAL_METHODS.get(method, {})
+    return (
+        '<div class="pd-diagnosis rbm-pending">'
+        f'<div class="pd-diagnosis-head"><b>{_escape(method)}</b><span>설명 · 엔진은 추후 확장</span></div>'
+        f'<p class="rbm-pending-p">{_escape(m.get("desc", ""))}<br>'
+        f'목표비중: {_escape(m.get("rule", ""))} · 조정 시점: {_escape(m.get("when", ""))} · '
+        f'적합: {_escape(m.get("fit", ""))}</p>'
+        f'<p class="rbm-pending-note">자동 조정 표는 현재 <b>균형형</b>만 계산합니다. '
+        f'이 방식은 선택지·설명으로 제공되며 계산 엔진은 추후 추가됩니다.</p>'
+        f'<div class="rbm-src">근거 · {_escape(m.get("src", ""))}</div>'
+        '</div>'
+    )
+
+
+def _rebal_compare_sources_html() -> str:
+    """방식별 차이 표 + 정직성 문구 + 참고 출처."""
+    rows = ""
+    for name, m in _REBAL_METHODS.items():
+        rec = ' <span class="rbm-badge sm">추천</span>' if m["rec"] else ""
+        rows += (
+            '<div class="rbm-trow">'
+            f'<span class="rbm-tnm">{name}{rec}</span>'
+            f'<span>{_escape(m["rule"])}</span>'
+            f'<span>{_escape(m["when"])}</span>'
+            f'<span>{_escape(m["fit"])}</span>'
+            '</div>'
+        )
+    return (
+        '<div class="pd-diagnosis">'
+        '<div class="pd-diagnosis-head"><b>방식별 차이</b><span>정답 없음 · 목적에 맞게 선택</span></div>'
+        '<div class="rbm-tbl">'
+        '<div class="rbm-thead"><span>방식</span><span>목표비중 정하는 법</span>'
+        '<span>조정 시점</span><span>적합 대상</span></div>'
+        + rows
+        + '</div>'
+        '<div class="rbm-honest">리밸런싱은 <b>리스크 관리</b> 목적이며 수익을 보장하지 않습니다. '
+        '운용 방식에 정답은 없고, 목적·성향에 맞게 선택하는 것입니다.</div>'
+        '<div class="rbm-refs">참고 · 골드만 ISG · Morgan Stanley PWM · Vanguard·CFA · 버크셔 주주서한</div>'
+        '</div>'
+    )
+
+
+def _portfolio_summary_html(summary: dict) -> str:
+    if not summary["has_data"]:
+        return (
+            '<div class="pd-summary-grid">'
+            + _summary_card("총 평가금액", "API 데이터 없음", "holdings 수량/평가금액 연결 필요")
+            + _summary_card("총 평가손익", "데이터 대기", "실제 보유 원가 기준")
+            + _summary_card("오늘 변동", "데이터 대기", "실제 보유 수량 기준")
+            + _summary_card("최대 비중", "데이터 대기", "보유 포지션 연결 후 계산")
+            + '</div>'
+        )
+    gain_cls = _tone(summary["total_gain_loss"])
+    today_cls = _tone(summary["today_change_amount"])
+    largest = summary["largest_position"]
+    contributor = summary["top_gain_contributor"]
+    gain_pct = summary["total_gain_loss_pct"]
+    today_pct = summary["today_change_pct"]
+    cards = [
+        _summary_card("총 평가금액", _money(summary["total_market_value"], "KRW", compact=True), "실제 holdings 평가 기준"),
+        _summary_card(
+            "총 평가손익",
+            _money(summary["total_gain_loss"], "KRW", signed=True, compact=True),
+            f"평가 수익률 {gain_pct:+.2f}%" if gain_pct is not None else "원가 데이터 대기",
+            gain_cls,
+        ),
+        _summary_card(
+            "오늘 변동",
+            _money(summary["today_change_amount"], "KRW", signed=True, compact=True),
+            f"오늘 변동률 {today_pct:+.2f}%" if today_pct is not None else "전일가 데이터 대기",
+            today_cls,
+        ),
+        _summary_card(
+            "최대 비중 종목",
+            largest["name"] if largest else "데이터 대기",
+            f"{pct_weight(largest.get('weight', 0))}% · {_money(largest.get('market_value'), 'KRW', compact=True)}" if largest else "",
+        ),
+        _summary_card(
+            "최대 손익 기여",
+            contributor["name"] if contributor else "데이터 대기",
+            _money(contributor.get("gain_loss"), "KRW", signed=True, compact=True) if contributor else "손익 데이터 대기",
+            _tone(contributor.get("gain_loss") if contributor else None),
+        ),
+        _summary_card(
+            "현금/예수금",
+            _money(summary.get("cash_balance"), "KRW", compact=True) if summary.get("cash_balance") is not None else "데이터 없음",
+            "API cashBalance 기준",
+        ),
+        _summary_card(
+            "USD/KRW",
+            _cur(summary["fx_usdkrw"], "KRW") if summary.get("fx_usdkrw") else "데이터 대기",
+            "해외자산 원화 환산 기준",
+        ),
+    ]
+    return '<div class="pd-summary-grid">' + "".join(cards) + '</div>'
+
+
+def _allocation_html(categories: list[dict]) -> str:
+    active = [c for c in categories if c["count"] > 0 and c["weight"] > 0]
+    if not active:
+        return '<div class="pd-empty"><b>자산군 비중 데이터 없음</b><p>실제 holdings 데이터가 연결되면 보유 자산군만 표시합니다. 0% 자산군은 기본적으로 숨깁니다.</p></div>'
+    rows = []
+    for cat in active:
+        rows.append(
+            '<div class="pd-alloc-row">'
+            f'<div class="pd-alloc-name">{_escape(cat["name"])}</div>'
+            '<div class="pd-alloc-track">'
+            f'<div class="pd-alloc-fill" style="width:{min(100, max(0, cat["weight"])):.1f}%"></div>'
+            '</div>'
+            f'<div class="pd-alloc-pct">{pct_weight(cat["weight"])}%</div>'
+            '</div>'
+        )
+    return (
+        '<div class="pd-card">'
+        '<div class="pd-section-title"><b>자산군 비중</b><span>실제 보유 자산군만</span></div>'
+        f'<div class="pd-alloc-list">{"".join(rows)}</div>'
+        '</div>'
+    )
+
+
+def _risk_summary_html(positions: list[dict], categories: list[dict]) -> str:
+    if not positions:
+        return (
+            '<div class="pd-card">'
+            '<div class="pd-section-title"><b>리스크·집중도</b><span>애널리스트 관점</span></div>'
+            '<div class="pd-risk-list">'
+            '<div class="pd-risk-item"><b>계산 대기</b><span>실제 holdings 수량과 평가금액이 연결되면 최대 비중, 상위 3개 집중도, 환율 노출을 계산합니다.</span></div>'
+            '</div></div>'
+        )
+    top3_weight = sum(p.get("weight", 0) for p in positions[:3])
+    largest = positions[0]
+    active_cats = [c for c in categories if c["count"] > 0]
+    largest_cat = max(active_cats, key=lambda c: c["weight"]) if active_cats else None
+    fx_weight = sum(p.get("weight", 0) for p in positions if p.get("currency") == "USD")
+    items = [
+        ("최대 비중 종목", f"{largest['name']} 비중 {pct_weight(largest.get('weight', 0))}%. 해당 종목 변동성이 전체 평가액에 반영될 수 있습니다."),
+        ("상위 3개 종목 비중", f"상위 3개 포지션 합산 {pct_weight(top3_weight)}%. 집중도가 높을수록 개별 이슈 민감도가 커질 수 있습니다."),
+        ("자산군 집중도", f"{largest_cat['name']} 비중 {pct_weight(largest_cat['weight'])}%." if largest_cat else "자산군 데이터 대기"),
+        ("환율 영향", f"USD 표시 자산 비중 {pct_weight(fx_weight)}%. USD/KRW 변동이 원화 평가액에 반영될 수 있습니다."),
+    ]
+    return (
+        '<div class="pd-card">'
+        '<div class="pd-section-title"><b>리스크·집중도</b></div>'
+        '<div class="pd-risk-list">'
+        + "".join(f'<div class="pd-risk-item"><b>{_escape(title)}</b><span>{_escape(body)}</span></div>' for title, body in items)
+        + '</div></div>'
+    )
+
+
+def _target_info(position: dict, target_prices: dict[str, float]) -> tuple[str, str, str]:
+    target = target_prices.get(position["ticker"])
+    current = position.get("current_price")
+    if target and current:
+        upside = (target / current - 1) * 100
+        cls = _tone(upside)
+        return f"${target:,.0f}", f"{upside:+.1f}%", cls
+    return "미제공", "데이터 없음", "pd-neu"
+
+
+def _insight_text(position: dict, target_prices: dict[str, float]) -> str:
+    key = _resolve_note_key({"code": position["ticker"]})
+    note = _ANALYST_NOTES.get(key, "보유 종목의 주요 이슈 데이터가 아직 연결되지 않았습니다. 가격, 비중, 손익 변화를 함께 확인하세요.")
+    target, upside, _ = _target_info(position, target_prices)
+    impact = (
+        f"내 포지션 기준 영향: 현재 비중 {pct_weight(position.get('weight', 0))}%로,"
+        "해당 종목 변동성이 포트폴리오 평가액에 일부 반영될 수 있습니다."
+    )
+    return (
+        f"<b>주요 이슈</b>: {_escape(note)}<br>"
+        f"<b>목표가</b>: {_escape(target)} · <b>목표가 대비 여력</b>: {_escape(upside)}<br>"
+        f"<b>{_escape(impact)}</b><br>"
+        "<b>체크포인트</b>: 실적 가이던스, 금리·환율, 업종 모멘텀, 포트폴리오 내 비중 변화"
+    )
+
+
+def _holding_card_html(position: dict, target_prices: dict[str, float], sparks: dict[str, list[float]]) -> str:
+    gain_cls = _tone(position.get("gain_loss"))
+    ret_cls = _tone(position.get("gain_loss_pct"))
+    day_cls = _tone(position.get("today_change_pct"), 0.05)
+    target, upside, upside_cls = _target_info(position, target_prices)
+    logo_item = {"group": position["category"], "name": position["name"], "code": position["ticker"]}
+
+    if position.get("today_change_pct") is not None:
+        day_html = f'<div class="pd-day"><span>오늘</span><b class="{day_cls}">{position.get("today_change_pct"):+.2f}%</b></div>'
+    else:
+        day_html = '<div class="pd-day"><span>오늘</span><b class="pd-neu">대기</b></div>'
+
+    if position.get("gain_loss_pct") is not None:
+        ret_html = f'<div class="pd-stat"><span>수익률</span><b class="{ret_cls}">{position.get("gain_loss_pct"):+.2f}%</b></div>'
+    else:
+        ret_html = '<div class="pd-stat"><span>수익률</span><b class="pd-neu">데이터 대기</b></div>'
+
+    return (
+        '<article class="pd-holding-card">'
+        '<div class="pd-holding-top">'
+        f'{_logo_html(logo_item)}'
+        f'<div class="pd-holding-name"><b>{_escape(position["name"])}</b><span>{_escape(position["ticker"])}</span></div>'
+        f'<div class="pd-weight">{pct_weight(position.get("weight", 0))}%</div>'
+        '</div>'
+        '<div class="pd-value-row">'
+        f'<div class="pd-value-main"><span>평가금액 (원화)</span><b>{_money(position.get("market_value"), "KRW")}</b></div>'
+        + day_html +
+        '</div>'
+        '<div class="pd-stat-grid">'
+        f'<div class="pd-stat"><span>평가손익</span><b class="{gain_cls}">{_money(position.get("gain_loss"), "KRW", signed=True)}</b></div>'
+        + ret_html +
+        f'<div class="pd-stat"><span>현재가</span><b>{_price(position.get("current_price"), position.get("currency", "KRW"))}</b></div>'
+        f'<div class="pd-stat"><span>평균단가</span><b>{_price(position.get("avg_price"), position.get("currency", "KRW"))}</b></div>'
+        f'<div class="pd-stat"><span>보유수량</span><b>{_fmt_qty(position.get("quantity"), position.get("quantity_est", False))}</b></div>'
+        f'<div class="pd-stat"><span>목표가</span><b>{_escape(target)}</b></div>'
+        f'<div class="pd-stat"><span>목표 여력</span><b class="{upside_cls}">{_escape(upside)}</b></div>'
+        '</div>'
+        f'<div class="pd-spark">{_sparkline_svg(sparks.get(position["ticker"], []))}</div>'
+        '<details class="pd-insight">'
+        '<summary>애널리스트 인사이트 보기</summary>'
+        f'<div class="pd-insight-body">{_insight_text(position, target_prices)}</div>'
+        '</details>'
+        '</article>'
+    )
+
+
+def _empty_category_html(name: str) -> str:
+    return (
+        '<div class="pd-empty">'
+        f'<b>{_escape(name)} 보유 없음</b>'
+        f'<p>현재 API 기준 보유 중인 {name} 자산이 없습니다. 관심 종목과 시장 모니터링 종목은 시장 분석 탭에서 확인할 수 있습니다.</p>'
+        '</div>'
+    )
+
+
+def _holdings_categories_html(categories: list[dict], target_prices: dict[str, float], sparks: dict[str, list[float]]) -> str:
+    parts: list[str] = []
+    for category in categories:
+        if category["count"] == 0:
+            parts.append(_empty_category_html(category["name"]))
+            continue
+        leaders = " · ".join(p["name"] for p in category["top_by_value"])
+        parts.append(
+            '<section class="pd-cat-section">'
+            '<div class="pd-cat-head">'
+            f'<h4>{_escape(category["name"])} {category["count"]}개 · 평가금액 상위: {_escape(leaders)}</h4>'
+            f'<span>{_money(category["total_market_value"], "KRW")} · {pct_weight(category["weight"])}%</span>'
+            '</div>'
+            '<div class="pd-holding-grid">'
+            + "".join(_holding_card_html(p, target_prices, sparks) for p in category["items"])
+            + '</div></section>'
+        )
+    return "".join(parts)
+
+
+_AJ_CSS = """<style>
+.aj-block{background:#16181F;border:1px solid #262A33;border-radius:20px;padding:18px 24px 20px;margin:0 0 10px}
+.aj-top{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.aj-top h3{margin:0;color:#E7E9EE;font-size:20px;font-weight:800;letter-spacing:-.01em}  /* 2배·굵게 */
+/* 상태 배지 2개 — 단계(초록 계열·정보) + 페이스(골드/회색/주황·평가). 목표수정 아이콘과 높이 28px·라운딩 통일 */
+.aj-stage,.aj-pace{display:inline-flex;align-items:center;height:28px;box-sizing:border-box;padding:0 12px;
+  border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap;
+  border:1px solid #262A33;background:rgba(255,255,255,.05);color:#9AA0AD}
+/* 단계(진행 phase) — 초록 계열 단계별 농도 */
+.aj-stage.s-early{color:#9AA0AD;background:rgba(255,255,255,.05);border-color:#262A33}      /* 초반: 중립 */
+.aj-stage.s-cruise{color:#3DD68C;background:rgba(61,214,140,.12);border-color:rgba(61,214,140,.34)}  /* 순항: 초록 */
+.aj-stage.s-final{color:#27A37A;background:rgba(39,163,122,.14);border-color:rgba(39,163,122,.40)}    /* 막바지: 진초록 */
+.aj-stage.s-reached{color:#0E140F;background:#3DD68C;border-color:#3DD68C}                  /* 도달: 초록 강조(filled) */
+/* 페이스(예정 대비) — 앞섬=골드 / 부합=중립 / 뒤처짐=주황 경고(P&L 빨강·파랑과 분리) */
+.aj-pace.ahead{color:#D9A441;background:rgba(217,164,65,.12);border-color:rgba(217,164,65,.34)}
+.aj-pace.ontrack{color:#9AA0AD;background:rgba(255,255,255,.05);border-color:#262A33}
+.aj-pace.behind{color:#E08A3C;background:rgba(224,138,60,.13);border-color:rgba(224,138,60,.38)}
+.aj-top-row{margin-bottom:0}
+/* [순항중][페이스]는 badge_col 우측 정렬. 단계↔페이스 간격(16px) = 컬럼 간격(=페이스↔톱니)과 맞춰 3개 등간격 */
+.aj-badgewrap{display:flex;justify-content:flex-end;align-items:center;gap:13px}
+/* 자산 여정 — 카드 밖으로(플랫): 카드 강제 CSS 제거, 헤더·그리드는 페이지에 바로 */
+.aj-marker{display:none}
+/* 목표 수정 톱니 — 배지와 동일 높이(28px)·라운딩 */
+[data-testid="stPopover"] button{border-radius:999px!important;font-weight:850!important;
+  height:28px!important;min-width:28px!important;padding:0 9px!important;
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  min-height:0!important;line-height:1!important;white-space:nowrap!important;
+  margin-left:0!important;margin-top:0!important;box-shadow:none!important;
+  background:rgba(217,164,65,.10)!important;border:1px solid rgba(217,164,65,.40)!important;color:#D9A441!important}
+[data-testid="stPopover"] button [data-testid="stIconMaterial"]{font-size:17px!important}
+[data-testid="stPopover"] button:hover{background:rgba(217,164,65,.2)!important;border-color:#D9A441!important}
+[data-testid="stPopover"] button [data-testid="stMarkdownContainer"] p{margin:0!important;line-height:1.2!important}
+.aj-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:24px;align-items:center}
+@media(max-width:820px){.aj-grid{grid-template-columns:1fr;gap:16px}}
+.aj-headline .lbl{font-size:12px;font-weight:800;color:#9AA0AD;display:block;margin-bottom:1px}
+.aj-headline .val{font-size:44px;font-weight:950;color:#E7E9EE;line-height:1;
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.aj-val-up{color:#F25560}   /* 추이 헤드라인 수익률 — 상승=빨강(한국식) */
+.aj-val-down{color:#4D90F0} /* 하락=파랑 */
+/* 진행률 바(클릭 가능) — 고정 높이(120px)로 위 투명 오버레이 버튼 정렬 안정. 우하단 힌트 */
+.aj-chart{margin-top:10px;height:120px;box-sizing:border-box;border-radius:12px;padding:4px;
+  position:relative}
+.aj-chart svg{height:100%}
+.aj-chart-hint{position:absolute;right:9px;bottom:6px;font-size:10.5px;font-weight:850;color:#9A7B2E;
+  opacity:.8;transition:opacity .15s;pointer-events:none;z-index:2}
+/* 추이 등장 애니메이션 — 바닥(0)에서 천천히 차오름 */
+.aj-chart-trend svg{animation:aj-rise .8s cubic-bezier(.22,.61,.36,1) both;transform-origin:bottom}
+@keyframes aj-rise{from{transform:scaleY(0);opacity:.25}to{transform:scaleY(1);opacity:1}}
+/* 바 위 투명 오버레이 버튼 = '바 클릭'으로 추이 전환(아래 별도 버튼 없이). hover 시 옅은 골드 틴트 */
+.aj-barclick-anchor{height:0;margin:0;padding:0;line-height:0}
+[data-testid="stVerticalBlock"]:has(> [data-testid="element-container"] .aj-barclick-anchor){gap:0!important}
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"]{
+  margin-top:-104px!important;height:120px!important;position:relative;z-index:6}
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button{
+  height:120px!important;width:100%!important;min-height:0!important;border:0!important;border-radius:12px!important;
+  background:transparent!important;color:transparent!important;box-shadow:none!important;cursor:pointer!important;
+  padding:0!important;transition:background .15s!important}
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button:hover{
+  background:rgba(217,164,65,0.07)!important}
+.aj-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0}
+.aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;gap:6px}
+.aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aj-auto{font-size:9px;font-weight:800;color:#D9A441;background:rgba(217,164,65,.13);
+  border-radius:5px;padding:1px 5px;letter-spacing:.02em}
+.aj-pop-t{font-size:13px;font-weight:900;color:#E7E9EE;margin-bottom:8px}
+/* D5: 목표 수정 트리거 — 골드 아웃라인 "⚙ 목표 수정" 라벨 칩(헤더 옆) */
+div[data-testid="stPopover"] > div button{
+  background:rgba(217,164,65,.10)!important;border:1px solid rgba(217,164,65,.42)!important;
+  color:#D9A441!important;border-radius:999px!important;font-weight:850!important;
+  height:28px!important;min-width:28px!important;padding:0 9px!important;
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  min-height:0!important;line-height:1!important;
+  margin-left:0!important;margin-top:0!important;box-shadow:none!important;white-space:nowrap!important}
+div[data-testid="stPopover"] > div button:hover{
+  background:rgba(217,164,65,.18)!important;border-color:#D9A441!important;color:#D9A441!important}
+</style>"""
+
+
+def _journey_chart_svg(progress_pct: float, current: float, target: float,
+                       checkpoints: list[float]) -> str:
+    from core.journey import krw_compact
+    W, H, PL, PR, BY = 1000, 150, 70, 70, 82
+    span = W - PL - PR
+    cur_p = max(0.0, min(100.0, progress_pct))
+
+    def x(pct: float) -> float:
+        return PL + pct / 100 * span
+
+    xc = x(cur_p)
+    # 경로: 걸어온 길=골드 실선, 남은 길=무채색 점선
+    svg = (
+        f'<line x1="{PL}" y1="{BY}" x2="{xc:.1f}" y2="{BY}" stroke="#D9A441" '
+        f'stroke-width="4" stroke-linecap="round"/>'
+        f'<line x1="{xc:.1f}" y1="{BY}" x2="{x(100):.1f}" y2="{BY}" stroke="#3A4150" '
+        f'stroke-width="2" stroke-dasharray="3 6" stroke-linecap="round"/>'
+    )
+    # 체크포인트 (1/3, 2/3, 목표)
+    cps = [(100.0 * (i + 1) / len(checkpoints), amt) for i, amt in enumerate(checkpoints)]
+    next_idx = next((i for i, (_, amt) in enumerate(cps) if amt > current + 1), len(cps) - 1)
+    for i, (cp, amt) in enumerate(cps):
+        cx = x(cp)
+        is_target = (i == len(cps) - 1)
+        achieved = amt <= current + 1
+        if is_target:
+            svg += (f'<circle cx="{cx:.1f}" cy="{BY}" r="9" fill="#16181F" '
+                    f'stroke="#D9A441" stroke-width="3"/>'
+                    f'<circle cx="{cx:.1f}" cy="{BY}" r="3.5" fill="#E7E9EE"/>')
+            label = "목표"
+        elif achieved:
+            svg += f'<circle cx="{cx:.1f}" cy="{BY}" r="7" fill="#D9A441"/>'
+            label = krw_compact(amt)
+        elif i == next_idx:
+            svg += (f'<circle cx="{cx:.1f}" cy="{BY}" r="8" fill="#16181F" '
+                    f'stroke="#D9A441" stroke-width="2.5"/>')
+            label = krw_compact(amt)
+        else:
+            svg += (f'<circle cx="{cx:.1f}" cy="{BY}" r="6" fill="#16181F" '
+                    f'stroke="#3A4150" stroke-width="2"/>')
+            label = krw_compact(amt)
+        svg += (f'<text x="{cx:.1f}" y="{BY + 26}" text-anchor="middle" '
+                f'fill="#7E8694" font-size="13" font-weight="700">{label}</text>')
+    # 현재 위치 마커 (숫자 중복 금지 → "현재"만)
+    svg += (
+        f'<line x1="{xc:.1f}" y1="{BY - 20}" x2="{xc:.1f}" y2="{BY + 12}" '
+        f'stroke="#D9A441" stroke-width="2"/>'
+        f'<circle cx="{xc:.1f}" cy="{BY}" r="5" fill="#D9A441" stroke="#16181F" stroke-width="2"/>'
+        f'<rect x="{xc - 26:.1f}" y="{BY - 44}" width="52" height="20" rx="10" '
+        f'fill="rgba(217,164,65,0.14)" stroke="rgba(217,164,65,0.4)"/>'
+        f'<text x="{xc:.1f}" y="{BY - 30}" text-anchor="middle" fill="#D9A441" '
+        f'font-size="12" font-weight="800">현재</text>'
+    )
+    return (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+            f'preserveAspectRatio="none" style="width:100%;height:auto;display:block">{svg}</svg>')
+
+
+# ── B3: 계좌 시계열 스냅샷 + 자산 추이 ────────────────────────────────────────
+def _record_today_snapshot(username: str | None, summary: dict, positions: list[dict]) -> None:
+    """오늘 자산 스냅샷 기록 — 로그인 유저·세션당 1회(잦은 파일쓰기 방지)."""
+    if not username:
+        return
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    flag = f"_snap_done_{username}_{today}"
+    if st.session_state.get(flag):
+        return
+    top = positions[0] if positions else {}
+    try:
+        from core.accounts import record_snapshot
+        record_snapshot(username, {
+            "date": today,
+            "total": summary.get("total_market_value") or 0,
+            "gain_pct": summary.get("total_gain_loss_pct"),
+            "today_pct": summary.get("today_change_pct"),
+            "top_name": top.get("name"),
+            "top_weight": top.get("weight"),
+            "cash": summary.get("cash_balance") or 0,
+        })
+        st.session_state[flag] = True
+    except Exception:
+        pass
+
+
+_AT_CSS = """<style>
+.at-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 8px}  /* C1 좌측 기준선 통일 */
+.at-head b{color:#E7E9EE;font-size:20px;font-weight:800}  /* 2배·굵게 */
+.at-head span{color:#7E8694;font-size:11px;font-weight:850}
+.at-head span .up{color:#F25560}.at-head span .down{color:#4D90F0}
+/* 추이 헤더 = 자산 여정 복귀 링크(그래프/헤더 클릭 전환) */
+.at-back{color:#E7E9EE;font-size:20px;font-weight:800;text-decoration:none;cursor:pointer}
+.at-back:hover{color:#D9A441}
+/* 기간 라디오 — 우측 정렬 + 옵션 글자 가운데 */
+[data-testid="stRadio"] div[role="radiogroup"]{justify-content:flex-end!important}
+[data-testid="stRadio"] div[role="radiogroup"] label{text-align:center!important;justify-content:center!important}
+.at-empty{background:#16181F;border:1px dashed #2E333D;border-radius:16px;padding:16px 18px;margin:0 0 10px;
+  color:#9AA0AD;font-size:12px;font-weight:700}
+.at-empty b{color:#E7E9EE;font-size:13px;font-weight:900;display:block;margin-bottom:3px}
+</style>"""
+
+
+def _portfolio_value_series(positions: list[dict], period: str, fx: float, start: str | None = None):
+    """보유 × 기간 일별 종가 → 일별 총 평가액(원화) 시계열. 현재 수량을 기간 내 보유했다고 가정(추세 근사).
+
+    start(YYYY-MM-DD)가 주어지면 그 날짜~현재 구간으로 받는다('전체=투자 시작일~현재'용). 없으면 period 사용.
+    """
+    import pandas as pd
+    from data.session import cached_download
+    holds = [(p["ticker"], float(p.get("quantity") or 0), p.get("currency"))
+             for p in positions if p.get("ticker") and (p.get("quantity") or 0) > 0]
+    if not holds:
+        return None
+    tickers = [t for t, _, _ in holds]
+    try:
+        if start:
+            raw = cached_download(tickers, start=start, interval="1d", progress=False, auto_adjust=True)
+        else:
+            raw = cached_download(tickers, period=period, interval="1d", progress=False, auto_adjust=True)
+    except Exception:
+        return None
+    if raw is None or raw.empty:
+        return None
+    multi = len(tickers) > 1
+    frames = []
+    for tk, qty, cur in holds:
+        try:
+            closes = (raw["Close"][tk] if multi else raw["Close"]).dropna()
+        except Exception:
+            continue
+        if closes.empty:
+            continue
+        v = closes * qty * (fx if cur == "USD" else 1.0)
+        v.name = tk
+        frames.append(v)
+    if not frames:
+        return None
+    return pd.concat(frames, axis=1).sort_index().ffill().sum(axis=1).dropna()
+
+
+def _render_asset_trend(username: str | None, positions: list[dict], fx: float,
+                        start_date=None) -> None:
+    """자산 추이 — 보유 × 기간 가격 이력으로 일별 총 평가액 추세.
+
+    기본은 '전체'(투자 시작일~현재) — 여정의 '지나온 경로'와 직결되는 구간. 1M~1Y는 짧은 범위 확대용.
+    전환(여정↔추이)은 상위 _render_asset_section 의 스트립 토글이 담당(리로드 없는 fragment 부분 리런).
+    """
+    import plotly.graph_objects as go
+    from core.journey import krw_compact
+    _AP = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y"}
+    _start_iso = start_date.isoformat() if hasattr(start_date, "isoformat") else (start_date or None)
+    opts = (["전체"] if _start_iso else []) + list(_AP.keys())
+    period = st.radio("추이 기간", opts, index=0, horizontal=True,
+                      label_visibility="collapsed", key="trend_range")
+    _smooth = 0.6
+    if period == "전체":
+        s = _portfolio_value_series(positions, "", fx, start=_start_iso)
+        range_label = "투자 시작 이후"
+        # 장기 구간은 일봉이 너무 빽빽 → 주봉 다운샘플로 더 매끈하게(스플라인 평활도도 ↑)
+        if s is not None and len(s) > 180:
+            s = s.resample("W").last().dropna()
+            _smooth = 1.0
+    else:
+        s = _portfolio_value_series(positions, _AP.get(period, "3mo"), fx)
+        range_label = period
+    if s is None or len(s) < 2:
+        st.caption("자산 추이 — 보유 종목 가격 이력이 모이면 기간별 총 평가액 추세가 표시됩니다.")
+        return
+    first, last = float(s.iloc[0]), float(s.iloc[-1])
+    chg = (last / first - 1) * 100 if first else 0
+    cls = "up" if chg >= 0 else "down"
+    sign = "+" if chg >= 0 else ""
+    st.markdown(
+        _AT_CSS + f'<div class="at-head"><b>자산 추이</b>'
+        f'<span>{range_label} · {krw_compact(first)} → {krw_compact(last)} '
+        f'<b class="{cls}">{sign}{chg:.1f}%</b></span></div>',
+        unsafe_allow_html=True)
+    # 자연스러운 영역 차트 — 스플라인 곡선 + 골드 그라데이션 채움. 0이 아닌 min 근처로 줌(추세 강조).
+    ymin, ymax = float(s.min()), float(s.max())
+    pad = (ymax - ymin) * 0.14 or max(ymax * 0.02, 1.0)
+    fig = go.Figure(go.Scatter(
+        x=s.index, y=s.values, mode="lines",
+        line=dict(color="#D9A441", width=2, shape="spline", smoothing=_smooth),
+        fill="tozeroy", fillcolor="rgba(217,164,65,0.12)",
+        hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.0f}원<extra></extra>",
+    ))
+    fig.update_layout(
+        height=160, margin=dict(l=0, r=0, t=4, b=0),          # 바그래프 크기로 컴팩트
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, showline=False, zeroline=False, nticks=5,
+                   tickfont=dict(size=9, color="#7E8694")),
+        yaxis=dict(visible=False, range=[ymin - pad, ymax + pad]),  # 축 숨김 → 컴팩트, 추세만
+        showlegend=False, hovermode="x",
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False},
+                    key="asset_trend_chart")
+
+
+def _asset_trend_svg(series) -> str:
+    """자산 추이를 자산 여정 바와 '동일한 슬롯(viewBox 1000x150)'에 그리는 인라인 SVG.
+    Catmull-Rom 곡선(부드러움) + 골드 영역 채움 + 시작·현재 값 라벨. 바 자리에서 in-place 교체용."""
+    from core.journey import krw_compact
+    if series is None or len(series) < 2:
+        return ('<div style="height:103px;display:grid;place-items:center;color:#7E8694;'
+                'font-size:12px;font-weight:700">추이 데이터 대기</div>')
+    ys = [float(v) for v in series.values]
+    n = len(ys)
+    W, H, PL, PR, PT, PB = 1000, 150, 12, 12, 18, 26
+    span, lo, hi = W - PL - PR, min(ys), max(ys)
+    rng = (hi - lo) or 1.0
+    pts = [(PL + (i / (n - 1)) * span, PT + (1 - (ys[i] - lo) / rng) * (H - PT - PB)) for i in range(n)]
+    # Catmull-Rom → cubic bezier 로 부드러운 path
+    d = f'M {pts[0][0]:.1f} {pts[0][1]:.1f}'
+    for i in range(n - 1):
+        p0, p1, p2 = pts[i - 1] if i > 0 else pts[0], pts[i], pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < n else pts[-1]
+        c1x, c1y = p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6
+        c2x, c2y = p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6
+        d += f' C {c1x:.1f} {c1y:.1f} {c2x:.1f} {c2y:.1f} {p2[0]:.1f} {p2[1]:.1f}'
+    base = H - PB
+    area = d + f' L {pts[-1][0]:.1f} {base:.1f} L {pts[0][0]:.1f} {base:.1f} Z'
+    col = "#D9A441"
+    svg = (
+        f'<defs><linearGradient id="atg" x1="0" x2="0" y1="0" y2="1">'
+        f'<stop offset="0" stop-color="{col}" stop-opacity="0.30"/>'
+        f'<stop offset="1" stop-color="{col}" stop-opacity="0.02"/></linearGradient></defs>'
+        f'<path d="{area}" fill="url(#atg)"/>'
+        f'<path d="{d}" fill="none" stroke="{col}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<circle cx="{pts[0][0]:.1f}" cy="{pts[0][1]:.1f}" r="3.5" fill="#16181F" stroke="{col}" stroke-width="2"/>'
+        f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="4.5" fill="{col}" stroke="#16181F" stroke-width="2"/>'
+        f'<text x="{pts[0][0]:.1f}" y="{base + 18:.1f}" text-anchor="start" fill="#7E8694" font-size="12" font-weight="700">{krw_compact(ys[0])}</text>'
+        f'<text x="{pts[-1][0]:.1f}" y="{base + 18:.1f}" text-anchor="end" fill="#E7E9EE" font-size="12" font-weight="800">{krw_compact(ys[-1])}</text>'
+    )
+    return (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+            f'preserveAspectRatio="none" style="width:100%;height:auto;display:block">{svg}</svg>')
+
+
+def _journey_cards_html(current: float, m: dict) -> str:
+    from core.journey import krw_compact, eta_label
+    return (
+        f'<div class="aj-card"><div class="k">목표까지</div>'
+        f'<div class="v">{krw_compact(m["remaining"])}</div></div>'
+        f'<div class="aj-card"><div class="k">예상 기간 <span class="aj-auto">자동</span></div>'
+        f'<div class="v">{eta_label(m["years_to_goal"])}</div></div>'
+        f'<div class="aj-card"><div class="k">연 성장률 <span class="aj-auto">자동</span></div>'
+        f'<div class="v">{m["cagr_pct"]:.1f}%</div></div>'
+        f'<div class="aj-card"><div class="k">현재 자산</div>'
+        f'<div class="v">{krw_compact(current)}</div></div>'
+    )
+
+
+def _journey_leftcell_html(current: float, target: float, m: dict, chart_svg: str | None = None,
+                           headline_label: str | None = None, headline_val_html: str | None = None,
+                           clickable: bool = False) -> str:
+    """헤드라인 + 차트(진행률 바 또는 추이 SVG). clickable 이면 바 클릭 힌트 표시(오버레이 버튼이 위에 겹침)."""
+    from core.journey import milestones
+    hl_label = headline_label or "목표 도달률"
+    hl_val = headline_val_html if headline_val_html is not None else f'{m["progress_pct"]:.1f}%'
+    if chart_svg is not None:
+        # in-place 교체: 바와 같은 .aj-chart 슬롯에 추이 SVG(동일 위치·크기) + 바닥에서 차오르는 애니메이션
+        hint = '<div class="aj-chart-hint">여정으로 ⤢</div>' if clickable else ''
+        chart_html = f'<div class="aj-chart aj-chart-trend">{chart_svg}{hint}</div>'
+    else:
+        chart = _journey_chart_svg(m["progress_pct"], current, target, milestones(target))
+        hint = '<div class="aj-chart-hint">지나온 경로 보기 ⤢</div>' if clickable else ''
+        chart_html = f'<div class="aj-chart">{chart}{hint}</div>'
+    return (f'<div class="aj-headline"><span class="lbl">{hl_label}</span>'
+            f'<span class="val">{hl_val}</span></div>{chart_html}')
+
+
+def _journey_block_html(current: float, target: float, m: dict, chart_svg: str | None = None,
+                        headline_label: str | None = None, headline_val_html: str | None = None) -> str:
+    # 단일 그리드(클릭 없음, 게스트 등) — 좌(헤드라인+차트) | 우(카드)
+    left = _journey_leftcell_html(current, target, m, chart_svg, headline_label, headline_val_html, clickable=False)
+    return (_AJ_CSS + '<div class="aj-grid"><div>' + left + '</div>'
+            f'<div class="aj-cards">{_journey_cards_html(current, m)}</div></div>')
+
+
+def _journey_get(key, username, is_guest, default):
+    """여정 설정값 조회 — 로그인 유저는 DB, 게스트는 세션."""
+    if username and not is_guest:
+        from core.accounts import get_setting
+        v = get_setting(username, key, None)
+        if v is not None:
+            return v
+    return st.session_state.get(f"journey_{key}", default)
+
+
+def _journey_set(key, value, username, is_guest) -> None:
+    st.session_state[f"journey_{key}"] = value
+    if username and not is_guest:
+        from core.accounts import set_setting
+        set_setting(username, key, value)
+
+
+@st.fragment
+def _render_asset_journey(current_value: float, *, is_guest: bool = False,
+                          positions: list[dict] | None = None, fx: float | None = None) -> None:
+    """자산 여정 — fragment 라서 설정 변경 시 이 블록만 갱신(전체 리로드 X).
+
+    positions/fx 가 주어지면 진행률 바 자리에서 '자산 추이'로 in-place 교체(같은 위치·크기) 토글을 제공.
+    """
+    from datetime import date as _date
+    from core.journey import journey_metrics, krw_compact, stage_label
+
+    username = st.session_state.get("username")
+    target = int(_journey_get("target_value", username, is_guest, 1_500_000_000))
+    start_value = float(_journey_get("start_value", username, is_guest, max(1.0, current_value * 0.62)))
+    sd_raw = _journey_get("start_date", username, is_guest, (_date.today() - timedelta(days=730)).isoformat())
+    start_date = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
+
+    # ── 자산 여정: 카드(border) 없이 플랫 — 헤더(제목 좌 / [순항중·페이스·목표수정] 우측 한 줄) + 그리드 ──
+    with st.container(border=False):
+        st.markdown('<div class="aj-marker"></div>', unsafe_allow_html=True)
+        title_col, badge_col, gear_col = st.columns([6.2, 2.6, 0.7], gap="small")
+
+        target_date = st.session_state.get("portfolio_target_date") or (_date.today() + timedelta(days=365 * 5))
+        m = journey_metrics(start_date, start_value, current_value, target, target_date)
+        pace = m["pace_months"]
+        # 페이스 배지(평가) — 앞섬=골드 / 부합=중립회색 / 뒤처짐=주황 경고. 12개월↑은 정성 평가.
+        if pace is None:
+            pace_html = ""
+        elif pace >= 12:
+            pace_html = '<span class="aj-pace ahead">목표 페이스 크게 상회</span>'
+        elif pace > 0:
+            pace_html = f'<span class="aj-pace ahead">예정보다 {pace}개월 빠름</span>'
+        elif pace == 0:
+            pace_html = '<span class="aj-pace ontrack">예정 페이스에 부합</span>'
+        elif pace > -12:
+            pace_html = f'<span class="aj-pace behind">예정보다 {abs(pace)}개월 늦음</span>'
+        else:
+            pace_html = '<span class="aj-pace behind">목표 페이스 크게 하회</span>'
+
+        # 단계 배지(정보) — 진행 phase 별 초록 계열(초반=중립 → 순항=초록 → 막바지=진초록 → 도달=초록 강조)
+        _stage = stage_label(m["progress_pct"])
+        _stage_cls = {"초반 구간": "s-early", "순항 중": "s-cruise",
+                      "막바지 구간": "s-final", "목표 도달": "s-reached"}.get(_stage, "s-cruise")
+
+        with title_col:
+            st.markdown(_AJ_CSS + '<div class="aj-top aj-top-row"><h3>자산 여정</h3></div>',
+                        unsafe_allow_html=True)
+        with badge_col:
+            # [순항 중][페이스] 우측 정렬, 단계↔페이스 간격 = 컬럼 간격(=페이스↔톱니)과 맞춰 3개 등간격
+            st.markdown(
+                f'<div class="aj-badgewrap"><span class="aj-stage {_stage_cls}">{_escape(_stage)}</span>'
+                f'{pace_html}</div>', unsafe_allow_html=True)
+        with gear_col:
+            # 목표수정: 톱니 아이콘만(헤더 제자리라 '설정'으로 직관적). 높이는 배지와 통일(28px)
+            with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
+                st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
+                new_target_eok = st.number_input(
+                    "목표 금액 (억원)", min_value=1.0, max_value=2000.0,
+                    value=round(target / 1e8, 1), step=0.5, format="%.1f", key="aj_target_eok",
+                )
+                new_start_eok = st.number_input(
+                    "초기 투자금 (억원)", min_value=0.1, max_value=2000.0,
+                    value=round(start_value / 1e8, 2), step=0.1, format="%.2f", key="aj_start_eok",
+                )
+                new_start_date = st.date_input(
+                    "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
+                )
+                st.caption("초기 투자금·시작일로 연 성장률(CAGR)과 예상 기간을 자동 계산합니다.")
+
+                new_target = int(round(new_target_eok * 1e8))
+                new_start = float(round(new_start_eok * 1e8))
+                changed = False
+                # 반올림 오차로 인한 허위 변경 방지 → 0.01억(=100만) 이상 차이만 실제 변경으로
+                if abs(new_target - target) > 1_000_000:
+                    _journey_set("target_value", new_target, username, is_guest); changed = True
+                if abs(new_start - start_value) > 1_000_000:
+                    _journey_set("start_value", new_start, username, is_guest); changed = True
+                if new_start_date.isoformat() != start_date.isoformat():
+                    _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
+                if changed:
+                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일/초기자본 반영
+        # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
+        open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
+        chart_svg = _hl_label = _hl_val = None
+        if open_:
+            _si = start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
+            _s = _portfolio_value_series(positions, "", fx, start=_si)
+            if _s is not None and len(_s) > 180:
+                _s = _s.resample("W").last().dropna()   # 주봉 다운샘플 → 더 매끈
+            chart_svg = _asset_trend_svg(_s)
+            # 추이 표시 중엔 헤드라인을 '투자 시작 이후 +N%'(상승=빨강/하락=파랑)로 교체
+            if _s is not None and len(_s) >= 2 and float(_s.iloc[0]):
+                _tp = (float(_s.iloc[-1]) / float(_s.iloc[0]) - 1) * 100
+                _cls = "aj-val-up" if _tp >= 0 else "aj-val-down"
+                _hl_label = "투자 시작 이후"
+                _hl_val = f'<span class="{_cls}">{"+" if _tp >= 0 else ""}{_tp:.1f}%</span>'
+        if positions is None:
+            # 게스트 등 — 클릭 없이 단일 그리드
+            st.markdown(_journey_block_html(current_value, target, m, chart_svg=chart_svg,
+                        headline_label=_hl_label, headline_val_html=_hl_val), unsafe_allow_html=True)
+        else:
+            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로
+            _lc, _rc = st.columns([1.5, 1], gap="medium")
+            with _lc:
+                st.markdown(_AJ_CSS + _journey_leftcell_html(current_value, target, m, chart_svg=chart_svg,
+                            headline_label=_hl_label, headline_val_html=_hl_val, clickable=True),
+                            unsafe_allow_html=True)
+                st.markdown('<span class="aj-barclick-anchor"></span>', unsafe_allow_html=True)
+                if st.button(" ", key="journey_trend_toggle", use_container_width=True):
+                    st.session_state["journey_trend_open"] = not open_
+                    st.rerun(scope="fragment")
+            with _rc:
+                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m)}</div>',
+                            unsafe_allow_html=True)
+
+
+_ASEC_CSS = """<style>
+/* D2: '지나온 경로(자산 추이) 펼치기' 스트립 — 진행률 바 바로 아래, 클릭 affordance(hover 밝아짐).
+   토글 제거: 여정(현재 위치)과 추이(지나온 경로)는 보완 관계라 같은 자리에서 펼쳐 연결한다. */
+[data-testid="element-container"]:has(.asec-strip-anchor) + [data-testid="element-container"] button{
+  background:rgba(217,164,65,.06)!important;border:1px solid rgba(217,164,65,.26)!important;
+  border-radius:12px!important;color:#9AA0AD!important;font-size:12px!important;font-weight:850!important;
+  padding:7px 12px!important;min-height:0!important;margin-top:-2px!important;box-shadow:none!important;
+  transition:background .15s,border-color .15s,color .15s!important}
+[data-testid="element-container"]:has(.asec-strip-anchor) + [data-testid="element-container"] button:hover{
+  background:rgba(217,164,65,.14)!important;border-color:#D9A441!important;color:#D9A441!important}
+.asec-strip-anchor{height:0;margin:0;padding:0}
+</style>"""
+
+
+@st.fragment
+def _render_asset_section(current_value: float, username: str | None,
+                          positions: list[dict], fx: float) -> None:
+    """자산 여정 — 진행률 바 자리에서 '자산 추이'로 in-place 교체(같은 위치·크기) 토글 제공.
+
+    D2: 추이를 아래에 따로 펼치지 않고, 바와 동일한 .aj-chart 슬롯에 추이 SVG 를 그려 그 자리에서 교체한다.
+    토글·렌더는 _render_asset_journey 가 담당(session_state + fragment 부분 리런, 리로드 없음).
+    """
+    st.markdown(_ASEC_CSS, unsafe_allow_html=True)
+    # 바 자리에서 추이로 in-place 교체(같은 위치·크기) — 토글·렌더는 journey 가 담당
+    _render_asset_journey(current_value, is_guest=False, positions=positions, fx=fx)
+
+
+_PB_CSS = """<style>
+/* 위험 카드: 위험=주황(경고 채널, 손익 빨강과 분리), 주의=앰버, 양호=초록. 좌측 4px 바 + 배지 라벨로 읽힘 */
+.pb-card{border:1px solid #262A33;border-left:4px solid #E2683C;border-radius:18px;
+  background:#15171E;padding:18px 22px;margin:2px 0 16px}
+.pb-card.pb-warn{border-left-color:#E08A3C;background:linear-gradient(135deg,rgba(224,138,60,0.07),#16181F 60%)}
+.pb-card.pb-safe{border-left-color:#3FB27F;background:#16181F}
+.pb-sev{display:inline-block;font-size:11px;font-weight:900;color:#E2683C;background:rgba(226,104,60,0.14);
+  border-radius:999px;padding:3px 10px;letter-spacing:.04em}
+.pb-warn .pb-sev{color:#E08A3C;background:rgba(224,138,60,0.14)}
+.pb-safe .pb-sev{color:#3FB27F;background:rgba(63,178,127,0.14)}
+.pb-head{font-size:21px;font-weight:950;color:#E7E9EE;letter-spacing:-.02em;margin:10px 0 14px;line-height:1.25}
+.pb-scen{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:720px){.pb-scen{grid-template-columns:1fr}}
+.pb-s{background:rgba(255,255,255,0.03);border:1px solid #262A33;border-radius:12px;padding:11px 13px}
+.pb-s span{display:block;font-size:11px;font-weight:800;color:#9AA0AD;margin-bottom:5px}
+.pb-s b{font-size:15px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums}
+/* C4: 보더 명도 낮춰 배경에 안착(떠 보임 해소) — 좌측 보더 없이 옅은 채움+낮은 대비 테두리 */
+.pb-action{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.18);border-radius:12px;
+  padding:11px 14px;font-size:13.5px;font-weight:850;color:#E7E9EE}
+.pb-action b{color:#D9A441}
+.pb-cost{display:block;margin-top:5px;font-size:11.5px;font-weight:700;color:#9AA0AD}
+.pb-bench{margin-top:10px;font-size:12px;font-weight:700;color:#9AA0AD;font-variant-numeric:tabular-nums}
+/* E1: 재배분 '실행 예정' 표시 — 위험카드 바로 아래 한 줄(조언→행동 연결) */
+.pb-plan{margin:8px 0 0;padding:9px 13px;border-radius:11px;font-size:12px;font-weight:800;color:#C9CEDA;
+  background:rgba(217,164,65,0.08);border:1px solid rgba(217,164,65,0.20)}
+.pb-plan b{color:#D9A441}
+.pb-plan-link{margin-left:8px;color:#D9A441!important;text-decoration:none;font-weight:850;white-space:nowrap}
+.pb-plan-link:hover{text-decoration:underline}
+/* 내 계좌 탐욕 지수 — 게이지는 리스크 게이지와 동일 처리(명도·라벨). 색만으로 의미 전달 금지 */
+[data-testid="stVerticalBlockBorderWrapper"]:has(.agr-title){
+  background:#16181F;border:1px solid #262A33;border-radius:16px;padding:6px 6px 2px}
+.agr-title{font-size:11px;font-weight:800;color:#7E8694;letter-spacing:.05em;text-align:center;margin:6px 0 0}
+/* 탐욕 온도계 — 가로 막대(청록 공포→골드 중립→짙은빨강 탐욕) + 값 마커 + 구간 라벨 */
+.agr-therm{margin:12px 8px 4px}
+.agr-therm-val{text-align:center;font-size:30px;font-weight:950;color:#E7E9EE;line-height:1;
+  font-variant-numeric:tabular-nums;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:10px}
+.agr-therm-track{position:relative;height:14px;border-radius:999px;
+  background:linear-gradient(90deg,#3A8FC2 0%,#D9A441 50%,#C46A2B 100%)}
+.agr-therm-marker{position:absolute;top:50%;width:4px;height:24px;border-radius:3px;background:#E7E9EE;
+  transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(14,15,19,.65),0 1px 4px rgba(0,0,0,.4)}
+.agr-therm-scale{display:flex;justify-content:space-between;margin-top:8px;
+  font-size:10px;font-weight:850;color:#7E8694}
+.agr-band{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:2px}
+.agr-band .pill{font-size:12px;font-weight:900;color:#E7E9EE;border:1px solid #3A3F49;
+  border-radius:999px;padding:3px 11px;background:rgba(255,255,255,0.04)}
+.agr-band .pill.hot{border-color:#D9A441;color:#E7B85C}
+.agr-interp{text-align:center;font-size:11.5px;font-weight:700;color:#8A8F9B;margin-top:7px;line-height:1.5}
+.agr-comp{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px 12px;align-items:center;
+  font-size:12px;font-weight:700;padding:7px 2px;border-top:1px solid #23262E}
+.agr-comp:first-of-type{border-top:0}
+.agr-comp .nm{color:#E7E9EE}.agr-comp .rw{color:#9AA0AD;font-variant-numeric:tabular-nums}
+.agr-comp .ct{color:#7E8694;font-variant-numeric:tabular-nums;text-align:right;min-width:64px}
+.agr-comp .note{grid-column:1/-1;color:#7E8694;font-size:11px;font-weight:600;margin-top:-2px}
+.agr-foot{font-size:11px;font-weight:700;color:#7E8694;margin-top:8px;line-height:1.5}
+/* 벤치마크 비교 */
+.bm-card{background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 20px;margin:0 0 10px}
+.bm-title{font-size:13px;font-weight:950;color:#E7E9EE;margin-bottom:12px}
+.bm-row{display:grid;grid-template-columns:120px 1fr 64px;gap:12px;align-items:center;margin:7px 0}
+.bm-lbl{font-size:12px;font-weight:800;color:#9AA0AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bm-lbl.mine{color:#D9A441;font-weight:950}
+.bm-track{height:12px;border-radius:999px;background:rgba(255,255,255,0.05);overflow:hidden}
+.bm-track i{display:block;height:100%;border-radius:999px}
+.bm-mine{background:#D9A441}.bm-other{background:#5E6573}  /* 내 포트폴리오 = 골드(강조), 벤치마크 = 회색 */
+.bm-val{text-align:right;font-size:13px;font-weight:900;color:#9AA0AD;font-variant-numeric:tabular-nums}
+.bm-val.mine{color:#D9A441}
+.bm-cap{margin-top:11px;font-size:11.5px;font-weight:700;color:#7E8694;line-height:1.5}
+/* 리밸런싱 보기 버튼 — 골드 */
+.st-key-pb_rebal_btn button{background:rgba(217,164,65,0.12)!important;border:1px solid rgba(217,164,65,0.42)!important;
+  color:#D9A441!important;border-radius:12px!important;font-weight:850!important;margin:-6px 0 14px!important}
+.st-key-pb_rebal_btn button:hover{background:rgba(217,164,65,0.2)!important;border-color:#D9A441!important}
+</style>"""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_bench_returns(start_iso: str) -> dict:
+    from datetime import date as _d
+    from core.pb import bench_returns as _br
+    try:
+        return _br(_d.fromisoformat(start_iso))
+    except Exception:
+        return {}
+
+
+def _account_diag(positions: list[dict], total: float, cash: float,
+                  uname: str | None, is_guest: bool = False) -> dict:
+    """A2 단일 출처 — 전체현황·포트폴리오가 같은 입력으로 같은 diag/bench를 받게 한다.
+    (총수익·KOSPI 대비·벤치마크 등이 화면마다 달라지던 문제 해소. bench 는 캐시 래퍼 하나로 통일.)"""
+    from datetime import date as _date
+    from core.pb import holdings_for_pb, pb_diagnostics
+    sval = float(_journey_get("start_value", uname, is_guest, max(1.0, total * 0.62)))
+    sd_raw = _journey_get("start_date", uname, is_guest,
+                          (_date.today() - timedelta(days=730)).isoformat())
+    sd = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
+    bench = _get_bench_returns(sd.isoformat())            # 두 화면 동일한 캐시 소스
+    diag = pb_diagnostics(holdings_for_pb(positions), total, cash, sd, sval, bench)
+    return {"diag": diag, "bench": bench, "start": sd, "start_value": sval}
+
+
+def _pb_sev_parts(lv: str) -> tuple[str, str]:
+    """위험 카드 제목 접두·배지 라벨(A+C). 색이 아니라 좌측 빨강 바·배지 라벨로 위험을 읽게 한다.
+    반환: (제목 앞 접두, 배지 HTML)."""
+    if lv == "위험":
+        return "", "위험 · 즉시 점검"
+    if lv == "주의":
+        return "", "주의 · 점검 권장"
+    return "", "양호"
+
+
+def _pb_risk_card_html(d: dict) -> str:
+    from core.journey import krw_compact, pct_weight
+    from core.pb import friction_krw
+    lv = d["level"]
+    lv_cls = {"위험": "danger", "주의": "warn", "양호": "safe"}.get(lv, "warn")
+    head_icon, sev_html = _pb_sev_parts(lv)
+    pct = d["top_w"] * 100
+    pct_s = pct_weight(pct)
+    if lv == "위험":
+        head = f'{head_icon}{d["top_name"]} 1종목 {pct_s}% 집중 — 분산이 아니라 베팅입니다'
+    elif lv == "주의":
+        head = f'{d["top_name"]} {pct_s}% 집중 — 분산 점검이 필요합니다'
+    else:
+        head = f'{d["top_name"]} {pct_s}% — 집중도는 양호합니다'
+    cash_txt = "방어 여력 없음" if d["cash_pct"] < 1 else "방어 여력 일부"
+    excess = d["excess_vs_best"]
+    bench_cap = (
+        f'시작 이후 수익률 {d["my_return"]:+.1f}%'
+        + (f' — {d["best_bench"]} 대비 {excess:+.1f}%p, {"초과수익(알파) 확인 권장" if excess > 0 else "벤치마크 하회 — 점검 필요"}'
+           if d["best_bench"] else " — 벤치마크 비교 데이터 대기")
+    )
+    return (
+        f'<div class="pb-card pb-{lv_cls}">'
+        f'<span class="pb-sev">{sev_html}</span>'
+        f'<div class="pb-head">{_escape(head)}</div>'
+        '<div class="pb-scen">'
+        f'<div class="pb-s"><span>최대 종목 −20% 충격</span><b>계좌 {d["shock_pct"]:.1f}% · {krw_compact(d["shock_krw"])}</b></div>'
+        f'<div class="pb-s"><span>현금 완충</span><b>{pct_weight(d["cash_pct"])}% · {cash_txt}</b></div>'
+        f'<div class="pb-s"><span>USD 노출</span><b>{pct_weight(d["usd_w"])}% · 환헤지 없음</b></div>'
+        '</div>'
+        f'<div class="pb-action">{_escape(d["top_name"])} {pct_s}% → 40% 축소 = <b>약 {krw_compact(d["rebal_to_40"])} 재배분</b>'
+        + (f'<span class="pb-cost">실행 비용 약 {krw_compact(friction_krw(d["rebal_to_40"], is_us=d.get("top_cur") == "USD"))} '
+           f'(거래세·수수료{"·환전" if d.get("top_cur") == "USD" else ""} 추정'
+           f'{" · 해외 양도세 별도" if d.get("top_cur") == "USD" else ""})</span>'
+           if d["rebal_to_40"] > 0 else '')
+        + '</div>'
+        f'<div class="pb-bench">{_escape(bench_cap)}</div>'
+        '</div>'
+    )
+
+
+def _pb_risk_summary_html(d: dict) -> str:
+    """전체현황(다이제스트)용 한 줄 요약 — 헤드라인 + 핵심 한 줄.
+    풀 카드(지표 그리드·재배분·벤치마크)는 포트폴리오/리스크에만 두어 100% 복제를 제거한다.
+    """
+    from core.journey import pct_weight
+    lv = d["level"]
+    lv_cls = {"위험": "danger", "주의": "warn", "양호": "safe"}.get(lv, "warn")
+    head_icon, sev_html = _pb_sev_parts(lv)
+    pct_s = pct_weight(d["top_w"] * 100)
+    if lv == "위험":
+        head = f'{head_icon}{d["top_name"]} 1종목 {pct_s}% 집중 — 분산이 아니라 베팅입니다'
+    elif lv == "주의":
+        head = f'{d["top_name"]} {pct_s}% 집중 — 분산 점검이 필요합니다'
+    else:
+        head = f'{d["top_name"]} {pct_s}% — 집중도는 양호합니다'
+    sub = (f'최대 종목 −20% 시 계좌 {d["shock_pct"]:.1f}% · 현금 {pct_weight(d["cash_pct"])}% · '
+           f'USD {pct_weight(d["usd_w"])}%')
+    return (
+        f'<div class="pb-card pb-{lv_cls} pb-compact">'
+        f'<span class="pb-sev">{sev_html}</span>'
+        f'<div class="pb-head">{_escape(head)}</div>'
+        f'<div class="pb-bench">{_escape(sub)}</div>'
+        '</div>'
+    )
+
+
+def _benchmark_compare_html(d: dict, bench: dict) -> str:
+    if not bench:
+        return ""
+    rows = [("내 포트폴리오", d["my_return"], True)] + [(k, v * 100, False) for k, v in bench.items()]
+    rows.sort(key=lambda r: r[1], reverse=True)   # A1: 값 큰 순(최댓값=KOSPI 위로). 내 포트폴리오는 mine 강조 유지
+    # 막대 길이는 최대 절대값 기준 정규화(값 ∝ 길이). 0 분모 방지.
+    max_abs = max((abs(r[1]) for r in rows), default=1) or 1
+    bars = ""
+    for label, val, mine in rows:
+        w = abs(val) / max_abs * 100
+        sign = "+" if val >= 0 else "−"
+        if mine:
+            # 내 포트폴리오 = 항상 골드(강조). 부호는 +/−로만 표기(손익색은 다른 화면이 담당)
+            bar = f'<i class="bm-mine" style="width:{w:.0f}%"></i>'
+            valspan = f'<span class="bm-val mine">{sign}{abs(val):.1f}%</span>'
+        elif val < 0:
+            # 벤치마크 손실: 하락=파랑
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'
+            valspan = f'<span class="bm-val" style="color:{DOWN}">−{abs(val):.1f}%</span>'
+        else:
+            bar = f'<i class="bm-other" style="width:{w:.0f}%"></i>'
+            valspan = f'<span class="bm-val">+{val:.1f}%</span>'
+        bars += (
+            f'<div class="bm-row"><span class="bm-lbl {"mine" if mine else ""}">{_escape(label)}</span>'
+            f'<div class="bm-track">{bar}</div>{valspan}</div>'
+        )
+    return (
+        '<div class="bm-card"><div class="bm-title">내 수익률, 무엇 대비? · 투자 시작 이후 동일 기간</div>'
+        + bars
+        + '<div class="bm-cap">벤치마크 대비 초과분은 레버리지·집중의 베타 증폭일 수 있습니다. 샤프지수로 알파를 검증하세요.</div></div>'
+    )
+
+
+def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
+    st.markdown(_PB_CSS, unsafe_allow_html=True)
+
+    positions, meta = _normalize_holdings(data)
+    summary = _portfolio_summary(positions, meta)
+    categories = _positions_by_category(positions, show_empty=False)
+
+    # 헤더 — '내 투자' + 부제 옆에 출처/종목수 배지(별도 바 대신 통합)
+    _prov = {"kiwoom": "키움증권", "kis": "한국투자증권", "screenshot": "스크린샷"}.get(
+        st.session_state.get("brokerage_provider", ""), "증권사")
+    _cnt = len(st.session_state.get("brokerage_holdings") or positions)
+    st.markdown(
+        '<div class="pd-header"><h3>내 투자</h3>'
+        '<div class="pd-header-sub"><p>가장 큰 리스크부터 — 총액·집중·대응</p>'
+        f'<span class="bk-badge">{_escape(_prov)} 실계좌</span>'
+        f'<span class="bk-badge">{_cnt}종목</span>'
+        f'{live_badge_html(["US", "KR", "CRYPTO"], compact=True)}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    target_prices = _fetch_target_prices() if positions else {}
+
+    if not positions:
+        st.markdown(_portfolio_overview_html(summary, positions, categories), unsafe_allow_html=True)
+        st.markdown(
+            '<div class="pd-empty"><b>보유 종목 없음</b>'
+            '<p>스크린샷을 다시 업로드하거나 증권사 API를 연결해 보유 종목을 불러오세요.</p></div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── A. PB 리스크-우선 진단 (최상단) — 전체현황과 동일한 단일 출처(_account_diag, A2) ──
+    from core.pb import holdings_for_pb
+    _uname = st.session_state.get("username")
+    _total = summary.get("total_market_value") or 0
+    _cash = summary.get("cash_balance") or 0
+    _b = _account_diag(positions, _total, _cash, _uname, is_guest=False)
+    _diag, _bench, _start = _b["diag"], _b["bench"], _b["start"]
+    # 인증 suffix(세션 보존용 ?_user=/_auth=)를 먼저 계산 — 위험카드 아래 E1 링크에서도 사용
+    _role = st.session_state.get("auth_role")
+    _u = st.session_state.get("username", "")
+    _auth = "_auth=guest" if _role == "guest" else (f"_user={_u}" if _u else "")
+    _sfx = f"&{_auth}" if _auth else ""
+    _home = f"?{_auth}" if _auth else "?"
+    if _diag:
+        st.markdown(_pb_risk_card_html(_diag), unsafe_allow_html=True)
+        # '리밸런싱 보기' 버튼 제거 — 아래 탭/리밸런싱 섹션과 중복
+        # E1: 재배분 조언 → 행동 연결. 리밸런싱에서 '실행 예정'으로 표시했으면 위험카드 바로 아래에 노출.
+        if _journey_get("rebal_planned", _uname, False, False):
+            _rb_memo = _escape(_journey_get("rebal_memo", _uname, False, "") or "")
+            st.markdown(
+                '<div class="pb-plan">✓ 리밸런싱 <b>실행 예정</b>으로 표시됨'
+                + (f' — {_rb_memo}' if _rb_memo else "")
+                + ' <a class="pb-plan-link" href="?pf=rebal{sfx}" target="_self">조정 표 보기 →</a></div>'.format(sfx=_sfx),
+                unsafe_allow_html=True,
+            )
+
+    # ── 총액·변동·집중 요약 (hero) ───────────────────────────────────────────────
+    st.markdown(_portfolio_overview_html(summary, positions, categories), unsafe_allow_html=True)
+
+    # ── 뷰 라우팅 — 라디오 대신 섹션 헤더 링크(query param ?pf=)로 전환 ──
+    #   요약(기본) / holdings(전체 보유종목) / detail(상세 진단) / rebal(리밸런싱)
+    #   (_role/_u/_auth/_sfx/_home 은 위 위험카드 블록 앞에서 계산됨)
+    pf = st.query_params.get("pf", "")
+    sorted_by_weight = _sort_positions(positions, target_prices, "비중순")
+
+    # 진단 헤더(우측) 점프 링크 — 상세 진단 · 리밸런싱
+    _diag_actions = (
+        f'<a class="pd-jump" href="?pf=detail{_sfx}" target="_self">상세 진단</a>'
+        f'<a class="pd-jump" href="?pf=rebal{_sfx}" target="_self">리밸런싱</a>'
+    )
+    _hold_action = f'<a class="pd-jump" href="?pf=holdings{_sfx}" target="_self">전체 {len(sorted_by_weight)}종목 →</a>'
+    _back = f'<a class="pd-back" href="{_home}" target="_self">← 요약으로</a>'
+
+    if pf == "holdings":
+        st.markdown(_back, unsafe_allow_html=True)
+        sort_key = st.radio(
+            "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
+            index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
+        ) or "비중순"
+        sorted_positions = _sort_positions(positions, target_prices, sort_key)
+        st.markdown(
+            _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
+            unsafe_allow_html=True,
+        )
+    elif pf == "detail":
+        st.markdown(_back, unsafe_allow_html=True)
+        st.markdown(_portfolio_diagnosis_html(sorted_by_weight, categories, summary), unsafe_allow_html=True)
+        st.markdown(_risk_summary_html(sorted_by_weight, categories), unsafe_allow_html=True)
+    elif pf == "rebal":
+        st.markdown(_back, unsafe_allow_html=True)
+        _top_w = sorted_by_weight[0].get("weight", 0) if sorted_by_weight else 0
+        method = st.radio(
+            "운용 방식", ["균형형", "정량 최적화형", "집중형"], index=0,
+            key="rebal_method", label_visibility="collapsed", horizontal=True,
+        ) or "균형형"
+        st.markdown(_rebal_method_layer_html(method, _top_w), unsafe_allow_html=True)
+        if method == "균형형":
+            cap = st.slider("단일 종목 상한 (균형형 기본 25%)", min_value=15, max_value=40,
+                            value=25, step=5, key="rebal_cap",
+                            help="이 비중을 넘는 종목을 상한까지 줄이는 조정 표를 자동 계산합니다(±5%p 임계).")
+            st.markdown(_rebalance_html(sorted_by_weight, summary, float(cap), 5.0), unsafe_allow_html=True)
+        else:
+            st.markdown(_rebal_pending_html(method), unsafe_allow_html=True)
+        st.markdown(_rebal_compare_sources_html(), unsafe_allow_html=True)
+
+        # E1: 조언 → 행동 연결. 실행 예정 체크 + 메모(다음 행동 캡처) → 설정 저장, 요약 위험카드 아래 노출.
+        _planned0 = bool(_journey_get("rebal_planned", _uname, False, False))
+        _memo0 = _journey_get("rebal_memo", _uname, False, "") or ""
+        with st.container(border=True):
+            st.markdown("**실행 계획** — 조언을 다음 행동으로 연결")
+            _chk = st.checkbox("이 리밸런싱을 실행 예정으로 표시", value=_planned0, key="rebal_planned_chk")
+            _memo = st.text_input("메모 (선택)", value=_memo0, key="rebal_memo_input",
+                                  placeholder="예: 테슬라 3회 분할 매도, 목표 비중 40%")
+            if _chk != _planned0:
+                _journey_set("rebal_planned", _chk, _uname, False)
+            if (_memo or "") != _memo0:
+                _journey_set("rebal_memo", _memo, _uname, False)
+            if _chk:
+                st.caption("✓ 요약 화면 위험 카드 아래에 '실행 예정'으로 표시됩니다.")
+    else:  # 요약(기본)
+        # 섹션 순서(지시서 #3): 진단 → 벤치마크 → 보유종목 → 자산 추이·여정.
+        # '무엇이 문제인지' 먼저, '어디로 가는지(투영)'는 아래로.
+        _record_today_snapshot(_uname, summary, sorted_by_weight)  # 오늘 스냅샷 기록(세션 1회, 추이용)
+        # 탐욕 온도계는 진단 카드 맨 끝 그래프로 통합(별도 박스 제거)
+        from core.pb import account_greed
+        _greed = account_greed(holdings_for_pb(positions), _total, _cash)
+        _greed_html = _greed_bar_html(_greed) if _greed else ""
+        # 상세 진단·리밸런싱은 진단 헤더 우측 링크로, 전체 보유종목은 핵심 보유종목 헤더 링크로 통합
+        st.markdown(_portfolio_diagnosis_html(sorted_by_weight, categories, summary,
+                    actions=_diag_actions, extra_html=_greed_html), unsafe_allow_html=True)
+        _bm = _benchmark_compare_html(_diag, _bench) if _diag else ""
+        if _bm:
+            st.markdown(_bm, unsafe_allow_html=True)
+        st.markdown(
+            _holdings_panel_html("핵심 보유종목", "비중 상위 5종목 · 상세는 펼쳐보기", sorted_by_weight,
+                                 target_prices, limit=5, action=_hold_action),
+            unsafe_allow_html=True,
+        )
+        # 자산 여정 ↔ 자산 추이 — segmented control 토글(fragment 부분 리런, 전체 리로드 없음)
+        if journey:
+            _render_asset_section(journey["current_asset"], _uname, positions,
+                                  _usdkrw(data) or _FX_FALLBACK)
+
+
+def _holding_items(
+    us_held: pd.DataFrame,
+    kr_stocks: pd.DataFrame,
+    etfs: pd.DataFrame,
+    commodities: pd.DataFrame,
+    crypto_df: pd.DataFrame,
+) -> list[dict]:
+    items: list[dict] = []
+
+    def _sort_value(row, fallback: int, currency: str) -> float:
+        for col in ("market_value", "holding_value", "position_value", "amount", "value", "평가액", "보유금액"):
+            if col in row and _num(row.get(col)) is not None:
+                return float(_num(row.get(col)) or 0)
+        return max(0, 1000 - fallback)
+
+    def _add(group: str, name: str, code: str, price: str, chg, meta1: str, meta2: str, sort_value: float) -> None:
+        pct_s, pct_cls = _pct(chg)
+        items.append(
+            {
+                "group": group,
+                "name": str(name or ""),
+                "code": str(code or ""),
+                "price": price,
+                "pct": pct_s,
+                "pct_cls": pct_cls,
+                "meta1": str(meta1 or ""),
+                "meta2": str(meta2 or ""),
+                "sort_value": sort_value,
+            }
+        )
+
+    if not us_held.empty:
+        for idx, (_, r) in enumerate(us_held.iterrows()):
+            _add(
+                    "미국주식",
+                    r.get("name", r.get("ticker", "")),
+                    r.get("ticker", ""),
+                    _price(r.get("price"), "USD"),
+                    r.get("change_pct"),
+                    str(r.get("sector", "")).replace("_", " "),
+                    "직접 보유",
+                    _sort_value(r, idx, "USD") + 4000,
+            )
+
+    if not kr_stocks.empty:
+        for idx, (_, r) in enumerate(kr_stocks.iterrows()):
+            role = "직접 보유" if r.get("role") == "actual_holding" else "모니터링"
+            _add(
+                    "국내주식",
+                    r.get("name", r.get("ticker", "")),
+                    r.get("ticker", ""),
+                    _price(r.get("price"), "KRW"),
+                    r.get("change_pct"),
+                    str(r.get("sector", "")).replace("_", " "),
+                    role,
+                    _sort_value(r, idx, "KRW") + 1000,
+            )
+
+    if not etfs.empty:
+        for idx, (_, r) in enumerate(etfs.iterrows()):
+            hedge = "환헤지" if r.get("hedged") is True else "환노출"
+            _add(
+                    "ETF",
+                    r.get("name", r.get("ticker", "")),
+                    r.get("ticker", ""),
+                    _price(r.get("price"), "KRW"),
+                    r.get("change_pct"),
+                    hedge,
+                    f"BM {r.get('benchmark', '-')}",
+                    _sort_value(r, idx, "KRW") + 5000,
+            )
+
+    if not commodities.empty:
+        for idx, (_, r) in enumerate(commodities.iterrows()):
+            key = r.get("name", "")
+            _add(
+                    "원자재",
+                    _COMM_KOR.get(key, str(key).title()),
+                    r.get("ticker", ""),
+                    _price(r.get("price"), "USD"),
+                    r.get("change_pct"),
+                    "실시간 시세",
+                    "시장 노출 관리",
+                    _sort_value(r, idx, "USD") + 2000,
+            )
+
+    if not crypto_df.empty:
+        for idx, (_, r) in enumerate(crypto_df.iterrows()):
+            _add(
+                    "크립토",
+                    r.get("name", r.get("ticker", "")),
+                    r.get("symbol", r.get("ticker", "")),
+                    _price(r.get("price"), "USD"),
+                    r.get("change_pct"),
+                    str(r.get("category", "")).replace("_", " "),
+                    "직접 보유",
+                    _sort_value(r, idx, "USD") + 3000,
+            )
+
+    return sorted(items, key=lambda item: item["sort_value"], reverse=True)
+
+
+def _holding_summary_html(items: list[dict]) -> str:
+    if not items:
+        return '<div class="hold-empty">등록된 자산이 없습니다.</div>'
+    groups = sorted({item["group"] for item in items})
+    leaders = ", ".join(item["name"] for item in items[:3])
+    return (
+        '<div class="hold-summary-line">'
+        f'<span class="hold-summary-pill">{len(items)}개 자산</span>'
+        f'<span class="hold-summary-pill">{len(groups)}개 카테고리</span>'
+        f'<span>상위 보유 후보: {_escape(leaders)}</span>'
+        '</div>'
+    )
+
+
+def _analyst_issues_html(group_items: list[dict], target_prices: dict[str, float]) -> str:
+    rows = []
+    for item in group_items:
+        note_key = _resolve_note_key(item)
+        note = _ANALYST_NOTES.get(note_key, "")
+        if not note:
+            continue
+
+        tp = target_prices.get(item["code"])
+        if tp is None:
+            tp_html = '<span class="issue-no-tp">목표가 없음</span>'
+        else:
+            current = _parse_price_num(item["price"])
+            if current and current > 0:
+                upside = (tp / current - 1) * 100
+                upside_cls = "pos" if upside > 0 else ("neg" if upside < 0 else "neu")
+                sign = "+" if upside >= 0 else ""
+                tp_html = (
+                    f'<span class="issue-tp">목표가 ${tp:,.0f}</span>'
+                    f'<span class="issue-upside {upside_cls}">{sign}{upside:.1f}%</span>'
+                )
+            else:
+                tp_html = f'<span class="issue-tp">목표가 ${tp:,.0f}</span>'
+
+        rows.append(
+            '<div class="issue-row">'
+            f'<div><div class="issue-name">{_escape(item["name"])}</div>'
+            f'<div class="issue-note">{_escape(note)}</div></div>'
+            f'<div class="issue-tp-block">{tp_html}</div>'
+            '</div>'
+        )
+
+    if not rows:
+        return ""
+    return (
+        '<div class="issue-section">'
+        '<div class="issue-head">주요 이슈 · 애널리스트 인사이트</div>'
+        + "".join(rows) +
+        '</div>'
+    )
+
+
+def _holding_rows_html(items: list[dict]) -> str:
+    rows: list[str] = []
+    for idx, item in enumerate(items, 1):
+        rows.append(
+            '<div class="hold-row">'
+            f'<div class="hold-rank">{idx:02d}</div>'
+            f'<div class="hold-main"><b>{_escape(item["name"])}</b><span>{_escape(item["code"])}</span></div>'
+            f'<div class="hold-cat">{_escape(item["group"])}</div>'
+            f'<div class="hold-row-price">{_escape(item["price"])}</div>'
+            f'<div class="hold-row-chg {item["pct_cls"]}">{_escape(item["pct"])}</div>'
+            f'<div class="hold-row-note">{_escape(item["meta2"])}</div>'
+            '</div>'
+        )
+    return '<div class="hold-list">' + "".join(rows) + '</div>'
+
+
+def _holding_cards_html(items: list[dict]) -> str:
+    cards: list[str] = []
+    for item in items:
+        bg_cls = (
+            "hold-pos-bg" if item["pct_cls"] == "pct-pos"
+            else ("hold-neg-bg" if item["pct_cls"] == "pct-neg" else "hold-neu-bg")
+        )
+        cards.append(
+            '<details class="hold-det">'
+            f'<summary class="{bg_cls}">'
+            f'{_logo_html(item)}'
+            '<div class="hold-det-main">'
+            f'<b>{_escape(item["name"])}</b>'
+            f'<span>{_escape(item["code"])}</span>'
+            '</div>'
+            f'<span class="hold-det-price">{_escape(item["price"])}</span>'
+            f'<span class="hold-det-chg {item["pct_cls"]}">{_escape(item["pct"])}</span>'
+            '<span class="hold-det-arrow">▾</span>'
+            '</summary>'
+            '<div class="hold-det-body">'
+            f'<div class="hold-det-note">{_escape(item["meta2"])}</div>'
+            '<div class="hold-det-meta">'
+            f'<span>현재가 {_escape(item["price"])}</span>'
+            f'<span>{_escape(item["meta1"])}</span>'
+            f'<span>1D {_escape(item["pct"])}</span>'
+            '</div>'
+            '</div>'
+            '</details>'
+        )
+    return '<div class="hold-det-stack">' + "".join(cards) + '</div>'
+
+
+def _holding_grouped_html(items: list[dict]) -> str:
+    if not items:
+        return '<div class="hold-empty">등록된 자산이 없습니다.</div>'
+    order = ["미국주식", "국내주식", "ETF", "원자재", "크립토"]
+    groups = {group: [item for item in items if item["group"] == group] for group in order}
+    extra_groups = sorted({item["group"] for item in items} - set(order))
+    html_parts: list[str] = []
+    for group in order + extra_groups:
+        group_items = groups.get(group) if group in groups else [item for item in items if item["group"] == group]
+        if not group_items:
+            continue
+        leaders = " · ".join(_escape(item["name"]) for item in group_items[:3])
+        html_parts.append(
+            '<section class="hold-cat-section">'
+            f'<div class="hold-cat-title"><b>{_escape(group)}</b><span>{len(group_items)}개 · 보유 큰 순</span></div>'
+            f'<div class="hold-cat-summary"><span>상위: {leaders}</span></div>'
+            f'{_holding_cards_html(group_items)}'
+            '</section>'
+        )
+    return "".join(html_parts)
+
+
+def _render_holding_expander(items: list[dict], target_prices: dict[str, float]) -> None:
+    st.markdown(
+        '<div class="port-detail-head"><h3>보유 포트폴리오 상세</h3>'
+        '<span>카테고리별 접기/펼치기</span></div>',
+        unsafe_allow_html=True,
+    )
+    if not items:
+        st.markdown(_holding_summary_html(items), unsafe_allow_html=True)
+        return
+
+    order = ["미국주식", "국내주식", "ETF", "원자재", "크립토"]
+    groups = {group: [item for item in items if item["group"] == group] for group in order}
+    extra_groups = sorted({item["group"] for item in items} - set(order))
+
+    for group in order + extra_groups:
+        group_items = groups.get(group) if group in groups else [item for item in items if item["group"] == group]
+        if not group_items:
+            continue
+        leaders = " · ".join(item["name"] for item in group_items[:3])
+        with st.expander(f"{group} {len(group_items)}개 · 상위 {leaders}", expanded=False):
+            st.markdown(_holding_cards_html(group_items), unsafe_allow_html=True)
+            issues = _analyst_issues_html(group_items, target_prices)
+            if issues:
+                st.markdown(issues, unsafe_allow_html=True)
+
+
+_ONBOARD_CSS = """<style>
+.ob-hero{background:linear-gradient(135deg,rgba(217,164,65,.10),#16181F 60%);border:1px solid #262A33;
+  border-radius:20px;padding:22px 24px;margin:6px 0 14px}
+.ob-hero h2{margin:0;color:#E7E9EE;font-size:22px;font-weight:950;letter-spacing:-.02em}
+.ob-hero p{margin:8px 0 0;color:#9AA0AD;font-size:13px;font-weight:700;line-height:1.55}
+.ob-steps{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.ob-step{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:850;color:#9AA0AD;
+  background:#1E2029;border:1px solid #262A33;border-radius:999px;padding:5px 12px}
+.ob-step b{color:#D9A441}
+.ob-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 16px}
+@media(max-width:860px){.ob-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ob-c{background:#16181F;border:1px solid #262A33;border-radius:14px;padding:14px 15px}
+.ob-c .ic{font-size:18px}
+.ob-c b{display:block;color:#E7E9EE;font-size:13px;font-weight:900;margin:7px 0 4px}
+.ob-c span{display:block;color:#9AA0AD;font-size:11px;font-weight:650;line-height:1.5}
+.ob-explore{display:inline-flex;align-items:center;gap:5px;color:#9AA0AD;font-size:12.5px;font-weight:850;
+  text-decoration:none;margin:4px 0 2px}
+.ob-explore:hover{color:#E7E9EE}
+</style>"""
+
+
+def _render_onboarding() -> None:
+    """첫 사용 온보딩 — 보유 0건(미연결 포함). 환영 + 핵심 개념 1분 안내 + 스크린샷 올리기 CTA."""
+    st.markdown(_ONBOARD_CSS, unsafe_allow_html=True)
+    _suf = ("?_user=" + st.session_state["username"]) if st.session_state.get("username") else ""
+    st.markdown(
+        '<div class="ob-hero"><h2>SIM에 오신 걸 환영합니다 👋</h2>'
+        '<p>내 계좌를 올리면 <b style="color:#E7E9EE">가장 큰 리스크부터</b> 짚어드립니다. '
+        '거래가 아니라 <b style="color:#E7E9EE">해석</b>에 집중하는 투자 코치예요.</p>'
+        '<div class="ob-steps"><span class="ob-step"><b>1</b> 증권사 앱 보유 화면 캡쳐</span>'
+        '<span class="ob-step"><b>2</b> 아래에 올리기</span>'
+        '<span class="ob-step"><b>3</b> 집중·노출·시나리오 자동 분석</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    # 핵심 개념 1분 안내
+    st.markdown(
+        '<div class="ob-grid">'
+        '<div class="ob-c"><span class="ic">🎯</span><b>위험 점수</b>'
+        '<span>시장 신호를 0–100으로 요약. 70+면 위험 구간. 산식은 펼쳐 볼 수 있어요.</span></div>'
+        '<div class="ob-c"><span class="ic">📊</span><b>집중도</b>'
+        '<span>한 종목·상위 3개 비중. 높을수록 개별 악재에 크게 흔들립니다.</span></div>'
+        '<div class="ob-c"><span class="ic">💱</span><b>노출</b>'
+        '<span>USD·반도체 등 특정 위험에 묶인 정도 → 내 계좌 영향 금액으로 환산.</span></div>'
+        '<div class="ob-c"><span class="ic">🧪</span><b>시나리오</b>'
+        '<span>"시장 −10%면 내 계좌 약 ○○ 영향" 같은 가정별 예상 낙폭.</span></div>'
+        '</div>', unsafe_allow_html=True,
+    )
+    _render_screenshot_upload(key="onboarding_upload")
+    st.markdown(
+        f'<a class="ob-explore" href="/overview{_suf}" target="_self">샘플 화면 먼저 둘러보기 →</a>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(jj_footer(), unsafe_allow_html=True)
+
+
+def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool = True) -> None:
+    from core.vision_parser import parse_portfolio_image
+    from ui.pages.login import _filter_valid_holdings
+
+    # 드롭존·프라이버시 스타일은 항상 주입. 헤더는 onboarding(메인 CTA)에서만 — 접는 유틸 안에선 생략(라벨 중복 방지).
+    st.markdown("""
+<style>
+/* 업로드 드롭존을 골드 점선 CTA 로 — 클릭(또는 드래그) 한 번에 업로드 */
+[data-testid="stFileUploaderDropzone"]{background:rgba(217,164,65,0.06)!important;
+  border:1.5px dashed rgba(217,164,65,0.5)!important;border-radius:16px!important;transition:border-color .15s,background .15s}
+[data-testid="stFileUploaderDropzone"]:hover{border-color:#D9A441!important;background:rgba(217,164,65,0.12)!important}
+/* D6: 3단계 시각 안내(① 캡처 → ② 끌어놓기 → ③ 자동 인식) */
+.scr-steps{display:flex;align-items:stretch;gap:8px;margin:6px 0 12px;flex-wrap:wrap}
+.scr-step{display:flex;align-items:center;gap:9px;flex:1;min-width:160px;
+  background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:10px 12px}
+.scr-step-n{flex:0 0 22px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(217,164,65,.15);color:#D9A441;font-size:12px;font-weight:950}
+.scr-step b{display:block;color:#E7E9EE;font-size:13px;font-weight:850}
+.scr-step em{display:block;color:#9AA0AD;font-size:12px;font-weight:700;font-style:normal;margin-top:1px}
+.scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}  /* C5: 저대비 하한(#7E8694) */
+@media(max-width:640px){.scr-step-arr{display:none}.scr-step{min-width:0;flex:1 1 100%}}
+.scr-priv{display:flex;justify-content:flex-end;text-align:right;margin:9px 2px 2px;color:#7E8694;
+  font-size:12px;font-weight:650;line-height:1.5}
+.scr-priv b{color:#9AA0AD;font-weight:800}
+</style>""", unsafe_allow_html=True)
+    if show_header:
+        st.markdown("""
+<div class="scr-steps">
+  <div class="scr-step"><span class="scr-step-n">1</span><div><b>증권사 앱 캡처</b><em>보유 종목 화면을 스크린샷</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">2</span><div><b>끌어다 놓기</b><em>아래에 이미지를 드롭</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">3</span><div><b>자동 인식</b><em>종목·평가금액 추출</em></div></div>
+</div>""", unsafe_allow_html=True)
+
+    uploaded = st.file_uploader(
+        "보유 종목 화면 스크린샷",
+        type=["png", "jpg", "jpeg"],
+        key=key,
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        '<div class="scr-priv"><span>🔒 이미지는 <b>저장하지 않아요</b> · 1회 분석 후 '
+        '보유 정보만 내 계정에 로컬 저장 · 거래 기능 없음</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    if uploaded is None:
+        return
+
+    cache_key = f"_screenshot_parsed_{uploaded.name}_{uploaded.size}"
+    if cache_key not in st.session_state:
+        with st.spinner("이미지 분석 중... (약 10~20초)"):
+            try:
+                image_bytes = uploaded.read()
+                mime = uploaded.type or "image/jpeg"
+                raw_holdings = parse_portfolio_image(image_bytes, mime)
+                holdings = _filter_valid_holdings(raw_holdings)
+                st.session_state[cache_key] = {"holdings": holdings, "cash_balance": 0.0}
+            except Exception as e:
+                import logging
+                logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
+                st.error("이미지를 분석하지 못했습니다. 잠시 후 다시 시도하거나 더 선명한 스크린샷을 사용해 주세요.")
+                return
+
+    result = st.session_state[cache_key]
+    holdings = result["holdings"]
+    cash = result["cash_balance"]
+
+    if not holdings:
+        st.warning("종목을 인식하지 못했습니다. 더 선명한 스크린샷을 사용해 보세요.")
+        return
+
+    st.markdown(f"**{len(holdings)}개 종목 인식됨**")
+    preview_rows = [
+        {
+            "종목명": h.get("name", ""),
+            "코드": h.get("ticker", ""),
+            "평가금액": _cur(float(h.get('평가금액') or h.get('eval_amount') or 0), "KRW"),
+            "수익률": f"{float(h.get('수익률') or h.get('profit_loss_pct') or 0):+.2f}%",
+        }
+        for h in holdings
+    ]
+    _preview_df = pd.DataFrame(preview_rows)
+    _pct_cols = [c for c in _preview_df.columns if "%" in str(c)]
+    if _pct_cols:
+        st.dataframe(_preview_df.style.map(color_change, subset=_pct_cols),
+                     use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(_preview_df, use_container_width=True, hide_index=True)
+
+    col_apply, col_cancel = st.columns([2, 1])
+    with col_apply:
+        if st.button("이 데이터로 포트폴리오 적용", use_container_width=True, key=f"btn_apply_{key}"):
+            st.session_state["brokerage_holdings"] = holdings
+            st.session_state["brokerage_cash_balance"] = cash
+            st.session_state["brokerage_debug"] = result.get("_debug", {})
+            st.session_state["brokerage_provider"] = "screenshot"
+            st.session_state.pop(cache_key, None)
+            st.rerun()
+    with col_cancel:
+        if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
+            st.session_state.pop(cache_key, None)
+            st.rerun()
+
+
+def _is_token_expired() -> bool:
+    if st.session_state.get("brokerage_provider") == "screenshot":
+        return False
+    t = st.session_state.get("brokerage_token_fetched_at")
+    return t is None or (datetime.now() - t) > timedelta(hours=23)
+
+
+# ── Guest portfolio view ──────────────────────────────────────────────────────
+
+_GUEST_CATEGORIES = {
+    "미국 빅테크": ["NVDA", "MSFT", "AAPL", "META", "AMZN"],
+    "반도체":      ["NVDA", "AMD", "AVGO", "TSM", "MU"],
+    "국내 대형주": ["005930.KS", "000660.KS", "005380.KS", "035420.KS", "051910.KS"],
+    "가상자산":    ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD"],
+    "원자재":      ["GC=F", "SI=F", "HG=F", "CL=F", "NG=F"],
+}
+
+_GUEST_TICKER_NAMES = {
+    "NVDA": "엔비디아", "MSFT": "마이크로소프트", "AAPL": "애플",
+    "TSLA": "테슬라", "META": "메타", "AMZN": "아마존", "AMD": "AMD", "AVGO": "브로드컴",
+    "TSM": "TSMC", "MU": "마이크론", "GOOGL": "알파벳",
+    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "005380.KS": "현대차",
+    "035420.KS": "NAVER", "051910.KS": "LG화학",
+    "BTC-USD": "비트코인", "ETH-USD": "이더리움", "SOL-USD": "솔라나",
+    "BNB-USD": "바이낸스", "XRP-USD": "리플",
+    "GC=F": "금", "SI=F": "은", "HG=F": "구리", "CL=F": "WTI", "NG=F": "천연가스",
+}
+
+# 게스트 샘플 보유 = core.pb 정본(포트폴리오·리스크 동일 스토리). 테슬라 52% 집중 → '위험'.
+from core.pb import GUEST_SAMPLE as _GUEST_PORTFOLIO
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_guest_quotes(tickers: tuple[str, ...]) -> dict:
+    import math
+    try:
+        from data.session import cached_download
+        raw = cached_download(list(tickers), period="5d", interval="1d", progress=False, auto_adjust=True, ttl=300)
+        if raw.empty:
+            return {}
+        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
+        multi = len(set(tickers)) > 1
+        result = {}
+        for tk in tickers:
+            try:
+                s = (closes[tk] if multi and tk in closes.columns else closes).dropna()
+                if len(s) < 2:
+                    continue
+                prev, curr = float(s.iloc[-2]), float(s.iloc[-1])
+                if math.isnan(prev) or math.isnan(curr) or prev == 0:
+                    continue
+                result[tk] = {"price": curr, "chg": (curr - prev) / prev * 100}
+            except Exception:
+                pass
+        return result
+    except Exception:
+        return {}
+
+
+def _guest_price_text(ticker: str, price: float | None) -> str:
+    if price is None:
+        return "데이터 대기"
+    if ticker.endswith(".KS"):
+        return _cur(price, "KRW")
+    if ticker == "CASH":
+        return "원화 예수금"
+    return _cur(price, "USD")
+
+
+def _guest_change(chg: float | None) -> tuple[str, str]:
+    if chg is None:
+        return "대기", "flat"
+    if chg > 0.05:
+        return f"+{chg:.2f}%", "pos"
+    if chg < -0.05:
+        return f"{chg:.2f}%", "neg"
+    return f"{chg:.2f}%", "flat"
+
+
+def _guest_portfolio_positions(total_asset: float, quotes: dict) -> list[dict]:
+    positions: list[dict] = []
+    for item in _GUEST_PORTFOLIO:
+        ticker = item["ticker"]
+        weight = float(item["weight"])
+        quote = quotes.get(ticker, {})
+        chg = quote.get("chg")
+        value = total_asset * weight / 100
+        positions.append(
+            {
+                "ticker": ticker,
+                "name": "현금/예수금" if ticker == "CASH" else _GUEST_TICKER_NAMES.get(ticker, ticker),
+                "category": item["category"],
+                "weight": weight,
+                "currency": item.get("currency", "KRW"),
+                "market_value": value,
+                "price": quote.get("price"),
+                "change_pct": chg,
+                "change_amount": value * chg / 100 if chg is not None else 0,
+            }
+        )
+    return positions
+
+
+def _guest_curve_svg(today_pct: float) -> str:
+    # R6: 단색 라인 — 양수=레드, 음수=블루
+    line = "#F25560" if today_pct >= 0 else "#4D90F0"
+    return (
+        '<svg class="gp-chart-svg" viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="샘플 포트폴리오 추이">'
+        '<defs>'
+        '<linearGradient id="gpArea" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{line}" stop-opacity=".12"/>'
+        f'<stop offset="100%" stop-color="{line}" stop-opacity="0"/></linearGradient>'
+        '</defs>'
+        '<path d="M24 142 C78 126 106 132 152 106 C198 78 222 96 268 74 C314 52 348 70 388 48 C430 26 478 48 536 28" '
+        f'stroke="{line}" stroke-width="3" stroke-linecap="round" fill="none"/>'
+        '<path d="M24 142 C78 126 106 132 152 106 C198 78 222 96 268 74 C314 52 348 70 388 48 C430 26 478 48 536 28 L536 168 L24 168 Z" '
+        'fill="url(#gpArea)"/>'
+        '<line x1="24" y1="168" x2="536" y2="168" stroke="#262A33" stroke-width="1"/>'
+        f'<circle cx="536" cy="28" r="7" fill="#0E0F13" stroke="{line}" stroke-width="3"/>'
+        '</svg>'
+    )
+
+
+def _guest_home_html(
+    positions: list[dict],
+    current_asset: float,
+    target_asset: float,
+    progress: float,
+    diag: dict | None = None,
+) -> str:
+    today_amount = sum(p.get("change_amount") or 0 for p in positions)
+    today_pct = today_amount / current_asset * 100 if current_asset else 0
+    today_label = _money(today_amount, "KRW", signed=True, compact=True)
+    today_pct_label = f"{today_pct:+.2f}%"
+    today_cls = "pos" if today_amount > 0 else ("neg" if today_amount < 0 else "flat")
+    largest = max(positions, key=lambda p: p.get("weight") or 0)
+    # 상위 3개·최대비중·USD 노출은 PB 진단(diag)과 동일 소스 사용 — 화면 내 수치 불일치 방지
+    _sorted = sorted(positions, key=lambda p: p.get("weight") or 0, reverse=True)
+    top3_weight = sum(p.get("weight", 0) for p in _sorted[:3])
+    largest_name = diag["top_name"] if diag else largest["name"]
+    largest_w = diag["top_w"] * 100 if diag else (largest.get("weight") or 0)
+    usd_weight = diag["usd_w"] if diag else sum(
+        p.get("weight", 0) for p in positions if (p.get("currency") or "KRW") == "USD")
+    allocation = []
+    by_cat: dict[str, float] = {}
+    for p in positions:
+        by_cat[p["category"]] = by_cat.get(p["category"], 0) + p["weight"]
+    # 비중 내림차순 → 최대 자산군 골드 강조, 이후 회색 차등(쏠림이 색으로 보이게)
+    for idx, (cat, weight) in enumerate(sorted(by_cat.items(), key=lambda kv: kv[1], reverse=True)):
+        color = _CONC_RAMP[min(idx, len(_CONC_RAMP) - 1)]
+        allocation.append(f'<i style="width:{weight:.1f}%;background:{color}" title="{_escape(cat)} {pct_weight(weight)}%"></i>')
+
+    rows = []
+    for p in positions[:5]:
+        ticker = p["ticker"]
+        short_ticker = ticker.replace(".KS", "").replace("-USD", "")
+        chg_label, chg_cls = _guest_change(p.get("change_pct"))
+        logo = _logo_html({"group": p["category"], "name": p["name"], "code": ticker})
+        rows.append(
+            '<div class="gp-pos-row">'
+            f'{logo}'
+            f'<div class="gp-pos-main"><b>{_escape(p["name"])}</b><span>{_escape(short_ticker)} · {_escape(p["category"])}</span></div>'
+            f'<div class="gp-pos-val"><b>{_money(p["market_value"], "KRW", compact=True)}원</b><span>{pct_weight(p["weight"])}%</span></div>'
+            f'<div class="gp-pos-chg {chg_cls}">{_escape(chg_label)}</div>'
+            '</div>'
+        )
+
+    return (
+        '<section class="gp-home" aria-label="샘플 투자 홈">'
+        '<div class="gp-home-main">'
+        '<div class="gp-home-top">'
+        '<span class="gp-kicker">샘플 포트폴리오</span>'
+        '<div class="gp-total-label">샘플 총자산</div>'
+        f'<div class="gp-total">{won(current_asset)}</div>'
+        f'<div class="gp-delta {today_cls}"><b>{today_label}원</b><span>{today_pct_label} 오늘</span></div>'
+        '</div>'
+        f'<div class="gp-chart">{_guest_curve_svg(today_pct)}</div>'
+        '<div class="gp-actions">'
+        '<a class="gp-action primary" href="#guest-watchlist">관심 종목</a>'
+        '<a class="gp-action" href="#guest-journey">목표 여정</a>'
+        '<a class="gp-action" href="/risk?_auth=guest" target="_self">리스크 보기</a>'
+        '</div>'
+        '</div>'
+        '<aside class="gp-home-side">'
+        '<div class="gp-side-head"><b>한눈에 보기</b><span>핵심 지표 요약</span></div>'
+        '<div class="gp-mini-stats">'
+        f'<div><span>목표 진행</span><b>{progress * 100:.1f}%</b></div>'
+        f'<div><span>목표 금액</span><b>{_krw_short(target_asset)}원</b></div>'
+        f'<div><span>최대 비중</span><b>{_escape(largest_name)} {pct_weight(largest_w)}%</b></div>'
+        f'<div><span>상위 3개</span><b>{pct_weight(top3_weight)}%</b></div>'
+        '</div>'
+        '<div class="gp-alloc">' + "".join(allocation) + '</div>'
+        f'<div class="gp-risk-note">USD 노출 {pct_weight(usd_weight)}% · 신규 매수 전 환율과 집중도를 먼저 확인</div>'
+        '<div class="gp-pos-list">' + "".join(rows) + '</div>'
+        '</aside>'
+        '</section>'
+    )
+
+
+def _render_guest_portfolio():
+    from ui.components.dash_style import inject_css
+
+    inject_css()
+    mark_active_nav("/portfolio")
+    st.markdown(_PORT_CSS, unsafe_allow_html=True)
+    st.markdown("""<style>
+.gp-home{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(330px,.82fr);gap:12px;margin:10px 0 16px}
+.gp-home-main,.gp-home-side{background:#16181F;border:1px solid #262A33;border-radius:18px;box-shadow:0 16px 36px rgba(0,0,0,0.30)}
+.gp-home-main{position:relative;overflow:hidden;padding:20px 22px 18px;min-height:386px;display:flex;flex-direction:column}
+.gp-home-main{background:#16181F}
+.gp-home-side{background:#16181F}
+.gp-home-top{position:relative;z-index:1}
+.gp-kicker{display:inline-flex;border:1px solid #262A33;background:linear-gradient(135deg,rgba(133,186,234,.25),rgba(226,235,136,.34));color:#E7E9EE;border-radius:999px;padding:6px 10px;font-size:10px;font-weight:950;margin-bottom:14px}
+.gp-total-label{font-size:12px;color:#9AA0AD;font-weight:900;margin-bottom:5px}
+.gp-total{color:#E7E9EE;font-size:40px;font-weight:950;line-height:1.05;font-variant-numeric:tabular-nums}
+.gp-delta{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;font-weight:900}
+.gp-delta b{font-variant-numeric:tabular-nums}.gp-delta span{color:#9AA0AD;font-size:12px}
+.gp-delta.pos,.gp-pos-chg.pos{color:#F25560}.gp-delta.neg,.gp-pos-chg.neg{color:#4D90F0}.gp-delta.flat,.gp-pos-chg.flat{color:#9AA0AD}
+.gp-chart{margin:auto -6px 8px}.gp-chart-svg{display:block;width:100%;height:auto;min-height:170px}
+.gp-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto}
+.gp-action{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:999px;border:1px solid #262A33;color:#E7E9EE;background:rgba(255,255,255,0.04);padding:0 14px;font-size:12px;font-weight:950;text-decoration:none}
+.gp-action.primary{background:#D9A441;color:#0E0F13;border-color:transparent;box-shadow:0 10px 22px rgba(0,0,0,0.30)}
+.gp-home-side{padding:16px;min-width:0}
+.gp-side-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:12px}
+.gp-side-head b{color:#E7E9EE;font-size:15px;font-weight:950}
+.gp-side-head span{color:#9AA0AD;font-size:10px;font-weight:850;text-align:right}
+.gp-mini-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.gp-mini-stats div{border:1px solid #262A33;background:#1E2029;border-radius:12px;padding:10px;min-width:0}
+.gp-mini-stats span{display:block;color:#9AA0AD;font-size:10px;font-weight:900;margin-bottom:4px}
+.gp-mini-stats b{display:block;color:#E7E9EE;font-size:13px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gp-alloc{display:flex;height:10px;border-radius:999px;overflow:hidden;background:#1E2029;margin:8px 0}
+.gp-alloc i{display:block;height:100%;min-width:3px}
+.gp-risk-note{color:#E7E9EE;background:linear-gradient(135deg,rgba(133,186,234,.16),rgba(226,235,136,.22));border:1px solid #262A33;border-radius:12px;padding:9px 10px;font-size:11px;font-weight:800;line-height:1.45;margin-bottom:10px}
+.gp-pos-list{display:grid;gap:7px}
+.gp-pos-row{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #262A33;border-radius:12px;background:rgba(22,24,31,0.84);padding:8px}
+.gp-pos-row .hold-logo{width:32px;height:32px;flex-basis:32px}
+.gp-pos-main{min-width:0}.gp-pos-main b{display:block;color:#E7E9EE;font-size:12px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gp-pos-main span{display:block;color:#9AA0AD;font-size:10px;font-weight:850;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gp-pos-val{text-align:right}.gp-pos-val b{display:block;color:#E7E9EE;font-size:11px;font-weight:950;white-space:nowrap}
+.gp-pos-val span{display:block;color:#9AA0AD;font-size:10px;font-weight:850;margin-top:2px}
+.gp-pos-chg{font-size:11px;font-weight:950;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.gp-header{padding:22px 0 8px;margin-bottom:4px}
+.gp-header h2{font-size:22px;font-weight:950;color:#E7E9EE;margin:0;letter-spacing:0}
+.gp-header p{font-size:13px;color:#9AA0AD;margin:4px 0 0;font-weight:600}
+.gp-section{margin:18px 0 6px}
+.gp-section-title{font-size:15px;font-weight:800;color:#E7E9EE;margin:0 0 10px;letter-spacing:0}
+.gp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.gp-card{background:#16181F;border:1px solid #262A33;border-radius:16px;padding:14px 16px;
+  box-shadow:0 7px 18px rgba(0,0,0,0.30)}
+.gp-card-name{font-size:12px;color:#9AA0AD;font-weight:700;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gp-card-ticker{font-size:11px;color:#7E8694;font-weight:600;margin:0 0 8px;font-family:monospace}
+.gp-card-price{font-size:16px;font-weight:900;color:#E7E9EE;font-family:'SF Mono',monospace;
+  font-variant-numeric:tabular-nums;margin:0 0 4px}
+.gp-card-chg{font-size:12px;font-weight:800;font-family:'SF Mono',monospace}
+.gp-card-chg.pos{color:#F25560}.gp-card-chg.neg{color:#4D90F0}.gp-card-chg.flat{color:#9AA0AD}
+.gp-badge{display:inline-block;background:rgba(217,164,65,0.15);color:#D9A441;font-size:10px;font-weight:700;
+  padding:3px 8px;border-radius:999px;margin-bottom:6px}
+@media(max-width:1080px){.gp-home{grid-template-columns:1fr}.gp-home-main{min-height:330px}}
+@media(max-width:900px){.gp-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){
+  .gp-home{gap:10px;margin-top:6px}.gp-home-main,.gp-home-side{border-radius:16px}
+  .gp-home-main{padding:16px;min-height:0}.gp-total{font-size:31px}
+  .gp-chart-svg{min-height:132px}.gp-actions{display:grid;grid-template-columns:1fr 1fr}.gp-action{min-height:36px}
+  .gp-mini-stats{grid-template-columns:1fr 1fr}.gp-pos-row{grid-template-columns:32px minmax(0,1fr) auto}.gp-pos-chg{grid-column:2/-1;text-align:left}
+  .gp-grid{grid-template-columns:1fr}
+}
+</style>""", unsafe_allow_html=True)
+
+    current_asset = st.session_state.get("portfolio_current_asset", 700_000_000)
+    target_asset = st.session_state.get("portfolio_target_asset", 1_500_000_000)
+    annual_growth_rate = st.session_state.get("portfolio_annual_growth_rate", 0.20)
+    progress = min(1.0, max(0.0, current_asset / max(1, target_asset)))
+    all_tickers = tuple({tk for tks in _GUEST_CATEGORIES.values() for tk in tks if tk != "CASH"})
+    quotes = _fetch_guest_quotes(all_tickers)
+    guest_positions = _guest_portfolio_positions(current_asset, quotes)
+
+    # ── PB 리스크-우선 진단 + 벤치마크 (샘플) — 실사용자 경로와 동일 컴포넌트 재사용 ──
+    st.markdown(_PB_CSS, unsafe_allow_html=True)
+    from datetime import date as _date
+    from core.pb import holdings_for_pb, pb_diagnostics
+    _uname = st.session_state.get("username")
+    _cash = next((p["market_value"] for p in guest_positions if p.get("category") == "현금"), 0) or 0
+    _sval = float(_journey_get("start_value", _uname, True, max(1.0, current_asset * 0.62)))
+    _sd_raw = _journey_get("start_date", _uname, True, (_date.today() - timedelta(days=730)).isoformat())
+    _start = _date.fromisoformat(_sd_raw) if isinstance(_sd_raw, str) else _sd_raw
+    _bench = _get_bench_returns(_sd_raw if isinstance(_sd_raw, str) else _sd_raw.isoformat())
+    _diag = pb_diagnostics(holdings_for_pb(guest_positions), current_asset, _cash, _start, _sval, _bench)
+    if _diag:
+        st.markdown(
+            '<div style="font-size:11.5px;font-weight:750;color:#8A999B;margin:6px 0 8px">'
+            '샘플 포트폴리오 기준 — 로그인 시 내 계좌로 자동 전환</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(_pb_risk_card_html(_diag), unsafe_allow_html=True)
+        _bm = _benchmark_compare_html(_diag, _bench)
+        if _bm:
+            st.markdown(_bm, unsafe_allow_html=True)
+
+    st.markdown(_guest_home_html(guest_positions, current_asset, target_asset, progress, _diag), unsafe_allow_html=True)
+
+    st.markdown('<div id="guest-journey"></div>', unsafe_allow_html=True)
+    _render_asset_journey(current_asset, is_guest=True)
+
+    st.markdown("""
+<div id="guest-watchlist" class="gp-header">
+  <h2>관심 종목 샘플</h2>
+  <p>실계좌를 연결하면 이 영역은 내 보유 종목과 관심 종목 중심으로 바뀝니다. 카테고리별 주요 종목은 아래에서 펼쳐 볼 수 있습니다.</p>
+</div>""", unsafe_allow_html=True)
+
+    with st.expander("관심 종목 샘플 펼치기 (카테고리별 주요 종목)", expanded=False):
+        for category, tickers in _GUEST_CATEGORIES.items():
+            st.markdown(f'<div class="gp-section"><div class="gp-section-title">{category}</div></div>', unsafe_allow_html=True)
+            cards = []
+            for tk in tickers:
+                q = quotes.get(tk, {})
+                price = q.get("price")
+                chg = q.get("chg")
+                name = _GUEST_TICKER_NAMES.get(tk, tk)
+                short_tk = tk.replace(".KS", "").replace("-USD", "")
+
+                if price is None:
+                    price_str = "—"
+                    chg_str, chg_cls = "—", "flat"
+                else:
+                    price_str = _cur(price, "KRW") if tk.endswith(".KS") else _cur(price, "USD")
+                    if chg is None:
+                        chg_str, chg_cls = "—", "flat"
+                    elif chg > 0.05:
+                        chg_str, chg_cls = f"+{chg:.2f}%", "pos"
+                    elif chg < -0.05:
+                        chg_str, chg_cls = f"{chg:.2f}%", "neg"
+                    else:
+                        chg_str, chg_cls = f"{chg:.2f}%", "flat"
+
+                cards.append(
+                    f'<div class="gp-card">'
+                    f'<div class="gp-badge">TOP5</div>'
+                    f'<div class="gp-card-name">{name}</div>'
+                    f'<div class="gp-card-ticker">{short_tk}</div>'
+                    f'<div class="gp-card-price">{price_str}</div>'
+                    f'<div class="gp-card-chg {chg_cls}">{chg_str}</div>'
+                    f'</div>'
+                )
+            st.markdown('<div class="gp-grid">' + "".join(cards) + '</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+<div style="margin-top:24px;padding:16px 20px;background:#16181F;border:1px solid #262A33;
+  border-radius:16px;font-size:13px;color:#9AA0AD;text-align:center;">
+  실계좌 연동을 위해 <strong style="color:#E7E9EE;">로그인 → 계좌연동</strong>을 진행해 주세요.
+</div>""", unsafe_allow_html=True)
+    st.markdown(jj_footer(), unsafe_allow_html=True)
 
 
 def render():
+    L.viewport_width()          # 폭 먼저 확정 → 모바일 리플로우 최소화
+    L.inject_responsive_css()   # 페이지당 1회 (게스트/로그인 공통)
+    # Guest: show sample top-5 view instead of real portfolio
+    if st.session_state.get("auth_role") == "guest":
+        _render_guest_portfolio()
+        return
+
     inject_css()
+    mark_active_nav("/portfolio")
+    st.markdown(_PORT_CSS, unsafe_allow_html=True)
 
-    c1, c2 = st.columns([9, 1])
-    c1.markdown("## 보유 포트폴리오")
-    c1.caption("투자 참고용 데이터입니다. 매매 권유가 아닙니다.")
-    if c2.button("↻ 새로고침", use_container_width=True):
-        st.cache_data.clear()
+    brokerage_holdings = st.session_state.get("brokerage_holdings")
+    if not brokerage_holdings:   # None(미연결) 또는 [](0종목) → 첫 사용 온보딩(B1, 토큰 체크보다 우선)
+        _render_onboarding()
+        return
 
-    with st.spinner(""):
-        data = _load()
-    config = load_config()
+    if st.session_state.get("auth_role") == "user" and _is_token_expired():
+        st.warning("세션이 만료되었습니다. 다시 로그인해 주세요.")
+        if st.button("재로그인"):
+            for k in ["authenticated", "brokerage_token", "brokerage_holdings", "brokerage_cash_balance"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+        st.stop()
 
-    ts = data["fetched_at"][:19].replace("T", " ")
-    st.markdown(timestamp_bar(ts), unsafe_allow_html=True)
+    # 라이브 갱신 배지는 '내 투자' 헤더로 이동(여기선 렌더 안 함, 자동갱신·버킷만)
+    bucket = live_refresh(["US", "KR", "CRYPTO"], render=False)
+    ph = show_skeleton()
+    data = load_market_data(_bucket=bucket)
+    ph.empty()
 
-    etfs    = data["my_etfs"]
-    benches = data["benchmarks"]
+    brokerage_connected = True  # 위에서 보유 존재 확인됨
+    if brokerage_connected:
+        data = dict(data)
+        data["holdings"] = brokerage_holdings
+        cash_balance = st.session_state.get("brokerage_cash_balance", 0.0)
+        data["cash_balance"] = cash_balance
+        # USD eval_amount → KRW 환산 후 합산 (환율 실패 시 폴백 — 미국 종목이 안 빠지게)
+        _fx = _usdkrw(data) or _FX_FALLBACK
+        def _to_krw(h: dict, field: str) -> float:
+            val = float(h.get(field) or 0)
+            if val and h.get("asset_class") == "us_stock":
+                val *= _fx
+            return val
+        live_holdings_total = sum(_to_krw(h, "평가금액") for h in brokerage_holdings)
+        live_total = live_holdings_total + cash_balance
+        live_cost = sum(_to_krw(h, "매입금액") for h in brokerage_holdings)
+        live_gain = sum(_to_krw(h, "평가손익") for h in brokerage_holdings)
+        st.session_state["portfolio_current_asset"] = live_total
 
-    # ── 보유 ETF 현황 ─────────────────────────────────────────────────────────
-    st.markdown(section_header("보유 ETF 현황"), unsafe_allow_html=True)
+        # 출처/종목수 배지는 _render_portfolio_detail 의 '내 투자' 헤더로 통합(중복 바 제거).
+        # Debug expander — auto-opens when 0 종목 to help diagnose empty responses
+        debug_info = st.session_state.get("brokerage_debug")
+        if debug_info:
+            with st.expander("🔧 API 응답 디버그", expanded=(len(brokerage_holdings) == 0)):
+                st.json(debug_info)
 
-    cols = ["name", "ticker", "category", "price", "change_pct", "benchmark", "hedged"]
-    etf_df = etfs[cols].copy().rename(columns=_ETF)
-    etf_df = numeric(etf_df, ["현재가", "등락률(%)"])
+    current_asset = st.session_state.get("portfolio_current_asset", 700_000_000)
+    target_asset = st.session_state.get("portfolio_target_asset", 1_500_000_000)
+    annual_growth_rate = st.session_state.get("portfolio_annual_growth_rate", 0.20)
+    progress = min(1.0, max(0.0, current_asset / max(1, target_asset)))
 
-    col_t, col_dl = st.columns([9, 1])
-    with col_t:
-        st.dataframe(
-            style_returns(etf_df, "등락률(%)"),
-            column_config={
-                "현재가":    st.column_config.NumberColumn("현재가",    format="%,.0f"),
-                "등락률(%)": st.column_config.NumberColumn("등락률(%)", format="%.2f%%"),
-            },
-            use_container_width=True, hide_index=True,
-        )
-    with col_dl:
-        st.download_button("↓ CSV",   csv_bytes(etf_df),
-                           f"portfolio_{ts[:10]}.csv", "text/csv", use_container_width=True)
-        st.download_button("↓ Excel", excel_bytes({"포트폴리오": etf_df}),
-                           f"portfolio_{ts[:10]}.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
-
-    # ── 벤치마크 비교 ─────────────────────────────────────────────────────────
-    st.markdown(section_header("내 ETF vs 벤치마크"), unsafe_allow_html=True)
-
-    rows = []
-    for _, etf in etfs.iterrows():
-        bm  = etf["benchmark"]
-        b_r = benches[benches["ticker"] == bm]
-        b_c = b_r.iloc[0]["change_pct"] if not b_r.empty else None
-        my  = etf["change_pct"]
-        diff = round(my - b_c, 2) if isinstance(my, float) and isinstance(b_c, float) else None
-        rows.append({
-            "종목명":           etf["name"],
-            "내 ETF 등락률(%)": my   if isinstance(my, float)  else None,
-            "벤치마크":         bm,
-            "벤치마크 등락률(%)":b_c  if isinstance(b_c, float) else None,
-            "초과 수익률(%)":   diff,
-        })
-
-    cmp = pd.DataFrame(rows)
-    cmp = numeric(cmp, ["내 ETF 등락률(%)", "벤치마크 등락률(%)", "초과 수익률(%)"])
-    cmp_styled = cmp.style\
-        .map(_ret_style, subset=["내 ETF 등락률(%)", "벤치마크 등락률(%)"])\
-        .map(_alpha_style, subset=["초과 수익률(%)"])
-
-    st.dataframe(
-        cmp_styled,
-        column_config={
-            "내 ETF 등락률(%)":  st.column_config.NumberColumn(format="%.2f%%"),
-            "벤치마크 등락률(%)": st.column_config.NumberColumn(format="%.2f%%"),
-            "초과 수익률(%)":    st.column_config.NumberColumn(format="%.2f%%"),
+    _render_portfolio_detail(
+        data,
+        journey={
+            "progress": max(0.02, progress),
+            "height": 360,
+            "current_asset": current_asset,
+            "target_asset": target_asset,
+            "annual_growth_rate": annual_growth_rate,
         },
-        use_container_width=True, hide_index=True,
     )
 
-    # ── 드라이버 분석 ─────────────────────────────────────────────────────────
-    st.markdown(section_header("ETF별 드라이버 현황",
-                               "각 ETF의 주요 영향 요인 오늘 성과"), unsafe_allow_html=True)
+    # 스크린샷 업로더 — 요약 뷰에서 헤더+드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
+    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 메인 CTA로 노출.)
+    if brokerage_connected and st.query_params.get("pf", "") == "":
+        _render_screenshot_upload(key="screenshot_update")
 
-    for cfg_etf in config["my_etfs"]:
-        name    = cfg_etf["name"]
-        drivers = cfg_etf.get("drivers", [])
-        if not drivers:
-            continue
-        with st.expander(f"{name}  —  드라이버 {len(drivers)}개", expanded=False):
-            drv_rows = []
-            for drv in drivers:
-                res = _lookup(drv, data)
-                drv_rows.append({
-                    "드라이버":   drv,
-                    "구분":       res.get("source", "N/A") if res else "N/A",
-                    "현재값":     res.get("value",  "N/A") if res else "N/A",
-                    "등락률(%)":  res.get("change_pct", None) if res else None,
-                })
-            drv_df = pd.DataFrame(drv_rows)
-            drv_df = numeric(drv_df, ["등락률(%)"])
-            st.dataframe(
-                style_returns(drv_df, "등락률(%)"),
-                column_config={"등락률(%)": st.column_config.NumberColumn(format="%.2f%%")},
-                use_container_width=True, hide_index=True,
-            )
-
-
-    # ── 애널리스트 전망 ────────────────────────────────────────────────────────
-    st.markdown(section_header("보유 ETF 주요 편입 종목 애널리스트 전망",
-                               "Yahoo Finance 컨센서스 목표가 — 나스닥·반도체·빅테크 ETF 편입 종목"),
-                unsafe_allow_html=True)
-
-    analyst_df = _analyst_targets()
-
-    if not analyst_df.empty:
-        _REC_COLOR = {
-            "강력매수": "color:#276749;font-weight:700",
-            "매수":     "color:#276749;font-weight:600",
-            "보유":     "color:#718096",
-            "시장하회": "color:#9B2335;font-weight:600",
-            "매도":     "color:#9B2335;font-weight:700",
-            "강력매도": "color:#9B2335;font-weight:700",
-        }
-
-        def _rec_style(v):
-            return _REC_COLOR.get(v, "")
-
-        def _upside_style(v):
-            if not isinstance(v, (int, float)) or pd.isna(v): return ""
-            if v >= 10:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
-            if v <= -5:  return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
-            return ""
-
-        rows_a = []
-        for _, r in analyst_df.iterrows():
-            tk = r["ticker"]
-            rows_a.append({
-                "종목":        f"{_STOCK_KOR.get(tk, tk)}  ({tk})",
-                "현재가":      r.get("현재가"),
-                "목표가(평균)": r.get("목표가_평균"),
-                "목표가(최고)": r.get("목표가_최고"),
-                "목표가(최저)": r.get("목표가_최저"),
-                "상승여력%":   r.get("상승여력%"),
-                "투자의견":    r.get("투자의견") or "—",
-                "애널리스트수": r.get("애널리스트수"),
-            })
-
-        atbl = pd.DataFrame(rows_a)
-        price_cols = ["현재가", "목표가(평균)", "목표가(최고)", "목표가(최저)"]
-        for c in price_cols:
-            atbl[c] = pd.to_numeric(atbl[c], errors="coerce")
-        atbl["상승여력%"]   = pd.to_numeric(atbl["상승여력%"],   errors="coerce")
-        atbl["애널리스트수"] = pd.to_numeric(atbl["애널리스트수"], errors="coerce")
-
-        styled_a = (
-            atbl.style
-            .map(_upside_style, subset=["상승여력%"])
-            .map(_rec_style,    subset=["투자의견"])
-        )
-        cfg_a = {c: st.column_config.NumberColumn(format="$%,.2f") for c in price_cols}
-        cfg_a["상승여력%"]   = st.column_config.NumberColumn(format="%.1f%%")
-        cfg_a["애널리스트수"] = st.column_config.NumberColumn(format="%d명")
-        st.dataframe(styled_a, column_config=cfg_a, use_container_width=True, hide_index=True)
-        st.caption("출처: Yahoo Finance 애널리스트 컨센서스 — 투자 참고용, 매매 권유 아님 · 1시간마다 업데이트")
-    else:
-        st.info("애널리스트 데이터를 불러올 수 없습니다.")
-
-    render_fmp_drilldown(list(_STOCK_KOR.keys()), _STOCK_KOR, section_title="주요 편입 종목 증권사별 목표가")
-
-
-# ── Style helpers ─────────────────────────────────────────────────────────────
-
-def _ret_style(v):
-    if not isinstance(v, (int, float)) or pd.isna(v): return ""
-    if v > 0.005:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
-    if v < -0.005: return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
-    return ""
-
-def _alpha_style(v):
-    if not isinstance(v, (int, float)) or pd.isna(v): return ""
-    if v > 0.1:  return "color:#276749;font-weight:700"
-    if v < -0.1: return "color:#9B2335;font-weight:700"
-    return "color:#718096"
-
-
-# ── Driver lookup ─────────────────────────────────────────────────────────────
-
-_MACRO_MAP = {"US10Y": "us_10y", "US 10Y": "us_10y", "US2Y": "us_2y", "US 2Y": "us_2y"}
-
-def _lookup(driver: str, data: dict) -> dict | None:
-    for _, r in data["commodities"].iterrows():
-        if driver.lower() == r["name"].lower():
-            return {"source": "원자재", "value": _f(r["price"]), "change_pct": r["change_pct"]}
-
-    for _, r in data["fx"].iterrows():
-        if driver.upper() in (r["pair"].upper(), "DXY") and (driver.upper() != "DXY" or r["pair"] == "dxy"):
-            return {"source": "환율",   "value": _f(r["rate"]),  "change_pct": r["change_pct"]}
-        if driver.upper().replace("/","_").replace(" ","_") == r["pair"].upper():
-            return {"source": "환율",   "value": _f(r["rate"]),  "change_pct": r["change_pct"]}
-
-    for _, r in data["us_stocks"].iterrows():
-        if driver.upper() == str(r["ticker"]).upper():
-            return {"source": "미국주식", "value": _f(r["price"]), "change_pct": r["change_pct"]}
-
-    for _, r in data["benchmarks"].iterrows():
-        if driver.upper() == str(r["ticker"]).upper():
-            return {"source": "벤치마크", "value": _f(r["price"]), "change_pct": r["change_pct"]}
-
-    mac = data["macro"]
-    if mac is not None and not mac.empty:
-        key = _MACRO_MAP.get(driver)
-        if key:
-            row = mac[mac["key"] == key]
-            if not row.empty:
-                return {"source": "매크로", "value": f"{row.iloc[0]['value']}%", "change_pct": None}
-    return None
-
-def _f(v):
-    if not isinstance(v, (int, float)): return "N/A"
-    return f"{v:,.2f}"
+    # 푸터는 전 페이지 동일하게 jj_footer() 1개로 통일(포트폴리오 전용 데이터 캡션 제거).
+    st.markdown(jj_footer(), unsafe_allow_html=True)

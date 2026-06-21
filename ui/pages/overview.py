@@ -1,622 +1,326 @@
 """
-Market Overview — Bloomberg-lite institutional monitoring dashboard.
+전체 현황 — '내 관점' 4단 다이제스트(한 줄 진단 · 오늘 할 일 · 시장 다이제스트).
+게스트=core.pb 공유 샘플 / 로그인=실계좌(소스만 교체). 시장 상세는 '시장' 탭.
 """
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import yfinance as yf
+from __future__ import annotations
 
-from data.fetcher import fetch_all
-from core.config_loader import load_config
+import pandas as pd
+import streamlit as st
+
+import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
+from data.loader import load_market_data
 from src.risk import compute_regime_signals
-from src.database import load_latest_indicator_summary, DEFAULT_DB
 from ui.components.dash_style import (
-    inject_css, section_header, timestamp_bar,
-    numeric, csv_bytes, excel_bytes,
+    glossary_expander,
+    inject_css, numeric, show_skeleton,
+    mark_active_nav, mkt_page_header, jj_footer,
 )
 
-# ── Performance chart tickers ─────────────────────────────────────────────────
-_PERF_TICKERS = {
-    "QQQ":      "QQQ",
-    "SPY":      "SPY",
-    "SOXX":     "SOXX",
-    "GLD":      "GLD",
-    "SLV":      "SLV",
-    "TLT":      "TLT",
-    "구리":     "HG=F",
-    "USD/KRW":  "USDKRW=X",
-    "DXY":      "DX-Y.NYB",
-    "미국10Y":  "^TNX",
-    "KWEB":     "KWEB",
-    "비트코인": "BTC-USD",
-}
+# ── Colors ────────────────────────────────────────────────────────────────────
 
-_PERF_COLORS = {
-    "QQQ":      "#1C2B3A", "SPY":     "#4A6FA5", "SOXX":    "#E07B39",
-    "GLD":      "#C9A84C", "SLV":     "#8CA0B3", "TLT":     "#5A7D9A",
-    "구리":     "#B87333", "USD/KRW": "#6B7A8D", "DXY":     "#5E7C8B",
-    "미국10Y":  "#D64E4E", "KWEB":    "#E53935", "비트코인": "#F7931A",
-}
+# ── Bar chart / ranking assets ────────────────────────────────────────────────
 
-_PERF_DEFAULTS = ["QQQ", "SOXX", "GLD", "비트코인", "USD/KRW"]
-_PERIOD_MAP    = {"1M": "1mo", "3M": "3mo", "6M": "6mo"}
+# ── Normalized line chart assets ──────────────────────────────────────────────
+# Quiet Terminal: 카테고리 라인은 무채색 그레이 램프 + 골드(강조)만 사용
 
-# ── ETF Driver Heatmap ────────────────────────────────────────────────────────
-_HM_ETFS = [
-    "TIGER 나스닥100",      "RISE S&P500",
-    "KODEX 빅테크10(H)",    "PLUS 나스닥테크",
-    "TIGER 반도체나스닥",    "TIGER 반도체레버리지",
-    "KODEX AI테크TOP10",    "KODEX AI커버드콜",
-    "KODEX 배당커버드콜",
-    "ACE KRX금현물",        "TIGER KRX금현물",
-    "KODEX 은선물(H)",      "TIGER 구리실물",
-    "TIGER 차이나휴머노이드", "KODEX 차이나휴머노이드",
-]
-_HM_DRIVERS = ["금리", "달러", "USD/KRW", "AI", "반도체", "금", "은", "구리", "중국"]
+# ── Group heatmap (used in tabs) ──────────────────────────────────────────────
 
-# Exposure matrix [Rate, Dollar, FX, AI, Semi, Gold, Silver, Copper, China]
-_HM_Z = [
-    [2, 0, 1, 2, 1, 0, 0, 0, 0],  # TIGER 나스닥100
-    [1, 0, 1, 1, 1, 0, 0, 0, 0],  # RISE S&P500
-    [2, 0, 0, 2, 1, 0, 0, 0, 0],  # KODEX 빅테크10(H) hedged
-    [2, 0, 1, 2, 1, 0, 0, 0, 0],  # PLUS 나스닥테크
-    [2, 0, 1, 1, 2, 0, 0, 1, 0],  # TIGER 반도체나스닥
-    [2, 0, 1, 1, 2, 0, 0, 1, 0],  # TIGER 반도체레버리지
-    [2, 0, 1, 2, 1, 0, 0, 0, 0],  # KODEX AI테크TOP10
-    [1, 0, 1, 2, 1, 0, 0, 0, 0],  # KODEX AI커버드콜
-    [1, 0, 1, 0, 0, 0, 0, 0, 0],  # KODEX 배당커버드콜
-    [0, 2, 1, 0, 0, 2, 0, 0, 0],  # ACE KRX금현물
-    [0, 2, 1, 0, 0, 2, 0, 0, 0],  # TIGER KRX금현물
-    [0, 1, 0, 0, 1, 0, 2, 0, 0],  # KODEX 은선물(H)
-    [0, 1, 1, 0, 1, 0, 0, 2, 1],  # TIGER 구리실물
-    [1, 1, 1, 1, 1, 0, 0, 1, 2],  # TIGER 차이나휴머노이드
-    [1, 1, 1, 1, 1, 0, 0, 1, 2],  # KODEX 차이나휴머노이드
-]
+# ── Market movers thresholds (for 주요변동 tab) ───────────────────────────────
 
-# Signal → heatmap column index
-_SIG_COL = {
-    "Rate Pressure":          0,
-    "Dollar Strength":        1,
-    "Korea FX Risk":          2,
-    "Tech Momentum":          3,
-    "Semiconductor Momentum": 4,
-}
+# ── CSS ───────────────────────────────────────────────────────────────────────
+_OV_CSS = """<style>
+/* 골드 CTA 링크 — 오늘 할 일·시장 다이제스트·포트폴리오 링크 공용 */
+.ov-risk-link{display:inline-flex;align-items:center;justify-content:center;
+  padding:11px 14px;border-radius:14px;background:rgba(217,164,65,0.10);
+  border:1px solid rgba(217,164,65,0.42);color:#D9A441!important;font-size:13px;font-weight:850;
+  text-decoration:none!important;transition:background .15s,border-color .15s}
+.ov-risk-link:hover{background:rgba(217,164,65,0.18);border-color:#D9A441}
+</style>"""
 
-_LEVEL_KOR = {
-    "NEUTRAL": "중립", "MEDIUM": "중간", "HIGH": "높음", "LOW": "낮음",
-    "RISING": "상승", "FALLING": "하락", "FLAT": "보합",
-    "RISK-ON": "위험선호", "RISK-OFF": "위험회피",
-    "BULLISH": "상승", "BEARISH": "하락", "STRONG": "강세", "WEAK": "약세",
-}
+# ── Cached loaders ─────────────────────────────────────────────────────────────
 
-# Signal English → Korean display names
-_SIG_KOR = {
-    "Risk-on / Risk-off":      "위험선호 지수",
-    "Dollar Strength":         "달러 강도",
-    "Rate Pressure":           "금리 압력",
-    "Tech Momentum":           "기술주 모멘텀",
-    "Semiconductor Momentum":  "반도체 모멘텀",
-    "Commodity Momentum":      "원자재 모멘텀",
-    "Korea FX Risk":           "원화 환율 리스크",
-}
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_regime_signals(fetched_at: str) -> list[dict]:
+    """Cache the regime-signal computation keyed by the market data timestamp.
+    Avoids recomputing identical signals on every Streamlit rerun within the cache window.
+    """
+    # Pull cached market data and compute. The TTL aligns with load_market_data (30 min).
+    return compute_regime_signals(load_market_data())
 
-_ETF   = {"name":"종목명","ticker":"티커","price":"현재가","change":"전일대비",
-          "change_pct":"등락률(%)","benchmark":"벤치마크","hedged":"환헤지"}
-_BENCH = {"ticker":"티커","name":"종목명","price":"현재가","change_pct":"등락률(%)"}
-_STOCK = {"ticker":"티커","name":"종목명","sector":"섹터","price":"현재가","change_pct":"등락률(%)"}
-_COMM  = {"name":"원자재","price":"현재가","change_pct":"등락률(%)"}
-_FX    = {"pair":"통화쌍","rate":"환율","change_pct":"등락률(%)","priority":"중요도"}
-_MAC   = {"key":"지표","series_id":"FRED코드","value":"값","date":"기준일"}
+# ── Value helpers ──────────────────────────────────────────────────────────────
 
+# ── HTML builders ──────────────────────────────────────────────────────────────
 
-# ── Data loaders ──────────────────────────────────────────────────────────────
+# 종목별 고유색 — 차분하게 채도 낮춘 자산군별 팔레트(차트 시리즈 공용)
 
-@st.cache_data(ttl=300)
-def _load():
-    return fetch_all()
+# ── Summary text ───────────────────────────────────────────────────────────────
 
+# ── Portfolio impact bullets ───────────────────────────────────────────────────
 
-@st.cache_data(ttl=1800)
-def _multi_history(period: str) -> pd.DataFrame:
-    """Normalized (base=100) price history for all perf tickers."""
-    yf_period = _PERIOD_MAP.get(period, "3mo")
-    ticker_list = list(_PERF_TICKERS.values())
-    try:
-        raw = yf.download(ticker_list, period=yf_period, interval="1d",
-                          progress=False, auto_adjust=True)
-        if raw.empty:
-            return pd.DataFrame()
-        # yf returns MultiIndex (price_type, ticker) when multiple tickers
-        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
-        result = {}
-        for label, tk in _PERF_TICKERS.items():
-            try:
-                if tk in closes.columns:
-                    s = closes[tk].dropna()
-                    if len(s) > 1:
-                        result[label] = (s / s.iloc[0]) * 100
-            except Exception:
-                continue
-        return pd.DataFrame(result) if result else pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+def _compass_model(sig_map: dict, btc_chg: float | None, kweb_chg: float | None) -> tuple[str, str, int, str]:
+    score = 0
 
+    def _col(key: str) -> str:
+        return sig_map.get(key, {}).get("col", "na")
 
-# ── Chart builders ────────────────────────────────────────────────────────────
+    for key, weight in [("Semiconductor Momentum", 2), ("Tech Momentum", 2)]:
+        col = _col(key)
+        if col == "low":
+            score += weight
+        elif col == "high":
+            score -= weight
 
-def _perf_chart(period: str, selected: list[str]) -> go.Figure:
-    df = _multi_history(period)
-    fig = go.Figure()
-    if df.empty:
-        fig.add_annotation(text="데이터 없음", xref="paper", yref="paper",
-                           x=0.5, y=0.5, showarrow=False)
-    else:
-        for name in selected:
-            if name not in df.columns:
-                continue
-            s   = df[name].dropna()
-            pct = s.iloc[-1] - 100
-            sign = "+" if pct >= 0 else ""
-            fig.add_trace(go.Scatter(
-                x=s.index, y=s,
-                name=f"{name}  {sign}{pct:.1f}%",
-                line=dict(color=_PERF_COLORS.get(name, "#888"), width=1.5),
-                mode="lines",
-                hovertemplate="%{y:.1f}<extra>" + name + "</extra>",
-            ))
-        fig.add_hline(y=100, line_width=1, line_dash="dot", line_color="#CBD5E0")
+    for key, weight in [("Rate Pressure", 2), ("Dollar Strength", 1), ("Korea FX Risk", 1)]:
+        col = _col(key)
+        if col == "high":
+            score -= weight
+        elif col == "low":
+            score += 1
 
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=40, b=0), height=300,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-        xaxis=dict(showgrid=False, showline=True, linecolor="#E2E8F0",
-                   tickfont=dict(size=9, color="#718096")),
-        yaxis=dict(showgrid=True, gridcolor="#F0F4F8", showline=True,
-                   linecolor="#E2E8F0", tickfont=dict(size=9, color="#718096"),
-                   side="right"),
-        legend=dict(font=dict(size=8.5), orientation="h",
-                    yanchor="bottom", y=1.01, xanchor="left", x=0,
-                    bgcolor="rgba(255,255,255,0)"),
-        hovermode="x unified",
-        showlegend=True,
+    if btc_chg is not None:
+        if btc_chg > 2:
+            score += 1
+        elif btc_chg < -2:
+            score -= 1
+    if kweb_chg is not None:
+        if kweb_chg > 1.5:
+            score += 1
+        elif kweb_chg < -1.5:
+            score -= 1
+
+    angle = max(-42, min(42, score * 9))
+    if score >= 3:
+        return "우상향 유지", "AI·반도체 중심의 위험선호가 우세합니다. 금리와 달러 변화만 계속 점검하세요.", angle, "good"
+    if score <= -3:
+        return "방어 모드", "금리·달러·위험회피 압력이 커졌습니다. 변동성 큰 자산군의 움직임을 먼저 확인하세요.", angle, "risk"
+    return "혼조 구간", "방향성은 아직 중립입니다. 강한 자산과 약한 자산이 갈리는지 확인하세요.", angle, "watch"
+
+# ── Chart builders ─────────────────────────────────────────────────────────────
+
+# ── ETF impact table (for tabs) ────────────────────────────────────────────────
+
+# ── '내 관점' 4단 다이제스트 ─────────────────────────────────────────────────────
+# 게스트=core.pb 공유 샘플(테슬라 52% 집중 …), 로그인=동일 레이아웃에 실계좌로 소스만 교체.
+# 시장 상세(지수·변동성·국면)는 '시장' 탭이 home — 여기선 요약 + 링크만(중복 금지).
+_MY_CSS = """<style>
+.ov-sample-mark{display:inline-block;font-size:11px;font-weight:850;color:#D9A441;
+  background:rgba(217,164,65,.10);border:1px solid rgba(217,164,65,.34);border-radius:999px;
+  padding:5px 12px;margin:2px 0 12px}
+.todo-card,.digest-card{background:#16181F;border:1px solid #262A33;border-radius:18px;
+  padding:16px 18px;margin:14px 0 4px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.todo-title{font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#7E8694;margin-bottom:12px}
+.digest-k{font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#9AA0AD;margin-bottom:8px}
+.todo-row{display:grid;grid-template-columns:130px minmax(0,1fr) minmax(0,1.1fr);gap:12px;align-items:center;
+  padding:10px 0;border-top:1px solid #21242C}
+.todo-row:first-of-type{border-top:none}
+.todo-sig{font-size:13px;font-weight:900;color:#E7E9EE;position:relative;padding-left:12px}
+.todo-sig::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:3px;border-radius:2px}
+.todo-risk .todo-sig::before{background:#F25560}.todo-warn .todo-sig::before{background:#D9A441}.todo-good .todo-sig::before{background:#4D90F0}
+/* B2: 색 막대 의미 라벨(위험/주의/양호) — 색만으로 판단 금지(A+C) */
+.todo-sev{display:inline-block;margin-left:7px;font-size:11px;font-weight:850;padding:1px 6px;border-radius:6px;vertical-align:middle}
+.todo-risk .todo-sev{color:#F25560;background:rgba(242,85,96,.13)}
+.todo-warn .todo-sev{color:#D9A441;background:rgba(217,164,65,.13)}
+.todo-good .todo-sev{color:#4D90F0;background:rgba(77,144,240,.13)}
+.todo-expo{font-size:12px;font-weight:800;color:#C9CDD4}
+.todo-act{font-size:12px;font-weight:700;color:#9AA0AD;line-height:1.5}
+.digest-line{font-size:16px;font-weight:850;color:#E7E9EE;line-height:1.45}
+/* B1: 빈 히어로 카드에 핵심 숫자 통합 — 총자산 大(30px) + 총수익·오늘 보조. 위험 카드와 같은 카드 리듬. */
+.ov-hero{border:1px solid #262A33;border-radius:18px;background:#15171E;padding:18px 22px;margin:2px 0 16px}
+.ov-hero-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.ov-hero-label{font-size:13px;font-weight:900;color:#E7E9EE;letter-spacing:.02em}
+.ov-hero-sub{font-size:12px;font-weight:700;color:#7E8694}
+.ov-hero-nums{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-end}
+.ov-hn-main span,.ov-hn span{display:block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#7E8694;margin-bottom:4px}
+.ov-hn-main b{display:block;font-size:30px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+.ov-hn b{display:block;font-size:19px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+.ov-hn b.up{color:#F25560}.ov-hn b.down{color:#4D90F0}
+@media(max-width:760px){.todo-row{grid-template-columns:1fr;gap:3px}.ov-hero-nums{gap:20px}.ov-hn-main b{font-size:26px}}
+</style>"""
+
+def _session_suffix() -> str:
+    """세션 보존(게스트/로그인) 링크 suffix."""
+    role = st.session_state.get("auth_role")
+    user = st.session_state.get("username", "")
+    if role == "guest":
+        return "?_auth=guest"
+    if user:
+        return f"?_user={user}"
+    return ""
+
+def _my_perspective_bundle(data: dict) -> dict:
+    """4단 데이터 — 게스트=core.pb 공유 샘플(포트폴리오와 동일 데이터셋), 로그인=실계좌(소스 교체)."""
+    from datetime import date as _date, timedelta as _td
+    from core.pb import GUEST_SAMPLE, holdings_for_pb, pb_diagnostics, bench_returns
+    from ui.pages.portfolio import _journey_get
+    bh = st.session_state.get("brokerage_holdings")
+    positions, total, cash, is_guest, uname = None, 0.0, 0.0, True, None
+    summary = None
+    if bh:
+        try:
+            from ui.pages.portfolio import _normalize_holdings, _portfolio_summary
+            _d = dict(data)
+            _d["holdings"] = bh
+            _d["cash_balance"] = st.session_state.get("brokerage_cash_balance")
+            positions, meta = _normalize_holdings(_d)
+            summary = _portfolio_summary(positions, meta)  # 각 position에 weight(%) 부착
+            total = summary.get("total_market_value") or 0
+            cash = summary.get("cash_balance") or 0
+            is_guest, uname = False, st.session_state.get("username")
+        except Exception:
+            positions = None
+    if not positions:  # 게스트/미연결 → 공유 샘플(별도 샘플 만들지 않음)
+        positions, total, cash, is_guest = GUEST_SAMPLE, 700_000_000, 70_000_000, True
+    # A2 단일 출처 — 포트폴리오와 동일 함수로 계산(총수익·KOSPI 대비·벤치마크 값 화면 간 일치)
+    from ui.pages.portfolio import _account_diag
+    holdings = holdings_for_pb(positions)
+    _b = _account_diag(positions, total, cash, uname, is_guest)
+    diag, bench = _b["diag"], _b["bench"]
+    # 히어로 핵심 숫자 — 총자산은 항상, 오늘 손익은 실계좌(summary) 있을 때만
+    today_amt = summary.get("today_change_amount") if summary else None
+    today_pct = summary.get("today_change_pct") if summary else None
+    return {"diag": diag, "bench": bench, "holdings": holdings, "is_guest": is_guest,
+            "total": total, "today_amt": today_amt, "today_pct": today_pct}
+
+def _risk_todo_html(holdings: list[dict], signals: list[dict], risk_href: str, total: float = 0.0) -> str:
+    """3단 — 오늘 할 일: 신호 → 내 노출(영향 금액) → 대응(요약, dim당 1행·최대 3줄). 상세는 리스크 탭."""
+    from core.pb import signal_impact
+    from ui.pages.risk_signals import _SIG_KOR, _action_for_signal
+    # 신호(영문 키)→한글 라벨 + 역매핑(대응 액션은 영문 키 기준이라 보존).
+    kor2eng, sig_for_impact = {}, []
+    for s in signals:
+        eng = s["signal"]
+        kor = _SIG_KOR.get(eng, eng)
+        kor2eng[kor] = eng
+        sig_for_impact.append({"signal": kor, "lv": s.get("lv"), "col": s.get("col", "na")})
+    impact = signal_impact(holdings, sig_for_impact, total=total)
+    order = {"high": 0, "mid": 1, "low": 2, "na": 3}
+    seen, rows = set(), []
+    for r in sorted(impact, key=lambda x: order.get(x.get("col"), 9)):
+        if r["dim"] in seen:  # 같은 노출 차원 중복 제거(리스크 탭과 동일 통합)
+            continue
+        seen.add(r["dim"])
+        rows.append(r)
+        if len(rows) >= 3:
+            break
+    if not rows:
+        return ""
+    cls = {"high": "risk", "mid": "warn", "low": "good"}
+    sev = {"high": "위험", "mid": "주의", "low": "양호"}   # B2: 색 막대에 라벨 부여(색만 의존 금지·A+C)
+    # 3번째 칼럼 = 실제 '대응' 액션(리스크 탭과 동일 매핑) — '왜(meaning)'가 아니라 '무엇을'.
+    body = "".join(
+        f'<div class="todo-row todo-{cls.get(r.get("col"), "warn")}">'
+        f'<div class="todo-sig">{r["signal"]}<span class="todo-sev">{sev.get(r.get("col"), "주의")}</span></div>'
+        f'<div class="todo-expo">{r["exposure"]}</div>'
+        f'<div class="todo-act">{_action_for_signal(kor2eng.get(r["signal"], r["signal"]), r.get("col", "na"))}</div>'
+        f'</div>'
+        for r in rows
     )
-    return fig
-
-
-def _rotation_chart(period: str) -> go.Figure:
-    df = _multi_history(period)
-    fig = go.Figure()
-    if df.empty:
-        return fig
-    returns = {}
-    for col in df.columns:
-        s = df[col].dropna()
-        if not s.empty and not pd.isna(s.iloc[-1]):
-            returns[col] = round(s.iloc[-1] - 100, 2)
-    if not returns:
-        return fig
-    sorted_items = sorted(returns.items(), key=lambda x: x[1])
-    names  = [k for k, _ in sorted_items]
-    values = [v for _, v in sorted_items]
-    colors = ["#276749" if v >= 0 else "#9B2335" for v in values]
-    texts  = [f"+{v:.1f}%" if v >= 0 else f"{v:.1f}%" for v in values]
-
-    fig.add_trace(go.Bar(
-        x=values, y=names, orientation="h",
-        marker_color=colors, marker_opacity=0.72,
-        text=texts, textposition="outside",
-        textfont=dict(size=8.5, color="#4A5568"),
-        cliponaxis=False,
-    ))
-    fig.update_layout(
-        margin=dict(l=0, r=60, t=8, b=0), height=320,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-        xaxis=dict(showgrid=True, gridcolor="#F0F4F8",
-                   zeroline=True, zerolinecolor="#CBD5E0", zerolinewidth=1,
-                   tickformat="+.1f", ticksuffix="%",
-                   tickfont=dict(size=9, color="#718096")),
-        yaxis=dict(tickfont=dict(size=9, color="#2D3748"), showgrid=False),
-        showlegend=False,
+    return (
+        f'<div class="todo-card"><div class="todo-title">오늘 할 일 — 신호 → 내 노출 → 대응</div>'
+        f'{body}'
+        f'<a class="ov-risk-link" href="{risk_href}" target="_self" style="display:inline-flex;margin-top:12px">'
+        f'리스크 신호·대응 자세히 &rarr;</a></div>'
     )
-    return fig
 
-
-def _regime_bar(signals: list[dict]) -> go.Figure:
-    _COL = {"low": "#38A169", "mid": "#D69E2E", "high": "#9B2335", "na": "#A0AEC0"}
-    names  = [_SIG_KOR.get(s["signal"], s["signal"]) for s in signals]
-    scores = [s.get("score", 50) for s in signals]
-    colors = [_COL.get(s["col"], "#A0AEC0") for s in signals]
-
-    fig = go.Figure(go.Bar(
-        x=scores, y=names, orientation="h",
-        marker_color=colors, marker_opacity=0.65,
-        text=[f"{sc}" for sc in scores],
-        textposition="outside",
-        textfont=dict(size=9, color="#4A5568"),
-        cliponaxis=False,
-        hovertemplate="%{y}: %{x}/100<extra></extra>",
-    ))
-    fig.add_vline(x=50, line_width=1, line_dash="dot", line_color="#CBD5E0")
-    fig.update_layout(
-        title=dict(text="신호 강도  (0 = 약세/위험회피  ·  100 = 강세/위험선호)",
-                   font=dict(size=10, color="#718096"), x=0, xanchor="left"),
-        margin=dict(l=0, r=50, t=30, b=0), height=240,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-        xaxis=dict(range=[0, 115], showgrid=True, gridcolor="#F0F4F8",
-                   tickfont=dict(size=9, color="#718096")),
-        yaxis=dict(tickfont=dict(size=9, color="#2D3748"), showgrid=False),
-        showlegend=False,
+def _market_digest_html(direction: str, note: str, market_href: str) -> str:
+    """4단 — 시장 다이제스트: 한 줄 + 시장 탭 링크만(지수·랭킹 상세 금지)."""
+    return (
+        f'<div class="digest-card"><div class="digest-k">시장 다이제스트</div>'
+        f'<div class="digest-line">{direction} — {note}</div>'
+        f'<a class="ov-risk-link" href="{market_href}" target="_self" style="display:inline-flex;margin-top:10px">'
+        f'시장 스캔 더 보기 — 지수 · 환율 · 변동성 &rarr;</a></div>'
     )
-    return fig
 
-
-def _etf_heatmap(signals: list[dict]) -> go.Figure:
-    # Build annotated driver labels with current signal level
-    sig_level = {s["signal"]: s["lv"] for s in signals}
-    driver_labels = list(_HM_DRIVERS)
-    for sig_name, col_idx in _SIG_COL.items():
-        lv = sig_level.get(sig_name, "")
-        if lv and lv != "N/A":
-            lv_kor = _LEVEL_KOR.get(lv.upper(), lv)
-            driver_labels[col_idx] = f"{_HM_DRIVERS[col_idx]}<br><sub>{lv_kor}</sub>"
-
-    colorscale = [
-        [0.0, "#F7F8FA"],
-        [0.5, "#FEEBC8"],
-        [1.0, "#F6AD55"],
-    ]
-
-    fig = go.Figure(go.Heatmap(
-        z=_HM_Z,
-        x=_HM_DRIVERS,
-        y=_HM_ETFS,
-        colorscale=colorscale,
-        zmin=0, zmax=2,
-        showscale=False,
-        hovertemplate="<b>%{y}</b><br>%{x}: 노출도 %{z}/2<extra></extra>",
-        xgap=2, ygap=2,
-    ))
-
-    # Dot annotations for non-zero cells
-    dot_map = {0: "", 1: "·", 2: "●"}
-    for i, row in enumerate(_HM_Z):
-        for j, val in enumerate(row):
-            if val > 0:
-                fig.add_annotation(
-                    x=_HM_DRIVERS[j], y=_HM_ETFS[i],
-                    text=dot_map[val], showarrow=False,
-                    font=dict(size=10, color="#744210" if val == 2 else "#92400E"),
-                )
-
-    fig.update_layout(
-        title=dict(text="ETF 드라이버 노출도  (● 높음  ·  중간  □ 없음)",
-                   font=dict(size=10, color="#718096"), x=0, xanchor="left"),
-        margin=dict(l=0, r=0, t=30, b=0), height=440,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-        xaxis=dict(side="top", tickfont=dict(size=9, color="#2D3748"),
-                   tickangle=0, showgrid=False),
-        yaxis=dict(tickfont=dict(size=8.5, color="#2D3748"),
-                   autorange="reversed", showgrid=False),
-    )
-    return fig
-
-
-# ── HTML helpers (unchanged) ──────────────────────────────────────────────────
-
-def _badge(chg):
-    if not isinstance(chg, (int, float)): return '<span class="neut">—</span>'
-    if chg >  0.3: return '<span class="bull">↑</span>'
-    if chg < -0.3: return '<span class="bear">↓</span>'
-    return '<span class="neut">→</span>'
-
-
-def _pct(v):
-    if not isinstance(v, (int, float)): return "N/A", "neu"
-    cls = "pos" if v > 0.005 else ("neg" if v < -0.005 else "neu")
-    return f"{'+'if v>=0 else ''}{v:.2f}%", cls
-
-
-def _snapshot_html(data: dict) -> str:
-    bm   = data["benchmarks"]
-    comm = data["commodities"]
-    fxd  = data["fx"]
-    mac  = data["macro"]
-
-    def _bv(df, id_col, id_val, price_col, fmt):
-        r = df[df[id_col] == id_val]
-        if r.empty: return "N/A", None
-        p = r.iloc[0][price_col]; c = r.iloc[0].get("change_pct")
-        return (format(float(p), fmt) if isinstance(p, (int, float)) else "N/A",
-                float(c) if isinstance(c, (int, float)) else None)
-
-    spy_v,  spy_c   = _bv(bm,   "ticker", "SPY",     "price", ",.2f")
-    qqq_v,  qqq_c   = _bv(bm,   "ticker", "QQQ",     "price", ",.2f")
-    soxx_v, soxx_c  = _bv(bm,   "ticker", "SOXX",    "price", ",.2f")
-    krw_v,  krw_c   = _bv(fxd,  "pair",   "usd_krw", "rate",  ",.1f")
-    dxy_v,  dxy_c   = _bv(fxd,  "pair",   "dxy",     "rate",  ".2f")
-    gld_v,  gld_c   = _bv(comm, "name",   "gold",    "price", ",.2f")
-    slv_v,  slv_c   = _bv(comm, "name",   "silver",  "price", ".2f")
-    cop_v,  cop_c   = _bv(comm, "name",   "copper",  "price", ".3f")
-
-    us10y = "N/A"
-    if mac is not None and not mac.empty:
-        r = mac[mac["key"] == "us_10y"]
-        if not r.empty and isinstance(r.iloc[0]["value"], (int, float)):
-            us10y = f"{float(r.iloc[0]['value']):.2f}%"
-
-    def row(sym, name, val, chg, sep=False):
-        pct_s, cls = _pct(chg)
-        sep_cls = ' class="sep"' if sep else ""
-        return (f'<tr{sep_cls}><td class="sym">{sym}</td><td class="nm">{name}</td>'
-                f'<td class="r">{val}</td><td class="r {cls}">{pct_s}</td>'
-                f'<td class="r">{_badge(chg)}</td></tr>')
-
-    def _u(val, prefix="$"):
-        return f"{prefix}{val}" if val != "N/A" else val
-
-    thead = ('<thead><tr><th>종목</th><th>자산명</th>'
-             '<th class="r">현재가</th><th class="r">1D %</th><th class="r">방향</th></tr></thead>')
-
-    def row6(sym, name, val, unit, chg, sep=False):
-        pct_s, cls = _pct(chg)
-        sep_cls = ' class="sep"' if sep else ""
-        val_cell = (f'{val}&nbsp;<span style="color:#718096;font-size:9px">{unit}</span>'
-                    if val != "N/A" else "N/A")
-        return (f'<tr{sep_cls}><td class="sym">{sym}</td><td class="nm">{name}</td>'
-                f'<td class="r">{val_cell}</td>'
-                f'<td class="r {cls}">{pct_s}</td>'
-                f'<td class="r">{_badge(chg)}</td></tr>')
-
-    rows = [
-        row6("SPY",     "S&P 500",         spy_v,   "USD",    spy_c),
-        row6("QQQ",     "나스닥 100",       qqq_v,   "USD",    qqq_c),
-        row6("SOXX",    "반도체 ETF",       soxx_v,  "USD",    soxx_c),
-        row6("USD/KRW", "달러 / 원화",      krw_v,   "원/달러", krw_c,  sep=True),
-        row6("DXY",     "달러 인덱스",      dxy_v,   "index",  dxy_c),
-        row6("US 10Y",  "미국 10년 국채",   us10y,   "%",      None),
-        row6("금",      "금 선물",          gld_v,   "$/oz",   gld_c,  sep=True),
-        row6("은",      "은 선물",          slv_v,   "$/oz",   slv_c),
-        row6("구리",    "구리 선물",        cop_v,   "$/lb",   cop_c),
-    ]
-    return f'<div class="fin-t"><table>{thead}<tbody>{"".join(rows)}</tbody></table></div>'
-
-
-def _snapshot_bar(data: dict) -> go.Figure:
-    bm   = data["benchmarks"]
-    comm = data["commodities"]
-    fxd  = data["fx"]
-
-    def _c(df, id_col, id_val):
-        r = df[df[id_col] == id_val]
-        if r.empty: return None
-        v = r.iloc[0].get("change_pct")
-        return float(v) if isinstance(v, (int, float)) else None
-
-    assets = [
-        ("구리",     _c(comm, "name",   "copper")),
-        ("은",       _c(comm, "name",   "silver")),
-        ("금",       _c(comm, "name",   "gold")),
-        ("DXY",      _c(fxd,  "pair",   "dxy")),
-        ("USD/KRW",  _c(fxd,  "pair",   "usd_krw")),
-        ("SOXX",     _c(bm,   "ticker", "SOXX")),
-        ("QQQ",      _c(bm,   "ticker", "QQQ")),
-        ("SPY",      _c(bm,   "ticker", "SPY")),
-    ]
-    labels = [a[0] for a in assets if a[1] is not None]
-    values = [a[1] for a in assets if a[1] is not None]
-    colors = ["#276749" if v >= 0 else "#9B2335" for v in values]
-    texts  = [f"+{v:.2f}%" if v >= 0 else f"{v:.2f}%" for v in values]
-
-    fig = go.Figure(go.Bar(
-        x=values, y=labels, orientation="h",
-        marker_color=colors, marker_opacity=0.72,
-        text=texts, textposition="outside",
-        textfont=dict(size=9, color="#4A5568"),
-        cliponaxis=False,
-    ))
-    fig.update_layout(
-        margin=dict(l=0, r=60, t=4, b=0), height=180,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-        xaxis=dict(showgrid=True, gridcolor="#F0F4F8",
-                   zeroline=True, zerolinecolor="#CBD5E0", zerolinewidth=1,
-                   tickformat="+.2f", ticksuffix="%",
-                   tickfont=dict(size=9, color="#718096")),
-        yaxis=dict(tickfont=dict(size=10, color="#2D3748",
-                   family="'SF Mono',ui-monospace,monospace"), showgrid=False),
-        showlegend=False,
-    )
-    return fig
-
-
-def _regime_html(signals: list[dict]) -> str:
-    thead = '<thead><tr><th>신호</th><th>단계</th><th>설명</th></tr></thead>'
-    rows = [
-        f'<tr><td class="sig">{_SIG_KOR.get(s["signal"], s["signal"])}</td>'
-        f'<td><span class="rl-{s["col"]}">{_LEVEL_KOR.get(s["lv"].upper(), s["lv"])}</span></td>'
-        f'<td class="cmt">{s["note"]}</td></tr>'
-        for s in signals
-    ]
-    return f'<div class="fin-t"><table>{thead}<tbody>{"".join(rows)}</tbody></table></div>'
-
-
-def _etf_impact(config: dict, data: dict) -> pd.DataFrame:
-    bm_df  = data["benchmarks"]
-    co_df  = data["commodities"]
-    fx_df  = data["fx"]
-    st_df  = data["us_stocks"]
-    mac    = data["macro"]
-
-    def _chg(df, id_col, id_val):
-        r = df[df[id_col] == id_val]
-        if r.empty: return None
-        v = r.iloc[0].get("change_pct")
-        return float(v) if isinstance(v, (int, float)) else None
-
-    def _lookup(drv: str):
-        v = _chg(bm_df, "ticker", drv)
-        if v is None: v = _chg(st_df, "ticker", drv)
-        if v is None: v = _chg(co_df, "name", drv.lower())
-        if v is None:
-            pair = drv.lower().replace("/", "_").replace(" ", "_")
-            v = _chg(fx_df, "pair", pair)
-        return v
-
-    def _top(drivers: list) -> str:
-        best_d, best_a = None, 0.0
-        for d in drivers:
-            v = _lookup(d)
-            if v is not None and abs(v) > best_a:
-                best_d, best_a = d, abs(v)
-        if best_d is None: return "N/A"
-        v = _lookup(best_d)
-        return f"{best_d}  {'+'if v>=0 else ''}{v:.2f}%"
-
-    us10y = None
-    if mac is not None and not mac.empty:
-        r = mac[mac["key"] == "us_10y"]
-        if not r.empty and isinstance(r.iloc[0]["value"], (int, float)):
-            us10y = float(r.iloc[0]["value"])
-
-    krw_c = _chg(fx_df, "pair", "usd_krw")
-    rows = []
-    for etf in config["my_etfs"]:
-        bm_t   = etf.get("benchmark", "")
-        bm_c   = _chg(bm_df, "ticker", bm_t)
-        hedged = etf.get("hedged", False)
-        if hedged:
-            note = "환헤지 — FX 영향 차단"
-        elif krw_c is not None:
-            if   krw_c > 0.3:  note = "원화 약세 → 환손실 주의"
-            elif krw_c < -0.3: note = "원화 강세 → 환이익"
-            else:               note = "환율 안정"
-        else:
-            note = ""
-        rows.append({
-            "ETF":        etf["name"],
-            "분류":       etf.get("category", "—"),
-            "주요 드라이버": _top(etf.get("drivers", [])),
-            "BM":         bm_t,
-            "BM 1D%":     bm_c,
-            "FX 1D%":     krw_c,
-            "10Y 금리":   f"{us10y:.2f}%" if us10y is not None else "N/A",
-            "FX 영향":    note,
-        })
-    return numeric(pd.DataFrame(rows), ["BM 1D%", "FX 1D%"])
-
-
-# ── Main render ───────────────────────────────────────────────────────────────
+# ── Main render ────────────────────────────────────────────────────────────────
 
 def render():
+    L.viewport_width()          # 폭 먼저 확정 → 모바일 리플로우 최소화
+    L.inject_responsive_css()   # 페이지당 1회
     inject_css()
+    mark_active_nav("/")
+    st.markdown(_OV_CSS, unsafe_allow_html=True)
+    st.markdown(_MY_CSS, unsafe_allow_html=True)
+    # B1: 빈 히어로 제거 — 핵심 숫자 통합 히어로를 데이터 로드 후 한 번에 렌더(아래)
+    ph = show_skeleton()
+    data = load_market_data()
+    ph.empty()
 
-    c1, c2 = st.columns([9, 1])
-    c1.markdown("## 시장 전체 현황")
-    c1.caption("글로벌 시장 스냅샷  ·  투자 참고용, 매매 권유 아님")
-    if c2.button("↻ 새로고침", use_container_width=True):
-        _load.clear()
-        _multi_history.clear()
+    # 시장 신호(시장 다이제스트·오늘 할 일용) — 시장 데이터에서 산출
+    signals = _cached_regime_signals(data["fetched_at"])
+    sig_map = {s["signal"]: s for s in signals}
 
-    with st.spinner(""):
-        data   = _load()
-        config = load_config()
+    def _safe(v):
+        try:
+            f = float(v)
+            return None if pd.isna(f) else f
+        except (TypeError, ValueError):
+            return None
 
-    ts = data["fetched_at"][:19].replace("T", " ")
-    st.markdown(timestamp_bar(ts), unsafe_allow_html=True)
+    _bm = data.get("benchmarks", pd.DataFrame())
+    _cr = data.get("crypto", pd.DataFrame())
+    _bm_chg = {} if _bm.empty else dict(zip(_bm["ticker"], _bm["change_pct"]))
+    _cry_chg = {} if _cr.empty else dict(zip(_cr["ticker"], _cr["change_pct"]))
+    btc_chg, kweb_chg = _safe(_cry_chg.get("BTC-USD")), _safe(_bm_chg.get("KWEB"))
+    direction, compass_note, _, _ = _compass_model(sig_map, btc_chg, kweb_chg)
 
-    signals = compute_regime_signals(data)
+    # ── 내 관점 데이터(게스트=공유 샘플 / 로그인=실계좌, 소스만 교체) ──
+    bundle = _my_perspective_bundle(data)
+    _diag, _bench, _holdings, _is_guest = (
+        bundle["diag"], bundle["bench"], bundle["holdings"], bundle["is_guest"])
+    _suf = _session_suffix()
 
-    # ── 1. Market Snapshot ───────────────────────────────────────────────────
-    st.markdown(section_header("시장 스냅샷", "주요 지표 한눈에 보기"),
-                unsafe_allow_html=True)
-    st.markdown(_snapshot_html(data), unsafe_allow_html=True)
-    st.plotly_chart(_snapshot_bar(data), use_container_width=True,
-                    config={"displayModeBar": False})
-
-    # ── 2. Normalized Performance ────────────────────────────────────────────
-    st.markdown(section_header("성과 비교", "기간 시작일 기준 정규화 100"),
-                unsafe_allow_html=True)
-
-    p_col, a_col = st.columns([1, 3])
-    with p_col:
-        period = st.radio("기간", ["1M", "3M", "6M"], index=1, horizontal=True,
-                          label_visibility="collapsed")
-    with a_col:
-        selected = st.multiselect(
-            "자산 선택",
-            list(_PERF_TICKERS.keys()),
-            default=_PERF_DEFAULTS,
-            label_visibility="collapsed",
-        )
-
-    st.plotly_chart(_perf_chart(period, selected or _PERF_DEFAULTS),
-                    use_container_width=True, config={"displayModeBar": False})
-
-    # ── 3. Asset Rotation ────────────────────────────────────────────────────
-    st.markdown(section_header("자산 순환 흐름", "기간별 수익률 비교"),
-                unsafe_allow_html=True)
-    st.plotly_chart(_rotation_chart(period), use_container_width=True,
-                    config={"displayModeBar": False})
-
-    # ── 4. Market Regime + Signal Bar ────────────────────────────────────────
-    st.markdown(section_header("시장 국면", "신호 기반 현재 상태"),
-                unsafe_allow_html=True)
-    r_left, r_right = st.columns([1, 1])
-    with r_left:
-        st.markdown(_regime_html(signals), unsafe_allow_html=True)
-    with r_right:
-        st.plotly_chart(_regime_bar(signals), use_container_width=True,
-                        config={"displayModeBar": False})
-
-    # ── 5. ETF Driver Heatmap ────────────────────────────────────────────────
-    st.markdown(section_header("ETF 드라이버 노출도",
-                               "노출도: ● 높음  ·  중간  □ 없음"),
-                unsafe_allow_html=True)
-    st.plotly_chart(_etf_heatmap(signals), use_container_width=True,
-                    config={"displayModeBar": False})
-
-    # ── 6. My ETF Impact ─────────────────────────────────────────────────────
-    st.markdown(section_header("내 ETF — 드라이버 영향",
-                               "주요 드라이버의 보유 자산 당일 영향"),
-                unsafe_allow_html=True)
-    impact_df = _etf_impact(config, data)
-
-    def _cell(v):
-        if not isinstance(v, (int, float)) or pd.isna(v): return ""
-        if v > 0.005:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
-        if v < -0.005: return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
-        return ""
-
-    st.dataframe(
-        impact_df.style.map(_cell, subset=["BM 1D%", "FX 1D%"]),
-        column_config={
-            "BM 1D%": st.column_config.NumberColumn(format="%.2f%%"),
-            "FX 1D%": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-        use_container_width=True, hide_index=True,
+    # 히어로 핵심 숫자 한 줄 — 총자산 · 총수익 · (실계좌면) 오늘 손익. 첫 스크롤 전 가치 전달.
+    from core.journey import krw_compact
+    _total, _today_amt, _today_pct = bundle.get("total"), bundle.get("today_amt"), bundle.get("today_pct")
+    _my_ret = _diag.get("my_return") if _diag else None
+    _hs = []
+    if _total:
+        _hs.append(("총자산", krw_compact(_total), ""))
+    if _my_ret is not None:
+        _hs.append(("총수익", f"{_my_ret:+.1f}%", "up" if _my_ret >= 0 else "down"))
+    if _today_amt is not None and _today_pct is not None:
+        _sgn = "+" if _today_amt >= 0 else ""
+        _hs.append(("오늘", f"{_sgn}{krw_compact(_today_amt)} ({_today_pct:+.2f}%)",
+                    "up" if _today_amt >= 0 else "down"))
+    # B1: 히어로 카드에 통합 — 총자산 大 + 총수익·오늘 보조 (빈 히어로 카드 + 떠다니던 숫자 합침)
+    _main = _hs[0] if _hs else None
+    _nums = (f'<div class="ov-hn-main"><span>{_main[0]}</span><b>{_main[1]}</b></div>' if _main else "")
+    _nums += "".join(f'<div class="ov-hn"><span>{l}</span><b class="{c}">{v}</b></div>' for l, v, c in _hs[1:])
+    st.markdown(
+        '<div class="ov-hero"><div class="ov-hero-head">'
+        '<span class="ov-hero-label">전체 현황</span>'
+        "<span class=\"ov-hero-sub\">내 포트폴리오 · 리스크 · 오늘 할 일 — 시장 상세는 '시장' 탭</span>"
+        f'</div><div class="ov-hero-nums">{_nums}</div></div>',
+        unsafe_allow_html=True,
     )
 
-    # ── 7. Export ─────────────────────────────────────────────────────────────
-    with st.expander("데이터 내보내기", expanded=False):
-        mac  = data["macro"]
-        comm = data["commodities"]
-        fx   = data["fx"]
-        today = ts[:10]
-        sheets = {
-            "보유ETF":  data["my_etfs"].rename(columns=_ETF),
-            "벤치마크": data["benchmarks"].rename(columns=_BENCH),
-            "미국주식": data["us_stocks"].rename(columns=_STOCK),
-            "원자재":   comm.rename(columns=_COMM),
-            "환율":     fx.rename(columns=_FX),
-        }
-        if mac is not None and not mac.empty:
-            sheets["매크로"] = mac.rename(columns=_MAC)
-        dl1, dl2, _ = st.columns([1, 1, 6])
-        dl1.download_button("↓ 전체 Excel", excel_bytes(sheets),
-                            f"SIMvest_{today}.xlsx",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True)
-        dl2.download_button("↓ ETF CSV",
-                            csv_bytes(sheets["보유ETF"]),
-                            f"SIMvest_etf_{today}.csv",
-                            "text/csv", use_container_width=True)
+    # 샘플 마커(상시) — 수익 보장·매매 권유 아님
+    if _is_guest:
+        st.markdown(
+            '<div class="ov-sample-mark">샘플 포트폴리오 · 참고용 — '
+            '로그인 시 내 계좌로 자동 전환 (수익 보장·매매 권유 아님)</div>',
+            unsafe_allow_html=True)
+
+    from ui.pages.portfolio import _pb_risk_summary_html, _PB_CSS
+    st.markdown(_PB_CSS, unsafe_allow_html=True)
+
+    if _diag:
+        # 1단 — 한 줄 진단(요약). 풀 카드(지표 그리드·재배분·벤치마크)는 포트폴리오/리스크에서만 — 100% 복제 제거.
+        st.markdown(_pb_risk_summary_html(_diag), unsafe_allow_html=True)
+        # 다이제스트 정책: 벤치마크 상세 바·보유·리밸런싱은 포트폴리오에서(중복 노출 방지) → 링크만.
+        st.markdown(
+            f'<a class="ov-risk-link" href="/portfolio{_suf}" target="_self" '
+            'style="display:inline-flex;margin:2px 0 6px">'
+            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a>',
+            unsafe_allow_html=True)
+
+    # 2단 — 오늘 할 일(신호 → 내 노출 → 대응 3줄), 상세는 리스크 탭
+    _todo = _risk_todo_html(_holdings, signals, f"/risk{_suf}", total=_total or 0.0)
+    if _todo:
+        st.markdown(_todo, unsafe_allow_html=True)
+
+    # 3단 — 시장 다이제스트(한 줄 + 시장 탭 링크만)
+    st.markdown(_market_digest_html(direction, compass_note, f"/market{_suf}"), unsafe_allow_html=True)
+
+    glossary_expander("β", "추세", "breadth", "집중도")
+    st.markdown(jj_footer(), unsafe_allow_html=True)

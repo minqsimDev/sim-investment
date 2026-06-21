@@ -6,13 +6,21 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 
-from data.fetcher import fetch_all
+import layout as L  # 모바일 분기(산점도→리스트)
+from data.loader import load_market_data
 from src.database import load_latest_indicator_summary, DEFAULT_DB
 from src.analyst import fetch_analyst_targets
 from ui.components.analyst_fmp import render_fmp_drilldown
 from ui.components.dash_style import (
-    inject_css, section_header, timestamp_bar, numeric,
+    data_source_note,
+    empty_state,
+    inject_css, jj_footer, mark_active_nav, numeric, show_skeleton,
+    mkt_page_header, mkt_section_header, mkt_stats_chips, period_radio,
 )
+from ui.components.scan_layer import scan_layer_html
+from ui.components.slim_table import slim_table
+from ui.components.analyst_scatter import analyst_scatter_fig
+from ui.components.range_bar import fetch_52w_range, range_bar_html
 
 _COMM_STOCK_KOR = {
     "GOLD": "배릭골드",
@@ -40,22 +48,28 @@ _META = {
     "brent_crude": ("브렌트",   "$/bbl",   "에너지"),
     "natural_gas": ("천연가스", "$/MMBtu", "에너지"),
 }
+# ④ 원자재별 시그니처 색(라인, 저알파 그라데이션 채움) — 종목마다 고유색
+_COMM_COLOR = {
+    "gold":        ("#D9A441", "rgba(217,164,65,0.10)"),   # 골드
+    "silver":      ("#B6BCC8", "rgba(182,188,200,0.10)"),  # 실버
+    "copper":      ("#B87333", "rgba(184,115,51,0.12)"),   # 코퍼
+    "wti_crude":   ("#6E7B4E", "rgba(110,123,78,0.12)"),   # 원유 다크올리브
+    "brent_crude": ("#4F7A6B", "rgba(79,122,107,0.12)"),   # 브렌트 틸
+    "natural_gas": ("#5A8FB0", "rgba(90,143,176,0.12)"),   # 천연가스 블루
+}
+_COMM_COLOR_DEFAULT = ("#D9A441", "rgba(217,164,65,0.08)")
 
 
-@st.cache_data(ttl=300)
-def _load_live():
-    return fetch_all()
-
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _analyst_targets() -> pd.DataFrame:
     return fetch_analyst_targets(list(_COMM_STOCK_KOR.keys()))
 
 
-@st.cache_data(ttl=900)
-def _chart(ticker: str) -> pd.DataFrame:
+@st.cache_data(ttl=900, show_spinner=False)
+def _chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
     try:
-        raw = yf.download(ticker, period="3mo", interval="1d", progress=False, auto_adjust=True)
+        from data.session import cached_download
+        raw = cached_download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
         if raw.empty:
             return pd.DataFrame()
         closes = raw["Close"]
@@ -68,18 +82,34 @@ def _chart(ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def render():
-    inject_css()
 
-    c1, c2 = st.columns([9, 1])
-    c1.markdown("## Commodities")
-    c1.caption("원자재 시세 모니터 — 투자 참고용, 매매 권유 아님")
-    if c2.button("↻ 새로고침", use_container_width=True):
-        _load_live.clear()
 
-    live = _load_live()
-    ts   = live["fetched_at"][:19].replace("T", " ")
-    st.markdown(timestamp_bar(ts), unsafe_allow_html=True)
+def render(embedded: bool = False):
+    if not embedded:
+        inject_css()
+        mark_active_nav("/commodities")
+        st.markdown(mkt_page_header("🪙", "원자재", "금 · 은 · 구리 · 원유 · 농산물"), unsafe_allow_html=True)
+
+    ph = show_skeleton()
+    live = load_market_data()
+    load_latest_indicator_summary(DEFAULT_DB)
+    if not live["commodities"].empty:
+        _chart(live["commodities"].iloc[0]["ticker"])
+    ph.empty()
+
+    # ── Stats chips ───────────────────────────────────────────────────────────
+    comm_df = live.get("commodities", pd.DataFrame())
+    comm_chips = []
+    for lbl, name in [("금","gold"),("은","silver"),("구리","copper"),("WTI 원유","oil_wti")]:
+        if comm_df.empty: break
+        r = comm_df[comm_df["name"] == name]
+        if r.empty: continue
+        c = r.iloc[0].get("change_pct")
+        if c is not None and isinstance(c, (int, float)):
+            sign = "+" if c >= 0 else ""
+            comm_chips.append({"label": lbl, "value": f"{sign}{c:.2f}%", "cls": "pos" if c>0 else ("neg" if c<0 else "neu")})
+    if comm_chips:
+        st.markdown(mkt_stats_chips(comm_chips), unsafe_allow_html=True)
 
     # ── DB indicators ─────────────────────────────────────────────────────────
     db_df    = load_latest_indicator_summary(DEFAULT_DB)
@@ -103,22 +133,23 @@ def render():
         return str(m.iloc[0].get(col, "—")) or "—"
 
     # ── Build rows ────────────────────────────────────────────────────────────
-    st.markdown(section_header("원자재 현황", "실시간 시세 · 기간별 수익률"), unsafe_allow_html=True)
+    st.markdown(mkt_section_header("원자재 현황", "실시간 시세 · 기간별 수익률"), unsafe_allow_html=True)
 
     pct_cols = ["1D %", "1W %", "1M %", "3M %", "MA20 이격%"]
 
     def _cell(v):
-        if not isinstance(v, (int, float)) or pd.isna(v): return ""
-        if v > 0.3:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
-        if v < -0.3: return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
-        return ""
+        if not isinstance(v, (int, float)) or pd.isna(v) or v == 0: return ""
+        mag = min((abs(v) / 8.0) ** 0.7, 1.0)   # 값 크기에 비례한 농도 (R7)
+        a = 0.05 + mag * 0.30
+        if v > 0:  return f"background-color:rgba(242,85,96,{a:.3f});color:#F25560;font-weight:600"
+        return f"background-color:rgba(77,144,240,{a:.3f});color:#4D90F0;font-weight:600"
 
     _TREND_MAP = {"bullish": "상승", "bearish": "하락", "neutral": "중립"}
 
     def _trend(v):
-        if v in ("bullish", "상승"): return "color:#276749;font-weight:700"
-        if v in ("bearish", "하락"): return "color:#9B2335;font-weight:700"
-        return "color:#718096"
+        if v in ("bullish", "상승"): return "color:#F25560;font-weight:700"
+        if v in ("bearish", "하락"): return "color:#4D90F0;font-weight:700"
+        return "color:#7E8694"
 
     all_rows = []
     for _, r in live["commodities"].iterrows():
@@ -138,209 +169,210 @@ def render():
             "추세":       _TREND_MAP.get(_dbstr(ticker, "trend_status"), _dbstr(ticker, "trend_status")),
             "_ticker":   ticker,
             "_group":    group,
+            "_key":      key,
         })
 
-    for group_name in ["귀금속", "산업금속", "에너지", "기타"]:
-        grp = [r for r in all_rows if r["_group"] == group_name]
-        if not grp:
-            continue
-        st.markdown(
-            f'<div style="font-size:9px;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:1px;color:#718096;margin:14px 0 4px">{group_name}</div>',
-            unsafe_allow_html=True,
-        )
-        tbl = pd.DataFrame(grp).drop(columns=["_ticker", "_group"])
+    # ── 0. 30초 스캔 레이어 — 리더/러거드/과열 + breadth (표 위) ─────────────────
+    def _series(ticker: str) -> list[float]:
+        h = _chart(ticker)
+        if h is None or h.empty:
+            return []
+        return [float(v) for v in h["Close"].tolist()]
+
+    scan_items = [{
+        "name": r["원자재"],
+        "d1": r["1D %"],
+        "ma20": r["MA20 이격%"],
+        "series": _series(r["_ticker"]),
+        "color": _COMM_COLOR.get(r["_key"], _COMM_COLOR_DEFAULT)[0],  # 원자재 시그니처색(꺾은선)
+    } for r in all_rows]
+    _scan = scan_layer_html(scan_items)
+    if _scan:
+        # 스캔 레이어는 섹션 헤더보다 위 — 마크다운 순서상 헤더 이후에 출력되므로 여기서 먼저
+        st.markdown(_scan, unsafe_allow_html=True)
+
+    def _render_comm_table(grp: list[dict], show_group: bool = False,
+                           sort_movement: bool = False, highlight: bool = False):
+        df_rows = []
+        for r in grp:
+            row = {k: v for k, v in r.items() if k not in ("_ticker", "_group")}
+            if show_group:
+                row = {"그룹": r["_group"], **row}
+            df_rows.append(row)
+        tbl = pd.DataFrame(df_rows)
         tbl = numeric(tbl, pct_cols + ["현재가", "변동성(연)"])
+        if sort_movement and "1D %" in tbl.columns:
+            tbl = tbl.reindex(tbl["1D %"].abs().sort_values(ascending=False, na_position="last").index)
         styled = tbl.style.map(_cell, subset=pct_cols)
         if "추세" in tbl.columns:
             styled = styled.map(_trend, subset=["추세"])
-        cfg = {c: st.column_config.NumberColumn(format="%.2f%%") for c in pct_cols}
-        cfg["현재가"]   = st.column_config.NumberColumn(format="%.4f")
-        cfg["변동성(연)"] = st.column_config.NumberColumn(format="%.2f%%")
-        st.dataframe(styled, column_config=cfg, use_container_width=True, hide_index=True)
+        if highlight and "1D %" in tbl.columns and tbl["1D %"].notna().any():
+            imax, imin = tbl["1D %"].idxmax(), tbl["1D %"].idxmin()
+            def _row_hl(row):
+                styles = [""] * len(row)
+                if row.name == imax:
+                    styles[0] = "box-shadow:inset 4px 0 0 #F25560"
+                elif row.name == imin:
+                    styles[0] = "box-shadow:inset 4px 0 0 #4D90F0"
+                return styles
+            styled = styled.apply(_row_hl, axis=1)
+        fmt = {c: "{:+.2f}%" for c in pct_cols if c in tbl.columns}
+        if "현재가" in tbl.columns: fmt["현재가"] = "{:,.2f}"
+        if "변동성(연)" in tbl.columns: fmt["변동성(연)"] = "{:.2f}%"
+        styled = styled.format(fmt, na_rep="—")
+        st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    if not comm_db.empty:
-        run_date = db_df["run_date"].max()
-        st.caption(f"1W/1M/3M·추세: DB 기준 ({run_date})  ·  `python main.py` 실행 시 업데이트")
-
-    # ── Price Chart ───────────────────────────────────────────────────────────
-    st.markdown(section_header("가격 추이", "3개월 일별 종가"), unsafe_allow_html=True)
-
-    opts = {}
-    for _, r in live["commodities"].iterrows():
-        kor, unit, _ = _META.get(r["name"], (r["name"].title(), "", ""))
-        opts[f"{kor}  ({unit})"] = r["ticker"]
-
-    col_sel, _ = st.columns([3, 7])
-    with col_sel:
-        sel = st.selectbox("원자재", list(opts.keys()), label_visibility="collapsed",
-                           key="comm_chart_sel")
-    hist = _chart(opts[sel])
-
-    if not hist.empty:
-        pct   = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] - 1) * 100
-        color = "#276749" if pct >= 0 else "#9B2335"
-        sign  = "+" if pct >= 0 else ""
-        fig = go.Figure(go.Scatter(
-            x=hist["Date"], y=hist["Close"], mode="lines",
-            line=dict(color="#1C2B3A", width=1.5),
-            fill="tozeroy", fillcolor="rgba(28,43,58,0.05)",
-        ))
-        fig.update_layout(
-            title=dict(
-                text=f"{sel}  <span style='font-size:11px;color:{color}'>{sign}{pct:.2f}% (3M)</span>",
-                font=dict(size=12, color="#2D3748"), x=0, xanchor="left",
-            ),
-            margin=dict(l=0, r=0, t=36, b=0), height=220,
-            paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-            xaxis=dict(showgrid=False, showline=True, linecolor="#E2E8F0",
-                       tickfont=dict(size=9, color="#718096")),
-            yaxis=dict(showgrid=True, gridcolor="#F0F4F8", tickformat=",.4f",
-                       tickfont=dict(size=9, color="#718096"), side="right"),
-            showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    if embedded:
+        # 레인지 불릿 바(52주 범위 내 위치) + 표로 보기 토글 → 슬림표
+        _bullet_items = []
+        for r in all_rows:
+            rng = fetch_52w_range(r["_ticker"])
+            if not rng:
+                continue
+            lo, hi, cur = rng
+            _bullet_items.append({
+                "name": r["원자재"], "unit": r.get("단위", ""),
+                "low": lo, "high": hi, "current": cur,
+                "d1": r.get("1D %"), "m3": r.get("3M %"),
+                "color": _COMM_COLOR.get(r["_key"], _COMM_COLOR_DEFAULT)[0],  # 원자재 시그니처색
+            })
+        if _bullet_items:
+            st.markdown(range_bar_html(_bullet_items), unsafe_allow_html=True)
+            st.caption("막대 = 52주 최저~최고 · 점 = 현재가 · 우측 라벨 = 범위 내 위치")
+        if st.toggle("표로 보기", key="comm_all_tbl", value=False):
+            _slim_rows = []
+            for r in sorted(all_rows,
+                            key=lambda x: abs(x["1D %"]) if isinstance(x["1D %"], (int, float)) else -1,
+                            reverse=True):
+                _slim_rows.append({"그룹": r.get("_group", ""), **{k: v for k, v in r.items() if not str(k).startswith("_")}})
+            slim_table(_slim_rows, key="comm_all", name_key="원자재",
+                       price_key="현재가", price_fmt="{:,.2f}")
     else:
-        st.info("차트 데이터를 불러올 수 없습니다.")
-
-    # ── Ratio Charts ─────────────────────────────────────────────────────────
-    st.markdown(section_header("귀금속 비율 차트", "상대 강도 모니터링"), unsafe_allow_html=True)
-
-    gld_h = _chart("GC=F")
-    slv_h = _chart("SI=F")
-    cop_h = _chart("HG=F")
-
-    if not gld_h.empty and not slv_h.empty:
-        r_col1, r_col2 = st.columns(2)
-        with r_col1:
-            merged = gld_h.merge(slv_h, on="Date", suffixes=("_gld", "_slv")).dropna()
-            if not merged.empty:
-                ratio = merged["Close_gld"] / merged["Close_slv"]
-                last  = ratio.iloc[-1]
-                first = ratio.iloc[0]
-                chg   = (last / first - 1) * 100
-                color = "#276749" if chg >= 0 else "#9B2335"
-                fig   = go.Figure(go.Scatter(
-                    x=merged["Date"], y=ratio, mode="lines",
-                    line=dict(color="#C9A84C", width=1.5),
-                    fill="tozeroy", fillcolor="rgba(201,168,76,0.08)",
-                    hovertemplate="%{y:.2f}<extra>금/은 비율</extra>",
-                ))
-                fig.update_layout(
-                    title=dict(
-                        text=f"금/은 비율  <span style='font-size:10px;color:{color}'>"
-                             f"{'+' if chg >= 0 else ''}{chg:.1f}% (3M)</span>",
-                        font=dict(size=11, color="#2D3748"), x=0, xanchor="left",
-                    ),
-                    margin=dict(l=0, r=0, t=32, b=0), height=180,
-                    paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-                    xaxis=dict(showgrid=False, tickfont=dict(size=8, color="#718096")),
-                    yaxis=dict(showgrid=True, gridcolor="#F0F4F8",
-                               tickfont=dict(size=8, color="#718096"), side="right"),
-                    showlegend=False,
-                )
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                st.caption("금/은 비율 상승 → 금 상대 강세 (안전자산 수요) / 하락 → 은 상대 강세 (산업금속 수요)")
-
-        with r_col2:
-            if not cop_h.empty:
-                merged2 = cop_h.merge(gld_h, on="Date", suffixes=("_cop", "_gld")).dropna()
-                if not merged2.empty:
-                    ratio2 = merged2["Close_cop"] / merged2["Close_gld"]
-                    last2  = ratio2.iloc[-1]
-                    first2 = ratio2.iloc[0]
-                    chg2   = (last2 / first2 - 1) * 100
-                    color2 = "#276749" if chg2 >= 0 else "#9B2335"
-                    fig2   = go.Figure(go.Scatter(
-                        x=merged2["Date"], y=ratio2, mode="lines",
-                        line=dict(color="#B87333", width=1.5),
-                        fill="tozeroy", fillcolor="rgba(184,115,51,0.08)",
-                        hovertemplate="%{y:.4f}<extra>구리/금 비율</extra>",
-                    ))
-                    fig2.update_layout(
-                        title=dict(
-                            text=f"구리/금 비율  <span style='font-size:10px;color:{color2}'>"
-                                 f"{'+' if chg2 >= 0 else ''}{chg2:.1f}% (3M)</span>",
-                            font=dict(size=11, color="#2D3748"), x=0, xanchor="left",
-                        ),
-                        margin=dict(l=0, r=0, t=32, b=0), height=180,
-                        paper_bgcolor="#FFFFFF", plot_bgcolor="#F7F8FA",
-                        xaxis=dict(showgrid=False, tickfont=dict(size=8, color="#718096")),
-                        yaxis=dict(showgrid=True, gridcolor="#F0F4F8",
-                                   tickfont=dict(size=8, color="#718096"), side="right"),
-                        showlegend=False,
-                    )
-                    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
-                    st.caption("구리/금 비율 상승 → 경기 낙관론 / 하락 → 경기 우려 또는 안전자산 선호")
-
-    # ── Analyst Price Targets (관련 개별주) ───────────────────────────────────
-    st.markdown(section_header("원자재 관련주 애널리스트 전망",
-                               "Yahoo Finance 컨센서스 목표가 — 금광·구리·에너지 섹터"),
-                unsafe_allow_html=True)
-
-    analyst_df = _analyst_targets()
-
-    if not analyst_df.empty:
-        _REC_COLOR = {
-            "강력매수": "color:#276749;font-weight:700",
-            "매수":     "color:#276749;font-weight:600",
-            "보유":     "color:#718096",
-            "시장하회": "color:#9B2335;font-weight:600",
-            "매도":     "color:#9B2335;font-weight:700",
-            "강력매도": "color:#9B2335;font-weight:700",
-        }
-
-        def _rec_style(v):
-            return _REC_COLOR.get(v, "")
-
-        def _upside_style(v):
-            if not isinstance(v, (int, float)) or pd.isna(v): return ""
-            if v >= 10:  return "background-color:#F0FFF6;color:#276749;font-weight:600"
-            if v <= -5:  return "background-color:#FFF5F5;color:#9B2335;font-weight:600"
-            return ""
-
-        for group_name in ["귀금속", "산업금속", "에너지"]:
-            group_tickers = [tk for tk, g in _COMM_STOCK_GROUP.items() if g == group_name]
-            grp_df = analyst_df[analyst_df["ticker"].isin(group_tickers)]
-            if grp_df.empty:
+        for group_name in ["귀금속", "산업금속", "에너지", "기타"]:
+            grp = [r for r in all_rows if r["_group"] == group_name]
+            if not grp:
                 continue
             st.markdown(
                 f'<div style="font-size:9px;font-weight:700;text-transform:uppercase;'
-                f'letter-spacing:1px;color:#718096;margin:14px 0 4px">{group_name}</div>',
+                f'letter-spacing:1px;color:#7E8694;margin:14px 0 4px">{group_name}</div>',
                 unsafe_allow_html=True,
             )
-            rows_a = []
-            for _, r in grp_df.iterrows():
-                tk = r["ticker"]
-                rows_a.append({
-                    "종목":        f"{_COMM_STOCK_KOR.get(tk, tk)}  ({tk})",
-                    "현재가":      r.get("현재가"),
-                    "목표가(평균)": r.get("목표가_평균"),
-                    "목표가(최고)": r.get("목표가_최고"),
-                    "목표가(최저)": r.get("목표가_최저"),
-                    "상승여력%":   r.get("상승여력%"),
-                    "투자의견":    r.get("투자의견") or "—",
-                    "애널리스트수": r.get("애널리스트수"),
-                })
-            atbl = pd.DataFrame(rows_a)
-            price_cols = ["현재가", "목표가(평균)", "목표가(최고)", "목표가(최저)"]
-            for c in price_cols:
-                atbl[c] = pd.to_numeric(atbl[c], errors="coerce")
-            atbl["상승여력%"]   = pd.to_numeric(atbl["상승여력%"],   errors="coerce")
-            atbl["애널리스트수"] = pd.to_numeric(atbl["애널리스트수"], errors="coerce")
+            _render_comm_table(grp)
 
-            styled_a = (
-                atbl.style
-                .map(_upside_style, subset=["상승여력%"])
-                .map(_rec_style,    subset=["투자의견"])
-            )
-            cfg_a = {c: st.column_config.NumberColumn(format="$%,.2f") for c in price_cols}
-            cfg_a["상승여력%"]   = st.column_config.NumberColumn(format="%.1f%%")
-            cfg_a["애널리스트수"] = st.column_config.NumberColumn(format="%d명")
-            st.dataframe(styled_a, column_config=cfg_a, use_container_width=True, hide_index=True)
+    if not comm_db.empty:
+        run_date = db_df["run_date"].max()
+        st.caption(data_source_note("로컬 DB", updated=str(run_date), extra="기술지표 1W/1M/3M·추세"))
 
-        st.caption("출처: Yahoo Finance 애널리스트 컨센서스 — 투자 참고용, 매매 권유 아님 · 1시간마다 업데이트")
+
+    # ⑤ 관련주 애널리스트 전망 섹션 삭제 — 시장 탭(embedded)에서도 색 입힌 가격 차트를 그대로 노출.
+
+    # ── Price Chart — 전 원자재 비교(기준=100 정규화) + 기간 라디오 ────────────────
+    st.markdown(mkt_section_header("가격 추이 비교", "전 원자재 · 기준일=100 정규화로 한눈에 비교"),
+                unsafe_allow_html=True)
+    _plabel, _pcode = period_radio("comm_period")
+    fig = go.Figure()
+    plotted = 0
+    for _, r in live["commodities"].iterrows():
+        key, tk = r["name"], r["ticker"]
+        kor, _u, _g = _META.get(key, (key.title(), "", ""))
+        h = _chart(tk, period=_pcode)
+        if h.empty or len(h) < 2 or not h["Close"].iloc[0]:
+            continue
+        line_c, _f = _COMM_COLOR.get(key, _COMM_COLOR_DEFAULT)   # ④ 종목별 고유색
+        fig.add_trace(go.Scatter(
+            x=h["Date"], y=h["Close"] / h["Close"].iloc[0] * 100, mode="lines", name=kor,
+            line=dict(color=line_c, width=2, shape="spline", smoothing=0.6),  # 부드러운 곡선
+            hovertemplate=f"{kor}: %{{y:.1f}}<extra></extra>",
+        ))
+        plotted += 1
+    if plotted:
+        fig.update_layout(
+            margin=dict(l=0, r=0, t=6, b=36), height=300,
+            paper_bgcolor="rgba(22,24,31,0.97)", plot_bgcolor="#0E0F13",
+            xaxis=dict(showgrid=False, showline=True, linecolor="#262A33",
+                       tickfont=dict(size=9, color="#7E8694")),
+            yaxis=dict(showgrid=True, gridcolor="#262A33", tickformat=".0f", side="right",
+                       tickfont=dict(size=9, color="#7E8694")),
+            legend=dict(orientation="h", yanchor="top", y=-0.16, xanchor="right", x=1,
+                        font=dict(size=11, color="#C9CDD4"), bgcolor="rgba(0,0,0,0)"),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
-        st.info("애널리스트 데이터를 불러올 수 없습니다.")
+        empty_state("차트 데이터 준비 중")
 
-    render_fmp_drilldown(list(_COMM_STOCK_KOR.keys()), _COMM_STOCK_KOR, section_title="원자재 관련주 증권사별 목표가")
+    # ── Ratio Charts (심화 지표 — 기본 접힘) ──────────────────────────────────
+    with st.expander("귀금속 비율 차트 — 심화 지표(상대강도·경기국면)", expanded=False):
+        st.caption("가격이 아니라 '시장 심리·경기 국면'을 읽는 매크로 게이지입니다. 금속 미보유여도 위험선호·성장 기대를 가늠하는 데 씁니다.")
+        gld_h = _chart("GC=F")
+        slv_h = _chart("SI=F")
+        cop_h = _chart("HG=F")
+
+        if not gld_h.empty and not slv_h.empty:
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                merged = gld_h.merge(slv_h, on="Date", suffixes=("_gld", "_slv")).dropna()
+                if not merged.empty:
+                    ratio = merged["Close_gld"] / merged["Close_slv"]
+                    last  = ratio.iloc[-1]
+                    first = ratio.iloc[0]
+                    chg   = (last / first - 1) * 100
+                    color = "#F25560" if chg >= 0 else "#4D90F0"
+                    fig   = go.Figure(go.Scatter(
+                        x=merged["Date"], y=ratio, mode="lines",
+                        line=dict(color="#b8924a", width=1.5, shape="spline", smoothing=0.6),
+                        fill="tozeroy", fillcolor="rgba(201,168,76,0.08)",
+                        hovertemplate="%{y:.2f}<extra>금/은 비율</extra>",
+                    ))
+                    fig.update_layout(
+                        title=dict(
+                            text=f"금/은 비율  <span style='font-size:10px;color:{color}'>"
+                                 f"{'+' if chg >= 0 else ''}{chg:.1f}% (3M)</span>",
+                            font=dict(size=11, color="#D9A441"), x=0, xanchor="left",
+                        ),
+                        margin=dict(l=0, r=0, t=32, b=0), height=180,
+                        paper_bgcolor="rgba(22,24,31,0.97)", plot_bgcolor="#0E0F13",
+                        xaxis=dict(showgrid=False, tickfont=dict(size=8, color="#7E8694")),
+                        yaxis=dict(showgrid=True, gridcolor="#262A33",
+                                   tickfont=dict(size=8, color="#7E8694"), side="right"),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                    st.caption("비율 ↑ = 금 상대 강세(안전자산·공포) · ↓ = 은 강세(산업수요·위험선호). "
+                               "역사적 평균 ~60–70, 극단에서 금↔은 상대가치 신호.")
+
+            with r_col2:
+                if not cop_h.empty:
+                    merged2 = cop_h.merge(gld_h, on="Date", suffixes=("_cop", "_gld")).dropna()
+                    if not merged2.empty:
+                        ratio2 = merged2["Close_cop"] / merged2["Close_gld"]
+                        last2  = ratio2.iloc[-1]
+                        first2 = ratio2.iloc[0]
+                        chg2   = (last2 / first2 - 1) * 100
+                        color2 = "#F25560" if chg2 >= 0 else "#4D90F0"
+                        fig2   = go.Figure(go.Scatter(
+                            x=merged2["Date"], y=ratio2, mode="lines",
+                            line=dict(color="#B87333", width=1.5, shape="spline", smoothing=0.6),
+                            fill="tozeroy", fillcolor="rgba(184,115,51,0.08)",
+                            hovertemplate="%{y:.4f}<extra>구리/금 비율</extra>",
+                        ))
+                        fig2.update_layout(
+                            title=dict(
+                                text=f"구리/금 비율  <span style='font-size:10px;color:{color2}'>"
+                                     f"{'+' if chg2 >= 0 else ''}{chg2:.1f}% (3M)</span>",
+                                font=dict(size=11, color="#D9A441"), x=0, xanchor="left",
+                            ),
+                            margin=dict(l=0, r=0, t=32, b=0), height=180,
+                            paper_bgcolor="rgba(22,24,31,0.97)", plot_bgcolor="#0E0F13",
+                            xaxis=dict(showgrid=False, tickfont=dict(size=8, color="#7E8694")),
+                            yaxis=dict(showgrid=True, gridcolor="#262A33",
+                                       tickfont=dict(size=8, color="#7E8694"), side="right"),
+                            showlegend=False,
+                        )
+                        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+                        st.caption("비율 ↑ = 경기 낙관·리스크온(금리 상승 동행) · ↓ = 둔화·안전선호. "
+                                   "‘닥터 코퍼’ 기반 글로벌 경기 선행지표.")
+
+    # ⑤ 원자재 관련주 애널리스트 전망(산점도·FMP 드릴다운) 삭제 — 원자재 탭은 시세 중심.
+    if not embedded:
+        st.markdown(jj_footer(), unsafe_allow_html=True)
