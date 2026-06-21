@@ -5,7 +5,8 @@
     bucket = live_refresh(["US"])           # 페이지 상단에서 호출(배지 렌더 + 자동 갱신 가동)
     df = _some_price_fetcher(key, _bucket=bucket)   # 캐시 키에 bucket을 끼워 장중 60초마다 자연 만료
 
-주의: yfinance는 ~15분 지연 소스라 '틱 단위 실시간'이 아니라 '소스가 주는 한 가장 최신'을 자동 유지한다.
+시세 출처(지시서 5장): 주식·ETF는 토스증권, 크립토는 yfinance(~15분 지연). 출처 표기는
+markets 로 자동 판별한다. '틱 단위 실시간'이 아니라 '소스가 주는 한 가장 최신'을 자동 유지한다.
 """
 from __future__ import annotations
 
@@ -25,6 +26,19 @@ _BADGE_CSS = """<style>
 .lv-badge.closed .lv-dot{background:#5A5F68}
 @keyframes lv-pulse{0%{box-shadow:0 0 0 0 rgba(61,214,140,.5)}70%{box-shadow:0 0 0 6px rgba(61,214,140,0)}100%{box-shadow:0 0 0 0 rgba(61,214,140,0)}}
 </style>"""
+
+
+def _source_label(markets: list[str]) -> str:
+    """시세 출처 표기를 markets 로 판별(지시서 5장 — 사실대로, 과장 금지).
+    주식·ETF = 토스증권 / 크립토 = yfinance ~15분 지연 / 둘 다 섞이면 혼합."""
+    ms = set(markets)
+    has_toss = bool(ms & {"KR", "US"})
+    has_yf = bool(ms & {"CRYPTO"})
+    if has_toss and not has_yf:
+        return "토스증권 시세"
+    if has_yf and not has_toss:
+        return "yfinance ~15분 지연"
+    return "토스·yfinance 혼합"
 
 
 @st.fragment(run_every=_REFRESH_SEC)
@@ -49,12 +63,13 @@ def live_badge_html(markets: list[str], label: str | None = None, compact: bool 
     """상태 배지 HTML 문자열만 반환(렌더 안 함) — 다른 헤더에 끼워 넣을 때 사용.
     compact=True 면 축약('장중 · 60초'), 상세는 title 툴팁으로."""
     name = label or " · ".join(markets)
+    src = _source_label(markets)
     if any_open(markets):
         if compact:
-            return (f'{_BADGE_CSS}<span class="lv-badge open" title="{name} · {_REFRESH_SEC}초 자동 갱신 · yfinance ~15분 지연">'
+            return (f'{_BADGE_CSS}<span class="lv-badge open" title="{name} · {_REFRESH_SEC}초 자동 갱신 · {src}">'
                     f'<span class="lv-dot"></span>장중 · {_REFRESH_SEC}초</span>')
         return (f'{_BADGE_CSS}<span class="lv-badge open"><span class="lv-dot"></span>'
-                f'장중 · {name} · {_REFRESH_SEC}초 자동 갱신 <span style="opacity:.6">(yfinance ~15분 지연)</span></span>')
+                f'장중 · {name} · {_REFRESH_SEC}초 자동 갱신 <span style="opacity:.6">({src})</span></span>')
     if compact:
         return (f'{_BADGE_CSS}<span class="lv-badge closed" title="{name} · 수동 갱신">'
                 f'<span class="lv-dot"></span>장마감</span>')

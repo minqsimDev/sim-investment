@@ -32,20 +32,9 @@ def batch_close_history(tickers_key: str, period: str = "6mo", _bucket: int = 0)
     if not tickers:
         return {}
     try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period=period, interval="1d",
-                              progress=False, auto_adjust=True)
-        if raw is None or raw.empty:
-            return {}
-        out, multi = {}, len(tickers) > 1
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if not closes.empty:
-                    out[tk] = closes
-            except Exception:
-                pass
-        return out
+        # 토스 covered 종목은 일봉 캔들, 나머지는 yfinance(지시서 — 토스 일원화)
+        from data import price_source
+        return price_source.fetch_close_history(tickers, period)
     except Exception:
         return {}
 

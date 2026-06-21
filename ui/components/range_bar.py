@@ -16,16 +16,11 @@ import streamlit as st
 def fetch_52w_range(ticker: str):
     """52주(1년) 최저·최고·현재가 → (low, high, current) 또는 None."""
     try:
-        from data.session import cached_download
-        raw = cached_download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
-        if raw is None or raw.empty:
+        from data import price_source
+        c = price_source.fetch_close_history([ticker], "1y").get(ticker)
+        if c is None or len(c.dropna()) < 2:
             return None
-        c = raw["Close"]
-        if hasattr(c, "columns"):
-            c = c.iloc[:, 0]
         c = c.dropna()
-        if len(c) < 2:
-            return None
         return float(c.min()), float(c.max()), float(c.iloc[-1])
     except Exception:
         return None
@@ -41,16 +36,11 @@ def fetch_52w_ranges(tickers_key: str) -> dict:
         return {}
     out: dict[str, tuple] = {}
     try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
-        if raw is None or raw.empty:
-            return {}
-        multi = len(tickers) > 1
-        for tk in tickers:
+        from data import price_source
+        hist = price_source.fetch_close_history(tickers, "1y")
+        for tk, c in hist.items():
             try:
-                c = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if hasattr(c, "columns"):
-                    c = c.iloc[:, 0].dropna()
+                c = c.dropna()
                 if len(c) >= 2:
                     out[tk] = (float(c.min()), float(c.max()), float(c.iloc[-1]))
             except Exception:

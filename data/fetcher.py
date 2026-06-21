@@ -3,15 +3,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from core.config_loader import load_config
-from data.providers.yfinance_provider import YFinanceProvider
+from data import price_source
 from data.providers.fred_provider import FredProvider
 
 
 def fetch_all(config: dict | None = None, force: bool = False) -> dict:
     if config is None:
         config = load_config()
-
-    yf = YFinanceProvider()
 
     etf_tickers    = [e["ticker"] for e in config["my_etfs"]]
     bench_tickers  = [e["ticker"] for e in config["benchmark_etfs"]]
@@ -29,10 +27,12 @@ def fetch_all(config: dict | None = None, force: bool = False) -> dict:
     all_tickers = etf_tickers + bench_tickers + stock_tickers + kr_tickers + comm_tickers + fx_tickers + crypto_tickers + holding_tickers
 
     # Run yfinance bulk download and FRED macro fetch in parallel
+    # 토스 우선 + yfinance 폴백(지시서 3장). 토스 전일대비는 캔들 조회라
+    # 첫 호출(콜드 캐시)이 길 수 있어 타임아웃을 넉넉히 둔다(이후 당일 캐시).
     with ThreadPoolExecutor(max_workers=4) as ex:
-        prices_future = ex.submit(yf.fetch_prices_bulk, all_tickers, force)
+        prices_future = ex.submit(price_source.fetch_prices_bulk, all_tickers, force)
         macro_future  = ex.submit(_fetch_macro, config)
-        prices = prices_future.result(timeout=30)
+        prices = prices_future.result(timeout=45)
         macro  = macro_future.result(timeout=15)
 
     results = {
