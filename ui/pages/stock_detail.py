@@ -19,11 +19,13 @@ _DETAIL_CSS = """<style>
 /* 종목상세는 콘텐츠가 적어 전폭(1380)이면 휑함 → 이 페이지만 폭을 좁혀 밀도를 높인다(스코프: 렌더 시에만 주입) */
 [data-testid="stAppViewBlockContainer"], .block-container{max-width:960px!important}
 .sd-toprow{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px;gap:12px}
+.sd-topright{display:flex;align-items:center;gap:9px}
+.sd-tk{font-size:12.5px;font-weight:850;font-variant-numeric:tabular-nums}
 /* 헤더 카드(이름·가격) + 보유 항목 카드를 한 줄에 */
 .sd-headrow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:0 0 14px}
 .sd-head{flex:1 1 300px;display:flex;align-items:center;justify-content:space-between;gap:18px;row-gap:12px;flex-wrap:wrap;
   background:#16181F;border:1px solid #262A33;border-radius:14px;padding:16px 20px}
-.sd-headrow .sd-cell{flex:1 1 96px;display:flex;flex-direction:column;justify-content:center}
+.sd-headrow .sd-cell{flex:1 1 108px;display:flex;flex-direction:column;justify-content:center}
 .sd-id{min-width:0}
 .sd-id h2{margin:0;color:#E7E9EE;font-size:23px;font-weight:950;letter-spacing:-.02em}
 .sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
@@ -101,10 +103,10 @@ def _resolve(symbol: str, data: dict) -> dict | None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _chart(ticker: str) -> pd.DataFrame:
+def _chart(ticker: str, period: str = "6mo") -> pd.DataFrame:
     try:
         from data.session import cached_download
-        raw = cached_download(ticker, period="6mo", interval="1d", progress=False, auto_adjust=True)
+        raw = cached_download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
         if raw.empty:
             return pd.DataFrame()
         c = raw["Close"]
@@ -221,24 +223,25 @@ def render() -> None:
     on = ticker in _watchlist()
     _star_href = f"?symbol={symbol}&watch=1" + (f"&{sfx}" if sfx else "")
 
-    # ── 상단행: 뒤로(좌) · 워치리스트 별표(우상단) ──
+    # ── 상단행: 뒤로(좌) · 카테고리/티커 + 워치리스트 별표(우) ──
     st.markdown(
         f'<div class="sd-toprow"><a class="sd-back" href="/market{qs}" target="_self">← 시장으로</a>'
-        f'<a class="sd-starx {"on" if on else ""}" href="{_star_href}" target="_self" title="워치리스트">{"★" if on else "☆"}</a></div>',
+        f'<div class="sd-topright">'
+        f'<span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
+        f'<span class="sd-tk" style="color:{sig}">{ticker}</span>'
+        f'<a class="sd-starx {"on" if on else ""}" href="{_star_href}" target="_self" title="워치리스트">{"★" if on else "☆"}</a>'
+        f'</div></div>',
         unsafe_allow_html=True,
     )
 
-    # ── 헤더 카드: 이름·카테고리/티커 · 가격 + (보유 시) 보유 그리드 동일 카드 ──
+    # ── 헤더 카드(이름·가격) + 보유 시 비중·평가액·손익률 카드를 같은 라인에 ──
     price_html = currency(info["price"], cur) if info["price"] is not None else "—"
     chg = info["change_pct"]
     dcls = "up" if (chg or 0) >= 0 else "down"
     dtxt = f'{"+" if (chg or 0) >= 0 else ""}{chg:.2f}%' if isinstance(chg, (int, float)) else "—"
 
-    # ── 헤더 카드(이름·가격) + 보유 시 비중·평가액·손익률 카드를 같은 라인에 ──
     head = (
-        f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2>'
-        f'<div class="sd-meta"><span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
-        f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
+        f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2></div>'
         f'<div class="sd-px"><div class="v">{price_html}</div>'
         f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>'
     )
@@ -309,19 +312,16 @@ def _render_indicators(ticker: str) -> None:
 
 
 def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
-    hist = _chart(ticker)
-    if hist.empty:
-        empty_state("차트 데이터 준비 중")
-        return
     import plotly.graph_objects as go
-    _dt = pd.to_datetime(hist["Date"])
-    # '가격 추이 +X%' 라벨(좌) + 기간 라디오(우)를 같은 라인에 배치
+    from ui.components.dash_style import period_radio
+    # '가격 추이 +X%' 라벨(좌) + 기간 라디오(우, 시장 페이지와 동일·가운데 정렬) 같은 라인
     _hd, _ctrl = st.columns([1, 1.15])
     with _ctrl:
-        _pd_label, _pd_days = L_period()
-    h = hist[_dt >= _dt.max() - pd.Timedelta(days=_pd_days)]
-    if len(h) < 2:
-        h = hist
+        _pd_label, _pd_code = period_radio("sd_period")   # 1M/3M/6M/1Y/5Y → yfinance 코드
+    h = _chart(ticker, _pd_code)
+    if h.empty:
+        empty_state("차트 데이터 준비 중")
+        return
     pct = (h["Close"].iloc[-1] / h["Close"].iloc[0] - 1) * 100
     color = UP if pct >= 0 else DOWN
     with _hd:
@@ -350,10 +350,6 @@ def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
-def L_period():
-    """기간 토글(공통 컴포넌트 재사용) — 6개월 데이터 슬라이스."""
-    from ui.components.dash_style import period_toggle
-    return period_toggle("sd_period", options=("1W", "1M", "3M", "6M"), default="3M", align="right")
 
 
 def _render_analyst(ticker: str, info: dict) -> None:
