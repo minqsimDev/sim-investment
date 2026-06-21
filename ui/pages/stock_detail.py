@@ -19,15 +19,18 @@ _DETAIL_CSS = """<style>
 /* 종목상세는 콘텐츠가 적어 전폭(1380)이면 휑함 → 이 페이지만 폭을 좁혀 밀도를 높인다(스코프: 렌더 시에만 주입) */
 [data-testid="stAppViewBlockContainer"], .block-container{max-width:960px!important}
 .sd-toprow{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px;gap:12px}
-/* 헤더 카드 = 종목명(좌) + 현재가(우) */
-.sd-head{display:flex;align-items:center;justify-content:space-between;gap:20px;row-gap:12px;margin:0 0 10px;flex-wrap:wrap;
-  background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 20px}
+/* 헤더 카드(이름·가격) + 보유 항목 카드를 한 줄에 */
+.sd-headrow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.sd-head{flex:1 1 300px;display:flex;align-items:center;justify-content:space-between;gap:18px;row-gap:12px;flex-wrap:wrap;
+  background:#16181F;border:1px solid #262A33;border-radius:14px;padding:16px 20px}
+.sd-headrow .sd-cell{flex:1 1 96px;display:flex;flex-direction:column;justify-content:center}
 .sd-id{min-width:0}
 .sd-id h2{margin:0;color:#E7E9EE;font-size:23px;font-weight:950;letter-spacing:-.02em}
 .sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
 .sd-starx.on{color:#D9A441}
 .sd-starx:hover{color:#D9A441}
-.sd-chart-hd{font-size:13px;font-weight:900;color:#E7E9EE;padding-top:7px}
+.sd-chart-hd{font-size:16px;font-weight:900;color:#E7E9EE;padding-top:7px;display:flex;align-items:baseline;gap:12px}
+.sd-chart-hd .p{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
 .sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:6px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
   border:1px solid #262A33;border-radius:999px;padding:3px 10px;margin-right:6px}
@@ -38,9 +41,9 @@ _DETAIL_CSS = """<style>
 /* 카드 그리드(보유 항목·지표) — auto-fit로 개수에 맞춰 고르게 채움 */
 .sd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:0 0 14px}
 @media(max-width:760px){.sd-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.sd-cell{background:#16181F;border:1px solid #262A33;border-radius:12px;padding:11px 12px}
+.sd-cell{background:#16181F;border:1px solid #262A33;border-radius:12px;padding:11px 14px}
 .sd-cell .k{font-size:10px;font-weight:850;color:#7E8694;text-transform:uppercase;letter-spacing:.04em}
-.sd-cell .v{font-size:16px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;margin-top:4px}
+.sd-cell .v{font-size:20px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;margin-top:5px;text-align:right}
 .sd-cell .v.up{color:#F25560}.sd-cell .v.down{color:#4D90F0}
 .sd-card{background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 18px;margin:0 0 14px}
 .sd-card .t{font-size:13px;font-weight:900;color:#E7E9EE;margin-bottom:10px}
@@ -231,28 +234,24 @@ def render() -> None:
     dcls = "up" if (chg or 0) >= 0 else "down"
     dtxt = f'{"+" if (chg or 0) >= 0 else ""}{chg:.2f}%' if isinstance(chg, (int, float)) else "—"
 
-    # ── 헤더 카드: 종목명·카테고리/티커(좌) + 현재가·오늘(우) ──
-    st.markdown(
+    # ── 헤더 카드(이름·가격) + 보유 시 비중·평가액·손익률 카드를 같은 라인에 ──
+    head = (
         f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2>'
         f'<div class="sd-meta"><span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
         f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
         f'<div class="sd-px"><div class="v">{price_html}</div>'
-        f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>',
-        unsafe_allow_html=True,
+        f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>'
     )
-
-    # ── 보유 종목이면 비중·평가액·손익률을 각각 별도 카드로 ──
     pos = _my_holding(ticker, data)
+    cells = ""
     if pos:
         gl = pos.get("gain_loss_pct"); gcls = "up" if (gl or 0) >= 0 else "down"
         def _cell(k, v, cls=""):
             return f'<div class="sd-cell"><div class="k">{k}</div><div class="v {cls}">{v}</div></div>'
-        st.markdown(
-            '<div class="sd-grid">'
-            + _cell("비중", f'{(pos.get("weight") or 0):.1f}%')
-            + _cell("평가액", won(pos.get("market_value")))
-            + _cell("손익률", f'{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%', gcls)
-            + '</div>', unsafe_allow_html=True)
+        cells = (_cell("비중", f'{(pos.get("weight") or 0):.1f}%')
+                 + _cell("평가액", won(pos.get("market_value")))
+                 + _cell("손익률", f'{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%', gcls))
+    st.markdown(f'<div class="sd-headrow">{head}{cells}</div>', unsafe_allow_html=True)
 
     # ── 전문가용 지표(변동성·52주 위치·MA 이격·모멘텀) — DB indicator_summary ──
     _render_indicators(ticker)
@@ -326,8 +325,8 @@ def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
     pct = (h["Close"].iloc[-1] / h["Close"].iloc[0] - 1) * 100
     color = UP if pct >= 0 else DOWN
     with _hd:
-        st.markdown(f'<div class="sd-chart-hd">가격 추이 '
-                    f'<span style="color:{color};font-size:12px">{"+" if pct>=0 else ""}{pct:.1f}% ({_pd_label})</span></div>',
+        st.markdown(f'<div class="sd-chart-hd"><span>가격 추이</span>'
+                    f'<span class="p" style="color:{color}">{"+" if pct>=0 else ""}{pct:.1f}% ({_pd_label})</span></div>',
                     unsafe_allow_html=True)
     _sh = sig.lstrip("#")
     _fill = f"rgba({int(_sh[0:2],16)},{int(_sh[2:4],16)},{int(_sh[4:6],16)},0.07)"
