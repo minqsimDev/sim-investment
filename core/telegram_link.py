@@ -6,7 +6,10 @@ import secrets
 import time
 from pathlib import Path
 
+from core.locking import file_lock
+
 _STATE = Path.home() / ".siminvest_alerts.json"
+_LOCK_FILE = Path.home() / ".siminvest_alerts.lock"
 _TTL = 600  # nonce 유효(초)
 
 
@@ -32,26 +35,29 @@ def _qr_png(data: str) -> bytes:
 
 def issue_link(username: str, bot_username: str = "sim_investment_bot") -> tuple[str, bytes]:
     nonce = secrets.token_urlsafe(16)
-    d = _load()
-    d.setdefault("pending", {})[nonce] = {"username": username, "exp": time.time() + _TTL}
-    _save(d)
+    with file_lock(_LOCK_FILE):
+        d = _load()
+        d.setdefault("pending", {})[nonce] = {"username": username, "exp": time.time() + _TTL}
+        _save(d)
     link = f"https://t.me/{bot_username}?start={nonce}"
     return link, _qr_png(link)
 
 
 def resolve_nonce(nonce: str) -> str | None:
-    d = _load()
-    rec = d.get("pending", {}).get(nonce)
-    if not rec:
-        return None
-    if rec.get("exp", 0) < time.time():
-        d["pending"].pop(nonce, None)
-        _save(d)
-        return None
-    return rec.get("username")
+    with file_lock(_LOCK_FILE):
+        d = _load()
+        rec = d.get("pending", {}).get(nonce)
+        if not rec:
+            return None
+        if rec.get("exp", 0) < time.time():
+            d["pending"].pop(nonce, None)
+            _save(d)
+            return None
+        return rec.get("username")
 
 
 def consume_nonce(nonce: str) -> None:
-    d = _load()
-    if d.get("pending", {}).pop(nonce, None) is not None:
-        _save(d)
+    with file_lock(_LOCK_FILE):
+        d = _load()
+        if d.get("pending", {}).pop(nonce, None) is not None:
+            _save(d)
