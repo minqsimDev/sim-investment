@@ -17,23 +17,12 @@ def _fetch_history(tickers: list[str]) -> dict[str, pd.Series]:
     if not tickers:
         return {}
     try:
-        from data.session import cached_download
-        raw = cached_download(
-            tickers, period=_PERIOD, interval="1d",
-            progress=False, auto_adjust=True,
-        )
+        # 토스 covered 종목은 일봉 캔들, 나머지는 yfinance(지시서 — 토스 일원화)
+        from data import price_source
+        out = price_source.fetch_close_history(tickers, _PERIOD)
     except Exception:
         return {t: pd.Series(dtype=float, name=t) for t in tickers}
-
-    multi = len(tickers) > 1
-    result = {}
-    for ticker in tickers:
-        try:
-            closes = raw["Close"][ticker].dropna() if multi else raw["Close"].dropna()
-            result[ticker] = closes
-        except Exception:
-            result[ticker] = pd.Series(dtype=float, name=ticker)
-    return result
+    return {t: out.get(t, pd.Series(dtype=float, name=t)) for t in tickers}
 
 
 # ── Per-symbol calculations ────────────────────────────────────────────────────

@@ -147,3 +147,93 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
 def get_quote(ticker: str, with_change: bool = True) -> dict | None:
     """단건 조회 편의 함수(지시서 3장 인터페이스)."""
     return fetch_prices_bulk([ticker], with_change=with_change).get(ticker)
+
+
+# ── 종가 히스토리(일봉) ─────────────────────────────────────────────────────
+# 토스 covered 종목은 일봉 캔들로, 나머지(선물·지수·비USD환율·크립토)는 yfinance.
+_PERIOD_BARS = {"5d": 7, "1mo": 25, "3mo": 68, "6mo": 135, "1y": 260,
+                "2y": 520, "5y": 1300, "ytd": 260, "max": 2200}
+
+
+def _toss_close_series(toss_sym: str, bars: int):
+    """일봉을 bars 개 이상 모아 날짜 오름차순 종가 Series 반환(yfinance Close 호환)."""
+    import pandas as pd
+    collected: dict = {}
+    before = None
+    client = _toss_client()
+    while len(collected) < bars:
+        time.sleep(_CHART_THROTTLE)
+        candles, nxt = client.fetch_candles(toss_sym, count=200, before=before)
+        if not candles:
+            break
+        for c in candles:
+            ts, cp = c.get("timestamp"), _to_float(c.get("closePrice"))
+            if ts and cp is not None:
+                collected[ts] = cp
+        if not nxt:
+            break
+        before = nxt
+    if not collected:
+        return None
+    s = pd.Series(collected)
+    s.index = pd.to_datetime(s.index)
+    return s.sort_index()
+
+
+def _yf_close_history(tickers: list[str], period: str) -> dict:
+    from data.session import cached_download
+    raw = cached_download(tickers, period=period, interval="1d",
+                          progress=False, auto_adjust=True)
+    out: dict = {}
+    if raw is None or getattr(raw, "empty", True):
+        return out
+    multi = len(tickers) > 1
+    for tk in tickers:
+        try:
+            closes = raw["Close"][tk] if multi else raw["Close"]
+            if hasattr(closes, "columns"):   # 단일 티커가 DataFrame 으로 올 때(yfinance 버전차)
+                closes = closes.iloc[:, 0]
+            closes = closes.dropna()
+            if not closes.empty:
+                out[tk] = closes
+        except Exception:
+            pass
+    return out
+
+
+def fetch_close_history(tickers: list[str], period: str = "6mo") -> dict:
+    """{ticker: 날짜오름차순 종가 Series}. loader.batch_close_history 드롭인.
+    토스 covered=일봉 캔들 / 그 외=yfinance / 토스 실패 시 종목단위 yfinance 폴백."""
+    out: dict = {}
+    if not tickers:
+        return out
+    bars = _PERIOD_BARS.get(period, 135)
+
+    toss_syms: dict[str, list[str]] = {}
+    yf_list: list[str] = []
+    for t in tickers:
+        kind, key = _classify(t)
+        if kind == "toss_price":
+            toss_syms.setdefault(key, []).append(t)
+        else:
+            yf_list.append(t)   # 선물·지수·비USD환율·크립토·USD/KRW(환율 히스토리)
+
+    fallbacks: list[str] = []
+    for toss_sym, origs in toss_syms.items():
+        try:
+            s = _toss_close_series(toss_sym, bars)
+        except Exception as e:
+            log.warning("토스 캔들 실패 %s: %s", toss_sym, e)
+            s = None
+        if s is None or s.empty:
+            fallbacks.extend(origs)
+        else:
+            for o in origs:
+                out[o] = s
+
+    if fallbacks:
+        log.info("종가 히스토리 yfinance 폴백(%d건): %s", len(fallbacks), fallbacks)
+    yf_all = yf_list + fallbacks
+    if yf_all:
+        out.update(_yf_close_history(yf_all, period))
+    return out

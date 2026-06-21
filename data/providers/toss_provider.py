@@ -101,23 +101,30 @@ class TossClient(BaseProvider):
         except Exception:
             return None
 
-    # ── 일봉 캔들 (전일종가 계산용) ─────────────────────────────────────────
-    def get_daily_candles(self, symbol: str, count: int = 2) -> list[dict] | None:
-        """최신순 캔들 목록. [0]=최신일, [1]=직전일. 실패 시 None.
+    # ── 일봉 캔들 ──────────────────────────────────────────────────────────
+    def fetch_candles(self, symbol: str, count: int = 200,
+                      before: str | None = None) -> tuple[list[dict], str | None]:
+        """일봉 한 페이지. (candles 최신순, nextBefore) 반환. 실패 시 ([], None).
+        before 에 직전 응답의 nextBefore 를 넘기면 더 과거 페이지 조회(페이지네이션).
         Rate Limits Group: MARKET_DATA_CHART (시세와 별도 그룹)."""
+        params = {"symbol": symbol, "interval": "1d", "count": min(count, 200)}
+        if before:
+            params["before"] = before
         try:
-            resp = requests.get(
-                f"{_BASE_URL}/api/v1/candles",
-                params={"symbol": symbol, "interval": "1d", "count": count},
-                headers=self._headers(),
-                timeout=_TIMEOUT,
-            )
+            resp = requests.get(f"{_BASE_URL}/api/v1/candles", params=params,
+                                headers=self._headers(), timeout=_TIMEOUT)
             self._capture_rate_headers(resp)
             if resp.status_code != 200:
-                return None
-            return resp.json().get("result", {}).get("candles", [])
+                return [], None
+            r = resp.json().get("result", {})
+            return r.get("candles", []), r.get("nextBefore")
         except Exception:
-            return None
+            return [], None
+
+    def get_daily_candles(self, symbol: str, count: int = 2) -> list[dict] | None:
+        """최신순 캔들 목록(전일종가 계산용). [0]=최신일, [1]=직전일. 실패 시 None."""
+        candles, _ = self.fetch_candles(symbol, count=count)
+        return candles or None
 
     # ── 환율 (KRW↔USD 만 지원) ─────────────────────────────────────────────
     def get_exchange_rate(self, base: str, quote: str) -> dict | None:
