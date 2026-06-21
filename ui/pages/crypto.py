@@ -10,7 +10,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.live_refresh import live_refresh
 
 
@@ -143,8 +143,9 @@ def render(embedded: bool = False):
     # ── 주요 코인 — 52주 레인지 게이지 바(코인별 시그니처색, 표 대신) ──
     st.markdown(mkt_section_header("주요 코인", "시총 상위 6종 · 52주 범위 내 현재 위치"), unsafe_allow_html=True)
     _rb_items = []
+    _ranges = fetch_52w_ranges(",".join(tk for _, tk in _CRYPTO_UNIVERSE))
     for name, tk in _CRYPTO_UNIVERSE:
-        rng = fetch_52w_range(tk)
+        rng = _ranges.get(tk)
         if not rng:
             continue
         lo, hi, cur = rng

@@ -18,7 +18,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.cap_treemap import cap_treemap
 from ui.components.analyst_scatter import analyst_scatter_fig
 from ui.components.live_refresh import live_refresh
@@ -332,6 +332,7 @@ def render(embedded: bool = False):
     bench = _bench_prices()
     _bench_hist = _kr_history(",".join(sorted(_KOSPI_BENCH.keys())))
     bench_rows, _rb_bench = [], []
+    _bench_ranges = fetch_52w_ranges(",".join(sorted(_KOSPI_BENCH.keys())))  # 52주 범위 1회 배치
     for tk, label in _KOSPI_BENCH.items():
         p = bench.get(tk, {})
         closes = _bench_hist.get(tk)
@@ -343,7 +344,7 @@ def render(embedded: bool = False):
             "3M %":  bind.get("3M %"),
             "추세":   bind.get("추세", "—"),
         })
-        rng = fetch_52w_range(tk)
+        rng = _bench_ranges.get(tk)
         if rng:
             lo, hi, cur = rng
             _rb_bench.append({"name": label, "unit": "", "low": lo, "high": hi, "current": cur,

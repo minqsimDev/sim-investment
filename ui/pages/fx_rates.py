@@ -18,7 +18,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 
 _PAIR_LABELS = {
     "usd_krw": "USD/KRW",
@@ -216,8 +216,9 @@ def render(embedded: bool = False, section: str = "all"):
 
     # 52주 레인지 바 — 원자재 탭과 동일(막대=저~고 · 점=현재 · 라벨=범위 내 위치)
     _rb_items = []
+    _ranges = fetch_52w_ranges(",".join(r["_tk"] for r in rows))
     for r in rows:
-        rng = fetch_52w_range(r["_tk"])
+        rng = _ranges.get(r["_tk"])
         if not rng:
             continue
         lo, hi, cur = rng

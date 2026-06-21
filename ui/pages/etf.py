@@ -15,7 +15,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 
 # 종목 내용(추종 대상)에 맞는 시그니처 색 — 이름/티커 키워드 매칭(구체적 항목 먼저).
 # 앵커 색은 색상환에 고르게 펼쳐 ΔE(지각 거리)≥22를 만족 — 비교 차트에서 서로 또렷이 구별된다.
@@ -206,10 +206,11 @@ def _render_etf_section(items: list[dict], *, price_fmt: str, key: str, chart_ca
     if _scan:
         st.markdown(_scan, unsafe_allow_html=True)
 
-    # 52주 게이지 바
+    # 52주 게이지 바 — 1회 배치 다운로드
     _rb = []
+    _ranges = fetch_52w_ranges(",".join(it["ticker"] for it in items))
     for it in items:
-        rng = fetch_52w_range(it["ticker"])
+        rng = _ranges.get(it["ticker"])
         if not rng:
             continue
         lo, hi, cur = rng

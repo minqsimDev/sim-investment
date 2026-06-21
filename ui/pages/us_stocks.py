@@ -13,7 +13,7 @@ from src.database import load_latest_indicator_summary, DEFAULT_DB
 from src.analyst import fetch_analyst_targets
 from ui.components.analyst_fmp import render_fmp_drilldown
 from ui.components.analyst_scatter import analyst_scatter_fig
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.dash_style import (
     data_source_note,
     empty_state,
@@ -343,6 +343,7 @@ def render(embedded: bool = False):
     st.markdown(mkt_section_header("주요 벤치마크", "미국 지수·반도체 ETF · 52주 범위 내 현재 위치"),
                 unsafe_allow_html=True)
     _US_BENCH = {tk for tk, (_nm, _cls) in _BENCH_KOR.items() if _cls in ("equity_us", "equity_semiconductor")}
+    _bench_ranges = fetch_52w_ranges(",".join(sorted(_US_BENCH)))  # 52주 범위 1회 배치 다운로드
     bench_live = live["benchmarks"].copy()
     bench_rows, _rb_items = [], []
     for _, r in bench_live.iterrows():
@@ -361,7 +362,7 @@ def render(embedded: bool = False):
             "추세":         ind["추세"],
             "_ticker":     tk,
         })
-        rng = fetch_52w_range(tk)
+        rng = _bench_ranges.get(tk)
         if rng:
             lo, hi, cur = rng
             _rb_items.append({"name": _BENCH_KOR.get(tk, (tk,))[0], "unit": tk,

@@ -31,6 +31,35 @@ def fetch_52w_range(ticker: str):
         return None
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_52w_ranges(tickers_key: str) -> dict:
+    """여러 티커의 52주 (low, high, current)를 한 번의 배치 다운로드로 산출.
+    tickers_key=콤마조인 문자열(캐시 키). 반환: {ticker: (low, high, current)} (산출 가능한 것만).
+    페이지 게이지바에서 종목별 fetch_52w_range를 루프로 부르던 N회 다운로드를 1회로 줄인다."""
+    tickers = [t for t in tickers_key.split(",") if t]
+    if not tickers:
+        return {}
+    out: dict[str, tuple] = {}
+    try:
+        from data.session import cached_download
+        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
+        if raw is None or raw.empty:
+            return {}
+        multi = len(tickers) > 1
+        for tk in tickers:
+            try:
+                c = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
+                if hasattr(c, "columns"):
+                    c = c.iloc[:, 0].dropna()
+                if len(c) >= 2:
+                    out[tk] = (float(c.min()), float(c.max()), float(c.iloc[-1]))
+            except Exception:
+                pass
+    except Exception:
+        return {}
+    return out
+
+
 _RANGE_CSS = """<style>
 .rb-wrap{margin:2px 0 6px}
 .rb-row{display:grid;grid-template-columns:120px minmax(0,1fr) 168px;gap:16px;align-items:center;

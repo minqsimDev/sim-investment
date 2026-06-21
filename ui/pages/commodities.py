@@ -20,7 +20,7 @@ from ui.components.dash_style import (
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
 from ui.components.analyst_scatter import analyst_scatter_fig
-from ui.components.range_bar import fetch_52w_range, range_bar_html
+from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 
 _COMM_STOCK_KOR = {
     "GOLD": "배릭골드",
@@ -225,8 +225,9 @@ def render(embedded: bool = False):
     if embedded:
         # 레인지 불릿 바(52주 범위 내 위치) + 표로 보기 토글 → 슬림표
         _bullet_items = []
+        _ranges = fetch_52w_ranges(",".join(r["_ticker"] for r in all_rows))
         for r in all_rows:
-            rng = fetch_52w_range(r["_ticker"])
+            rng = _ranges.get(r["_ticker"])
             if not rng:
                 continue
             lo, hi, cur = rng
