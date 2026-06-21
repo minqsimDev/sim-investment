@@ -145,6 +145,7 @@ def poll_register() -> list[tuple[str, int]]:
     updates = _api("getUpdates", offset=offset, timeout=0)
     registered: list[tuple[str, int]] = []
     consumed: list[str] = []
+    seen: set[str] = set()  # 같은 배치 내 중복 /start → 1회만(환영 중복 방지)
     for u in updates:
         cfg["update_offset"] = u.get("update_id", 0) + 1
         msg = u.get("message") or {}
@@ -155,8 +156,11 @@ def poll_register() -> list[tuple[str, int]]:
             parts = text.split(maxsplit=1)
             if len(parts) == 2:
                 nonce = parts[1].strip()
+                if nonce in seen:
+                    continue
                 username = resolve_nonce(nonce)
                 if username:
+                    seen.add(nonce)
                     accounts.set_setting(username, "telegram_chat_id", cid)
                     consumed.append(nonce)
                     try:
