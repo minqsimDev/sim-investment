@@ -18,7 +18,9 @@ _GS_CSS = """<style>
 .gs-item{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:4px 0;
   background:#16181F;border:1px solid #262A33;border-radius:12px;text-decoration:none}
 .gs-item:hover{border-color:#D9A441;background:#1B1E27}
-.gs-item b{color:#E7E9EE;font-size:13.5px;font-weight:850}
+.gs-item b{color:#E7E9EE;font-size:13.5px;font-weight:850;
+  flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gs-item .gs-tk{flex-shrink:0}
 .gs-item .gs-tk{color:#9AA0AD;font-size:11.5px;font-weight:700;
   font-variant-numeric:tabular-nums;font-family:'SF Mono',ui-monospace,monospace}
 .gs-item .gs-cat{margin-left:auto;color:#7E8694;font-size:10.5px;font-weight:800;
@@ -36,7 +38,9 @@ _GS_BAR_CSS = """<style>
 /* 검색 입력만 고유하게 타겟(aria-label). 돋보기는 래퍼 ::before로 얹는다
    (input background 는 Streamlit이 덮어써서 ::before 가 안정적). */
 [data-testid="stTextInput"]:has(input[aria-label="종목 검색"]){margin:2px 0 6px}
-input[aria-label="종목 검색"]{padding-left:38px!important;font-weight:700}
+/* 전역 .stTextInput input(15px/850!important)을 이기려면 특정성을 높인다(.stTextInput 접두) */
+.stTextInput input[aria-label="종목 검색"]{padding-left:38px!important;font-size:13.5px!important;font-weight:600!important}
+.stTextInput input[aria-label="종목 검색"]::placeholder{font-size:13px!important;font-weight:500!important}
 [data-testid="stTextInput-RootElement"]:has(input[aria-label="종목 검색"]){position:relative}
 [data-testid="stTextInput-RootElement"]:has(input[aria-label="종목 검색"])::before{
   content:"";position:absolute;left:14px;top:50%;transform:translateY(-50%);
@@ -117,7 +121,7 @@ def render_global_search() -> None:
     st.markdown(_GS_BAR_CSS, unsafe_allow_html=True)
     q = st.text_input(
         "종목 검색", key="global_search_q",
-        placeholder="종목 검색 — 예: 테슬라 · TSLA · 비트코인 · 삼성전자 · USD/KRW",
+        placeholder="종목·티커 검색 (예: 테슬라, TSLA, BTC)",
         label_visibility="collapsed",
     )
     q = (q or "").strip()
