@@ -1096,10 +1096,22 @@ _PERIOD_RADIO_CSS_FILL = (
 )
 
 
+_PERIOD_RADIO_CSS_CARD = (
+    "<style>"
+    # 콤팩트 우측 정렬 — 칩 자연 너비 한 줄(카드 한 칸 수준 폭), 줄바꿈 없음.
+    "[data-testid=\"stRadio\"]{display:flex!important;justify-content:flex-end!important}"
+    "[data-testid=\"stRadio\"] div[role=\"radiogroup\"]{justify-content:flex-end!important;flex-wrap:nowrap!important;gap:5px}"
+    "[data-testid=\"stRadio\"] div[role=\"radiogroup\"] label{justify-content:center!important;text-align:center!important;"
+    "padding:4px 9px!important}"
+    "</style>"
+)
+
+
 def period_radio(key: str, default: str = "3M", align: str = "right") -> tuple[str, str]:
     """가격 추이 비교 공통 기간 선택. 반환 (라벨, yfinance 기간 코드). 옵션 1M/3M/6M/1Y/5Y.
-    align='fill'이면 칩이 동일 너비로 한 줄 풀폭(종목상세 — 위 카드 너비에 맞춤), 기본 'right'."""
-    st.markdown(_PERIOD_RADIO_CSS_FILL if align == "fill" else _PERIOD_RADIO_CSS, unsafe_allow_html=True)
+    align: 'right'(기본·우측), 'fill'(풀폭 동일너비), 'card'(콤팩트 우측·한 줄)."""
+    _css = {"fill": _PERIOD_RADIO_CSS_FILL, "card": _PERIOD_RADIO_CSS_CARD}.get(align, _PERIOD_RADIO_CSS)
+    st.markdown(_css, unsafe_allow_html=True)
     labels = list(_PERIOD_MAP.keys())
     idx = labels.index(default) if default in labels else 1
     sel = st.radio("기간", labels, index=idx, horizontal=True,

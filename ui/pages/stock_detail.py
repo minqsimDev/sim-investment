@@ -316,7 +316,7 @@ def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
     from ui.components.dash_style import period_radio
     # '가격 추이 +X%' 라벨(위) → 기간 라디오 풀폭 세그먼트(위 카드 너비에 맞춤, 한 줄) → 차트
     _hd_ph = st.empty()
-    _pd_label, _pd_code = period_radio("sd_period", align="fill")   # 1M/3M/6M/1Y/5Y → yfinance 코드
+    _pd_label, _pd_code = period_radio("sd_period", align="card")   # 1M/3M/6M/1Y/5Y → yfinance 코드
     h = _chart(ticker, _pd_code)
     if h.empty:
         empty_state("차트 데이터 준비 중")
