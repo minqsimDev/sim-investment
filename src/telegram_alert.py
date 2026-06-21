@@ -135,6 +135,43 @@ def connect() -> int | None:
     return cid
 
 
+def poll_register() -> list[tuple[str, int]]:
+    """getUpdates 로 /start <nonce> 를 받아 유저 계정에 chat_id 저장. 등록 목록 반환."""
+    from core.telegram_link import resolve_nonce, consume_nonce
+    from core import accounts
+
+    cfg = load_cfg()
+    offset = cfg.get("update_offset")
+    updates = _api("getUpdates", offset=offset, timeout=0)
+    registered: list[tuple[str, int]] = []
+    consumed: list[str] = []
+    for u in updates:
+        cfg["update_offset"] = u.get("update_id", 0) + 1
+        msg = u.get("message") or {}
+        text = (msg.get("text") or "").strip()
+        chat = msg.get("chat") or {}
+        cid = chat.get("id")
+        if cid and text.startswith("/start"):
+            parts = text.split(maxsplit=1)
+            if len(parts) == 2:
+                nonce = parts[1].strip()
+                username = resolve_nonce(nonce)
+                if username:
+                    accounts.set_setting(username, "telegram_chat_id", cid)
+                    consumed.append(nonce)
+                    try:
+                        send_test(cid)
+                    except Exception:
+                        pass
+                    registered.append((username, cid))
+    # update_offset(중복 방지) 부터 저장 후 nonce 소비 — 같은 상태 파일을 공유할 때
+    # save_cfg 가 소비된 nonce 를 되살리지 않도록 소비를 마지막에 둔다.
+    save_cfg(cfg)
+    for nonce in consumed:
+        consume_nonce(nonce)
+    return registered
+
+
 # ── 규칙 평가 ───────────────────────────────────────────────────────────────
 def _col_from_level(lv: str) -> str:
     """risk_signals.py와 동일 매핑 — 게이지 점수 산식 일치."""
