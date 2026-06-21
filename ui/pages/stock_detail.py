@@ -19,15 +19,21 @@ _DETAIL_CSS = """<style>
 /* 종목상세는 콘텐츠가 적어 전폭(1380)이면 휑함 → 이 페이지만 폭을 좁혀 밀도를 높인다(스코프: 렌더 시에만 주입) */
 [data-testid="stAppViewBlockContainer"], .block-container{max-width:960px!important}
 .sd-toprow{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px;gap:12px}
-.sd-head{display:flex;flex-direction:column;gap:14px;margin:0 0 12px;
+.sd-head{display:flex;align-items:center;justify-content:flex-start;gap:34px;row-gap:14px;margin:0 0 12px;flex-wrap:wrap;
   background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 20px}
-.sd-head-top{display:flex;align-items:flex-end;justify-content:flex-start;gap:30px;flex-wrap:wrap}
-.sd-id{min-width:0}
-.sd-id h2{margin:0;color:#E7E9EE;font-size:24px;font-weight:950;letter-spacing:-.02em}
+.sd-id{min-width:0;flex-shrink:0}
+.sd-id h2{margin:0;color:#E7E9EE;font-size:23px;font-weight:950;letter-spacing:-.02em}
 .sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
 .sd-starx.on{color:#D9A441}
 .sd-starx:hover{color:#D9A441}
 .sd-chart-hd{font-size:13px;font-weight:900;color:#E7E9EE;padding-top:7px}
+/* 헤더 메트릭 — 현재가·(보유 시)비중·평가액·손익률·오늘을 한 줄 그리드로 */
+.sd-metrics{display:flex;align-items:flex-end;gap:26px;flex-wrap:wrap}
+.sd-metrics>div{min-width:0}
+.sd-metrics .k{font-size:10px;font-weight:850;color:#7E8694;text-transform:uppercase;letter-spacing:.04em}
+.sd-metrics .v{font-size:16px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap}
+.sd-metrics .v.px{font-size:21px}
+.sd-metrics .v.up{color:#F25560}.sd-metrics .v.down{color:#4D90F0}
 .sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:5px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
   border:1px solid #262A33;border-radius:999px;padding:3px 10px;margin-right:6px}
@@ -231,26 +237,22 @@ def render() -> None:
     dtxt = f'{"+" if (chg or 0) >= 0 else ""}{chg:.2f}%' if isinstance(chg, (int, float)) else "—"
 
     pos = _my_holding(ticker, data)
-    hold_html = ""
-    if pos:
+
+    def _mc(k, v, cls=""):
+        return f'<div><div class="k">{k}</div><div class="v {cls}">{v}</div></div>'
+
+    metrics = _mc("현재가", price_html, "px")
+    if pos:                       # 보유 종목이면 비중·평가·손익을 같은 그리드에 이어 붙임
         gl = pos.get("gain_loss_pct"); gcls = "up" if (gl or 0) >= 0 else "down"
-        tc = pos.get("today_change_pct"); tcls = "up" if (tc or 0) >= 0 else "down"
-        hold_html = (
-            '<div class="sd-hold">'
-            f'<div><div class="k">비중</div><div class="v">{(pos.get("weight") or 0):.1f}%</div></div>'
-            f'<div><div class="k">평가액</div><div class="v">{won(pos.get("market_value"))}</div></div>'
-            f'<div><div class="k">손익률</div><div class="v {gcls}">{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%</div></div>'
-            f'<div><div class="k">오늘</div><div class="v {tcls}">{("+" if (tc or 0)>=0 else "")}{(tc or 0):.2f}%</div></div>'
-            '</div>'
-        )
+        metrics += _mc("비중", f'{(pos.get("weight") or 0):.1f}%')
+        metrics += _mc("평가액", won(pos.get("market_value")))
+        metrics += _mc("손익률", f'{("+" if (gl or 0)>=0 else "")}{(gl or 0):.1f}%', gcls)
+    metrics += _mc("오늘", dtxt, dcls)
     st.markdown(
-        f'<div class="sd-head"><div class="sd-head-top">'
-        f'<div class="sd-id"><h2>{info["name"]}</h2>'
+        f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2>'
         f'<div class="sd-meta"><span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
         f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
-        f'<div class="sd-px"><div class="v">{price_html}</div>'
-        f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div>'
-        f'</div>{hold_html}</div>',
+        f'<div class="sd-metrics">{metrics}</div></div>',
         unsafe_allow_html=True,
     )
 
