@@ -17,7 +17,8 @@ def _fetch_history(tickers: list[str]) -> dict[str, pd.Series]:
     if not tickers:
         return {}
     try:
-        raw = yf.download(
+        from data.session import cached_download
+        raw = cached_download(
             tickers, period=_PERIOD, interval="1d",
             progress=False, auto_adjust=True,
         )
@@ -121,10 +122,14 @@ def build_summary(config: dict | None = None) -> pd.DataFrame:
         assets.append((b["ticker"], "benchmark", b["name"]))
     for s in config["us_stocks"]:
         assets.append((s["ticker"], "us_stock", s["name"]))
+    for s in config.get("kr_stocks", []):
+        assets.append((s["ticker"], "kr_stock", s["name"]))
     for name, ticker in config["commodities"].items():
         assets.append((ticker, "commodity", name))
     for pair, info in config["fx"].items():
         assets.append((info["ticker"], "fx", pair))
+    for c in config.get("crypto", []):
+        assets.append((c["ticker"], "crypto", c["name"]))
 
     tickers = [a[0] for a in assets]
     history = _fetch_history(tickers)

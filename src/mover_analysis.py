@@ -38,6 +38,11 @@ _THRESHOLDS = {
     "commodity":       1.5,   # fallback
     "fx_jpy":          0.7,   # JPY crosses more volatile than KRW
     "fx":              0.5,   # USD/KRW, DXY, EUR/KRW
+    # Crypto: daily 1σ — BTC ~2-3%, ETH ~3-5%, SOL/others ~5-7%
+    "crypto_btc":      3.0,
+    "crypto_eth":      4.0,
+    "crypto_hv":       5.0,   # SOL and other high-beta coins
+    "crypto":          3.0,   # fallback
 }
 
 # Individual stocks with daily 1σ ≥ 3% (annualized vol ≥ 47%)
@@ -51,13 +56,17 @@ _SECTOR_ETFS = {"SOXX", "SMH", "SOXS", "KWEB", "FXI", "CQQQ", "TQQQ", "SOXL"}
 #   Broad ETFs: weekly σ ≈ 2.2%  → 5.0% ≈ 2.3σ  (keep)
 #   High-vol stocks: weekly σ ≈ 8–10% → 10% ≈ 1.0–1.3σ
 #   FX: weekly σ ≈ 1.1–1.7%    → 2.5% ≈ 1.5–2.3σ  (was 5.0% — too loose)
-_WEEKLY_FLAG_DEFAULT  = 5.0
-_WEEKLY_FLAG_HV_STOCK = 10.0
-_WEEKLY_FLAG_FX       = 2.5
+_WEEKLY_FLAG_DEFAULT    = 5.0
+_WEEKLY_FLAG_HV_STOCK   = 10.0
+_WEEKLY_FLAG_FX         = 2.5
+_WEEKLY_FLAG_CRYPTO_BTC = 10.0  # BTC weekly 1σ ≈ 7-8% (daily × √7)
+_WEEKLY_FLAG_CRYPTO_HV  = 20.0  # ETH/SOL weekly 1σ ≈ 10-14%
 
-_MONTHLY_FLAG_DEFAULT  = 10.0
-_MONTHLY_FLAG_HV_STOCK = 20.0
-_MONTHLY_FLAG_FX       = 4.0   # 5% KRW monthly = genuine macro event
+_MONTHLY_FLAG_DEFAULT    = 10.0
+_MONTHLY_FLAG_HV_STOCK   = 20.0
+_MONTHLY_FLAG_FX         = 4.0   # 5% KRW monthly = genuine macro event
+_MONTHLY_FLAG_CRYPTO_BTC = 20.0  # BTC monthly 1σ ≈ 15-20%
+_MONTHLY_FLAG_CRYPTO_HV  = 40.0  # ETH/SOL monthly 1σ ≈ 25-40%
 
 # Vol multiplier: 2.0σ is the institutional "notable deviation" standard.
 # 1.5σ (old) fires ~13% of days per instrument — alert fatigue.
@@ -90,6 +99,12 @@ def _resolve_threshold(ticker: str, name: str, asset_cat: str) -> float:
         return _THRESHOLDS["commodity"]
     if asset_cat == "fx":
         return _THRESHOLDS["fx_jpy"] if "JPY" in upper or "jpy" in ticker.lower() else _THRESHOLDS["fx"]
+    if asset_cat == "crypto":
+        if "BTC" in upper:
+            return _THRESHOLDS["crypto_btc"]
+        if "ETH" in upper:
+            return _THRESHOLDS["crypto_eth"]
+        return _THRESHOLDS["crypto_hv"]
     return 1.5
 
 
@@ -100,6 +115,10 @@ def _resolve_flags(ticker: str, asset_cat: str) -> tuple[float, float]:
         return _WEEKLY_FLAG_FX, _MONTHLY_FLAG_FX
     if asset_cat == "us_stock" and upper in _HIGH_VOL_STOCKS:
         return _WEEKLY_FLAG_HV_STOCK, _MONTHLY_FLAG_HV_STOCK
+    if asset_cat == "crypto":
+        if "BTC" in upper:
+            return _WEEKLY_FLAG_CRYPTO_BTC, _MONTHLY_FLAG_CRYPTO_BTC
+        return _WEEKLY_FLAG_CRYPTO_HV, _MONTHLY_FLAG_CRYPTO_HV
     return _WEEKLY_FLAG_DEFAULT, _MONTHLY_FLAG_DEFAULT
 
 
@@ -111,6 +130,7 @@ _CATEGORY_LABELS = {
     "us_stock":  "미국 주식",
     "commodity": "원자재",
     "fx":        "FX",
+    "crypto":    "암호화폐",
 }
 
 _COMM_NAME_KOR = {
@@ -417,6 +437,46 @@ def _infer_driver(ticker: str, category: str, change_1d: float, data: dict) -> t
             ["DXY", "US10Y"]
         )
 
+    # ── 비트코인 ─────────────────────────────────────────────────────────────────
+    if "BTC" in ticker_upper or "비트코인" in ticker:
+        if change_1d > 0:
+            if dxy_chg is not None and dxy_chg < 0 and qqq_chg is not None and qqq_chg > 0:
+                return (
+                    "달러 약세 + 위험선호 동반 상승, 크립토 친화적 환경 가능성",
+                    ["DXY", "QQQ", "US10Y"]
+                )
+            if qqq_chg is not None and qqq_chg > 0:
+                return (
+                    "위험선호 심리 개선에 따른 크립토 동반 상승 가능성",
+                    ["QQQ", "DXY", "US10Y"]
+                )
+            return (
+                "크립토 시장 독립 모멘텀 또는 ETF 유입 기대 가능성",
+                ["DXY", "QQQ", "US10Y"]
+            )
+        if dxy_chg is not None and dxy_chg > 0.5:
+            return (
+                "달러 강세에 따른 크립토 매도 압력 가능성",
+                ["DXY", "QQQ", "US10Y"]
+            )
+        return (
+            "위험회피 심리 또는 크립토 시장 조정 압력 가능성",
+            ["QQQ", "DXY", "US10Y"]
+        )
+
+    # ── 이더리움 / 솔라나 / 기타 코인 ────────────────────────────────────────────
+    if "ETH" in ticker_upper or "SOL" in ticker_upper or category == "crypto":
+        coin_name = "이더리움" if "ETH" in ticker_upper else ("솔라나" if "SOL" in ticker_upper else ticker)
+        if change_1d > 0:
+            return (
+                f"비트코인 상승 연동 또는 {coin_name} 개별 네트워크 모멘텀 반영 가능성",
+                ["BTC-USD", "QQQ", "DXY"]
+            )
+        return (
+            f"비트코인 하락 연동 또는 크립토 전반 위험회피 가능성  ·  {coin_name} 고베타 특성상 낙폭 확대 유의",
+            ["BTC-USD", "QQQ", "DXY"]
+        )
+
     # ── 기본 fallback ────────────────────────────────────────────────────────
     if change_1d > 0:
         return (
@@ -432,6 +492,11 @@ def _infer_driver(ticker: str, category: str, change_1d: float, data: dict) -> t
 # ── Portfolio relevance ───────────────────────────────────────────────────────
 
 def _check_portfolio_relevance(ticker: str, name: str, category: str, data: dict) -> str:
+    crypto_df = data.get("crypto", pd.DataFrame())
+    if not crypto_df.empty and "ticker" in crypto_df.columns:
+        if ticker in crypto_df["ticker"].values:
+            return "직접 보유 중"
+
     my_etfs_df = data.get("my_etfs", pd.DataFrame())
     if my_etfs_df.empty:
         return "해당 없음"
@@ -643,6 +708,18 @@ def detect_major_movers(data: dict, db_summary: pd.DataFrame) -> dict:
                 change_pct_raw=row.get("change_pct"),
                 asset_cat="fx",
                 data_cat_label=_CATEGORY_LABELS["fx"],
+            )
+
+    # ── Process crypto ────────────────────────────────────────────────────────
+    crypto_df = data.get("crypto", pd.DataFrame())
+    if not crypto_df.empty:
+        for _, row in crypto_df.iterrows():
+            _process_asset(
+                ticker=str(row.get("ticker", "")),
+                name=str(row.get("name", row.get("ticker", ""))),
+                change_pct_raw=row.get("change_pct"),
+                asset_cat="crypto",
+                data_cat_label=_CATEGORY_LABELS["crypto"],
             )
 
     gainers.sort(key=lambda x: x["change_1d"], reverse=True)

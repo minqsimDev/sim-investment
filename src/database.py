@@ -1,5 +1,5 @@
 """
-SQLite storage for SIMvest.
+SQLite storage for SIM INVESTMENT.
 Strategy: INSERT OR REPLACE on (date, symbol) for prices / fx_rates / macro.
 indicator_summary and risk_signals append every run (history preserved).
 Tradeoff: multiple runs same day → multiple rows in summary/signals tables,

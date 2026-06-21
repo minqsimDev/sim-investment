@@ -64,6 +64,7 @@ def _fetch_one_yf(tk: str) -> dict:
             "상승여력%":  upside,
             "투자의견":   _REC_KOR.get(rec, rec) if rec and rec.lower() not in ("none", "na", "") else "—",
             "애널리스트수": int(n) if n else None,
+            "시총":       _safe(info.get("marketCap")),   # 산점도 점 크기·상위 라벨 랭킹용
         })
     except Exception:
         pass
@@ -75,7 +76,7 @@ def fetch_analyst_targets(tickers: list[str]) -> pd.DataFrame:
     if not tickers:
         return pd.DataFrame(columns=[
             "ticker", "현재가", "목표가_평균", "목표가_최고", "목표가_최저",
-            "상승여력%", "투자의견", "애널리스트수",
+            "상승여력%", "투자의견", "애널리스트수", "시총",
         ])
     with ThreadPoolExecutor(max_workers=min(len(tickers), 10)) as ex:
         futures = {ex.submit(_fetch_one_yf, tk): tk for tk in tickers}
