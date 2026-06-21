@@ -1,0 +1,26 @@
+# 시크릿·로컬상태·캐시는 이미지에 굽지 않는다(보안·용량)
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+*.db
+*.sqlite
+reports/*.xlsx
+reports/*.csv
+deploy/state/
+deploy/appdata/
+아카이브.zip
+*.zip
+.DS_Store
+.idea/
+.vscode/
+.playwright-mcp/
+docs/
+tests/

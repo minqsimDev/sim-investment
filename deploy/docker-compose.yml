@@ -1,0 +1,37 @@
+# 단일 EC2 운영 — 앱 + Caddy(자동 HTTPS). ALB/NAT/RDS/ECS/CloudFront 미사용.
+# 사용:  cd deploy && docker compose up -d --build
+# .env (이 디렉터리)에서 DOMAIN·시크릿을 읽는다(깃·이미지에 굽지 않음).
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS 키
+    environment:
+      - HOME=/data
+    volumes:
+      - ./state:/data         # ~/.siminvest_accounts.json, alerts.json, auth 등(영속)
+      - ./appdata:/app/data    # market_data.db 등(영속)
+    expose:
+      - "8520"                # 외부 비공개 — Caddy만 접근
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}       # .env 의 DOMAIN — Caddyfile 의 {$DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # 발급된 인증서(영속 — 재발급 rate limit 회피)
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
