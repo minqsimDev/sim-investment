@@ -275,6 +275,7 @@ div[data-testid="stTopNav"] {{
     font-weight:900;
     letter-spacing:0;
     white-space:nowrap;
+    flex-shrink:0;               /* 모바일에서 압축돼 글자 잘리는 것 방지(넘치면 nav가 가로 스크롤) */
 }}
 .sv-nav a:hover {{
     background:#1E2029;
@@ -289,7 +290,7 @@ div[data-testid="stTopNav"] {{
     width:1px;height:20px;background:rgba(38,42,51,0.9);margin:0 6px;
 }}
 .sv-nav-refresh {{
-    display:inline-flex;align-items:center;justify-content:center;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
     width:36px;height:36px;border-radius:14px;
     color:#7E8694 !important;text-decoration:none !important;
     font-size:18px !important;line-height:1;
@@ -303,7 +304,7 @@ div[data-testid="stTopNav"] {{
     text-overflow:ellipsis;white-space:nowrap;margin:0 6px 0 2px;
 }}
 .sv-acct {{
-    display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:999px;
+    display:inline-flex;align-items:center;flex-shrink:0;height:32px;padding:0 12px;border-radius:999px;
     border:1px solid {BORDER};background:#16181F;
     color:#C9CEDA !important;text-decoration:none !important;
     font-size:12px !important;font-weight:850;white-space:nowrap;
