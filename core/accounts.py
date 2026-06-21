@@ -9,10 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import fcntl  # POSIX(mac/Linux) 파일 잠금 — 동시 가입 시 lost-update 방지
-except ImportError:  # pragma: no cover (Windows 폴백)
-    fcntl = None
+from core.locking import file_lock
 
 _FILE = Path.home() / ".siminvest_accounts.json"
 _LOCK = Path.home() / ".siminvest_accounts.lock"
@@ -42,16 +39,9 @@ def _save(data: dict) -> None:
 
 @contextmanager
 def _locked():
-    """read-modify-write 구간 배타 잠금 — 동시 가입/저장의 분실 갱신 방지."""
-    if fcntl is None:
+    """read-modify-write 구간 배타 잠금(공용 유틸 위임)."""
+    with file_lock(_LOCK):
         yield
-        return
-    with open(_LOCK, "w") as lf:
-        fcntl.flock(lf, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 def create_account(username: str, password: str) -> str | None:

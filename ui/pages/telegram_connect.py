@@ -27,10 +27,10 @@ def render(username: str) -> None:
 
 @st.fragment(run_every=_POLL_SEC)
 def _await_scan(username: str) -> None:
-    """스캔될 때까지 몇 초마다 getUpdates 폴링. 등록되면 리런해 '연결됨' 표시."""
+    """스캔될 때까지 폴링. 누구 세션이 소비하든 내 계정에 chat_id 가 생기면 성공."""
     try:
-        regs = poll_register()
+        poll_register()
     except Exception:
-        regs = []
-    if any(u == username for u, _ in regs) or accounts.get_setting(username, "telegram_chat_id"):
+        pass
+    if accounts.get_setting(username, "telegram_chat_id"):
         st.rerun()

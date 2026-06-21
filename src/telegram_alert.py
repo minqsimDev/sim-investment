@@ -18,15 +18,19 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from core.locking import file_lock
+
 load_dotenv()
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 _CFG = Path.home() / ".siminvest_alerts.json"
+_LOCK_FILE = Path.home() / ".siminvest_alerts.lock"
 _COOLDOWN_H = 12  # 같은 알림 재발송 최소 간격(시간) — 중복 발송 방지
 _BRAND = "SIM INVESTMENT"
 _SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 기본 서명(이탤릭)
@@ -136,43 +140,42 @@ def connect() -> int | None:
 
 
 def poll_register() -> list[tuple[str, int]]:
-    """getUpdates 로 /start <nonce> 를 받아 유저 계정에 chat_id 저장. 등록 목록 반환."""
-    from core.telegram_link import resolve_nonce, consume_nonce
+    """getUpdates 로 /start <nonce> 수신 → 계정 chat_id 저장. 락으로 단일 소비자 직렬화."""
     from core import accounts
 
-    cfg = load_cfg()
-    offset = cfg.get("update_offset")
-    updates = _api("getUpdates", offset=offset, timeout=0)
     registered: list[tuple[str, int]] = []
-    consumed: list[str] = []
-    seen: set[str] = set()  # 같은 배치 내 중복 /start → 1회만(환영 중복 방지)
-    for u in updates:
-        cfg["update_offset"] = u.get("update_id", 0) + 1
-        msg = u.get("message") or {}
-        text = (msg.get("text") or "").strip()
-        chat = msg.get("chat") or {}
-        cid = chat.get("id")
-        if cid and text.startswith("/start"):
-            parts = text.split(maxsplit=1)
-            if len(parts) == 2:
-                nonce = parts[1].strip()
-                if nonce in seen:
-                    continue
-                username = resolve_nonce(nonce)
-                if username:
-                    seen.add(nonce)
-                    accounts.set_setting(username, "telegram_chat_id", cid)
-                    consumed.append(nonce)
-                    try:
-                        send_test(cid)
-                    except Exception:
-                        pass
-                    registered.append((username, cid))
-    # update_offset(중복 방지) 부터 저장 후 nonce 소비 — 같은 상태 파일을 공유할 때
-    # save_cfg 가 소비된 nonce 를 되살리지 않도록 소비를 마지막에 둔다.
-    save_cfg(cfg)
-    for nonce in consumed:
-        consume_nonce(nonce)
+    with file_lock(_LOCK_FILE):
+        cfg = load_cfg()
+        pending = cfg.get("pending", {})
+        offset = cfg.get("update_offset")
+        updates = _api("getUpdates", offset=offset, timeout=0)
+        seen: set[str] = set()
+        welcomes: list[int] = []
+        for u in updates:
+            cfg["update_offset"] = u.get("update_id", 0) + 1
+            msg = u.get("message") or {}
+            text = (msg.get("text") or "").strip()
+            cid = (msg.get("chat") or {}).get("id")
+            if cid and text.startswith("/start"):
+                parts = text.split(maxsplit=1)
+                if len(parts) == 2 and parts[1].strip() not in seen:
+                    nonce = parts[1].strip()
+                    rec = pending.get(nonce)
+                    if rec and rec.get("exp", 0) >= time.time():
+                        username = rec["username"]
+                        seen.add(nonce)
+                        pending.pop(nonce, None)
+                        accounts.set_setting(username, "telegram_chat_id", cid)
+                        registered.append((username, cid))
+                        welcomes.append(cid)
+        cfg["pending"] = pending
+        save_cfg(cfg)
+    # 환영 발송은 락 밖에서(네트워크 I/O를 임계구역에서 분리)
+    for cid in welcomes:
+        try:
+            send_test(cid)
+        except Exception:
+            pass
     return registered
 
 
