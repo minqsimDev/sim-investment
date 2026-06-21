@@ -7,35 +7,45 @@ from data.providers.yfinance_provider import YFinanceProvider
 from data.providers.fred_provider import FredProvider
 
 
-def fetch_all(config: dict | None = None) -> dict:
+def fetch_all(config: dict | None = None, force: bool = False) -> dict:
     if config is None:
         config = load_config()
 
     yf = YFinanceProvider()
 
-    etf_tickers = [e["ticker"] for e in config["my_etfs"]]
-    bench_tickers = [e["ticker"] for e in config["benchmark_etfs"]]
-    stock_tickers = [s["ticker"] for s in config["us_stocks"]]
-    comm_tickers = list(config["commodities"].values())
-    fx_tickers = [v["ticker"] for v in config["fx"].values()]
+    etf_tickers    = [e["ticker"] for e in config["my_etfs"]]
+    bench_tickers  = [e["ticker"] for e in config["benchmark_etfs"]]
+    stock_tickers  = [s["ticker"] for s in config["us_stocks"]]
+    kr_tickers     = [s["ticker"] for s in config.get("kr_stocks", [])]
+    comm_tickers   = list(config["commodities"].values())
+    fx_tickers     = [v["ticker"] for v in config["fx"].values()]
+    crypto_tickers = [c["ticker"] for c in config.get("crypto", [])]
+    holding_tickers = [
+        h["ticker"]
+        for h in config.get("holdings", [])
+        if h.get("ticker") and h.get("asset_class", h.get("category", "")).lower() != "cash"
+    ]
 
-    all_tickers = etf_tickers + bench_tickers + stock_tickers + comm_tickers + fx_tickers
+    all_tickers = etf_tickers + bench_tickers + stock_tickers + kr_tickers + comm_tickers + fx_tickers + crypto_tickers + holding_tickers
 
     # Run yfinance bulk download and FRED macro fetch in parallel
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        prices_future = ex.submit(yf.fetch_prices_bulk, all_tickers)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        prices_future = ex.submit(yf.fetch_prices_bulk, all_tickers, force)
         macro_future  = ex.submit(_fetch_macro, config)
-        prices = prices_future.result()
-        macro  = macro_future.result()
+        prices = prices_future.result(timeout=30)
+        macro  = macro_future.result(timeout=15)
 
     results = {
         "fetched_at": datetime.now().isoformat(),
-        "my_etfs": _build_price_df(config["my_etfs"], prices, extra_cols=["name", "category", "benchmark", "hedged"]),
+        "my_etfs":    _build_price_df(config["my_etfs"],       prices, extra_cols=["name", "category", "benchmark", "hedged"]),
         "benchmarks": _build_price_df(config["benchmark_etfs"], prices, extra_cols=["name", "category"]),
-        "us_stocks": _build_price_df(config["us_stocks"], prices, extra_cols=["name", "sector"]),
+        "us_stocks":  _build_price_df(config["us_stocks"],     prices, extra_cols=["name", "sector", "mktcap_rank", "role"]),
+        "kr_stocks":  _build_price_df(config.get("kr_stocks", []), prices, extra_cols=["name", "sector", "mktcap_rank"]),
         "commodities": _build_commodities_df(config["commodities"], prices),
-        "fx": _build_fx_df(config["fx"], prices),
-        "macro": macro,
+        "fx":         _build_fx_df(config["fx"], prices),
+        "macro":      macro,
+        "crypto":     _build_price_df(config.get("crypto", []), prices, extra_cols=["name", "symbol", "category"]),
+        "holdings":   _build_holdings_df(config.get("holdings", []), prices),
     }
 
     return results
@@ -91,6 +101,21 @@ def _build_fx_df(fx: dict, prices: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _build_holdings_df(holdings: list[dict], prices: dict) -> pd.DataFrame:
+    rows = []
+    for asset in holdings:
+        ticker = asset.get("ticker", "")
+        p = prices.get(ticker) if ticker else None
+        row = dict(asset)
+        row["ticker"] = ticker
+        row["price"] = asset.get("price", p["price"] if p else "N/A")
+        row["prev_close"] = asset.get("prev_close", p["prev_close"] if p else "N/A")
+        row["change"] = asset.get("change", p["change"] if p else "N/A")
+        row["change_pct"] = asset.get("change_pct", p["change_pct"] if p else "N/A")
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def _fetch_macro(config: dict) -> pd.DataFrame:
     try:
         fred = FredProvider()
@@ -102,8 +127,10 @@ def _fetch_macro(config: dict) -> pd.DataFrame:
                 "key": key,
                 "series_id": series_map[key],
                 "value": data["value"] if data else "N/A",
+                "prev_value": data.get("prev_value") if data else None,
+                "year_ago_value": data.get("year_ago_value") if data else None,
                 "date": data["date"] if data else "N/A",
             })
         return pd.DataFrame(rows)
     except EnvironmentError:
-        return pd.DataFrame(columns=["key", "series_id", "value", "date"])
+        return pd.DataFrame(columns=["key", "series_id", "value", "prev_value", "year_ago_value", "date"])

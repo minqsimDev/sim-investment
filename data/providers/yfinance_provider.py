@@ -1,20 +1,25 @@
 import yfinance as yf
 from .base import BaseProvider
+from data.session import cached_download
 
 
 class YFinanceProvider(BaseProvider):
 
-    def fetch_prices_bulk(self, tickers: list[str]) -> dict[str, dict | None]:
+    def fetch_prices_bulk(self, tickers: list[str], force: bool = False) -> dict[str, dict | None]:
         if not tickers:
             return {}
 
         try:
-            raw = yf.download(
+            raw = cached_download(
                 tickers,
                 period="5d",
                 interval="1d",
                 progress=False,
                 auto_adjust=True,
+                threads=True,
+                timeout=20,
+                # force=True → ttl 0으로 디스크 캐시 우회(백그라운드 keep-warm 갱신용)
+                ttl=0 if force else 1800,  # 30 min — matches Streamlit cache TTL so restarts hit disk cache
             )
         except Exception:
             return {t: None for t in tickers}
