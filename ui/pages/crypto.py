@@ -12,28 +12,12 @@ from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.live_refresh import live_refresh
+from data.loader import batch_close_history, series_last_n
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def _crypto_history(tickers_key: str, _bucket: int = 0) -> dict:
-    """6개월 일봉 종가(3M 추이·추세 산출용)."""
-    tickers = tickers_key.split(",")
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="6mo", interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}
-        out, multi = {}, len(tickers) > 1
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if not closes.empty:
-                    out[tk] = closes
-            except Exception:
-                pass
-        return out
-    except Exception:
-        return {}
+    """6개월 일봉 종가 — 공용 batch_close_history 위임."""
+    return batch_close_history(tickers_key, "6mo", _bucket)
 
 
 def _ind(closes) -> dict:
@@ -78,26 +62,9 @@ _CRYPTO_COLOR = {
 }
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def _crypto_hist_period(tickers_key: str, period: str, _bucket: int = 0) -> dict:
-    """비교 차트용 — 선택 기간 일봉 종가(코인별 정규화 비교)."""
-    tickers = tickers_key.split(",")
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period=period, interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}
-        out, multi = {}, len(tickers) > 1
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if not closes.empty:
-                    out[tk] = closes
-            except Exception:
-                pass
-        return out
-    except Exception:
-        return {}
+    """비교 차트용 — 선택 기간 일봉 종가. 공용 batch_close_history 위임."""
+    return batch_close_history(tickers_key, period, _bucket)
 
 
 def render(embedded: bool = False):
@@ -114,8 +81,7 @@ def render(embedded: bool = False):
     ph.empty()
 
     def _series_3m(tk):
-        s = history.get(tk)
-        return [float(v) for v in s.iloc[-63:].tolist()] if s is not None and not s.empty else []
+        return series_last_n(history.get(tk))
 
     # 현재가·1D%는 6개월 종가에서 산출(별도 시세 소스 불필요)
     scan_items, rows = [], []

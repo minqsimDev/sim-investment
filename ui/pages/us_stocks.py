@@ -8,7 +8,8 @@ import yfinance as yf
 
 import layout as L  # 모바일 분기(표→카드)
 
-from data.loader import load_market_data
+from data.loader import (load_market_data, batch_close_history, series_last_n,
+                          compute_live_indicators as _compute_live_ind)
 from src.database import load_latest_indicator_summary, DEFAULT_DB
 from src.analyst import fetch_analyst_targets
 from ui.components.analyst_fmp import render_fmp_drilldown
@@ -109,57 +110,11 @@ def _analyst_targets() -> pd.DataFrame:
     return fetch_analyst_targets(list(_STOCK_KOR.keys()))
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def _us_history(tickers_key: str, _bucket: int = 0) -> dict:
-    """Batch 6-month daily close history for all US stocks. _bucket=장중 캐시 버스팅 키."""
-    tickers = tickers_key.split(",")
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="6mo", interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}
-        result = {}
-        multi = len(tickers) > 1
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if not closes.empty:
-                    result[tk] = closes
-            except Exception:
-                pass
-        return result
-    except Exception:
-        return {}
+    """6개월 종가 배치 — 공용 batch_close_history 위임(단일 캐시)."""
+    return batch_close_history(tickers_key, "6mo", _bucket)
 
-
-def _compute_live_ind(closes: pd.Series) -> dict:
-    def _ret(n):
-        if len(closes) < n + 1:
-            return None
-        past = float(closes.iloc[-(n + 1)])
-        now  = float(closes.iloc[-1])
-        return round((now - past) / past * 100, 2) if past != 0 else None
-
-    latest = float(closes.iloc[-1])
-    ma20 = float(closes.iloc[-20:].mean()) if len(closes) >= 20 else None
-    ma60 = float(closes.iloc[-60:].mean()) if len(closes) >= 60 else None
-
-    if ma20 and ma60:
-        if latest > ma20 and ma20 > ma60:   trend = "상승"
-        elif latest < ma20 and ma20 < ma60: trend = "하락"
-        else:                               trend = "중립"
-    elif ma20:
-        trend = "상승" if latest > ma20 else "하락"
-    else:
-        trend = "—"
-
-    return {
-        "1W %":      _ret(5),
-        "1M %":      _ret(21),
-        "3M %":      _ret(63),
-        "MA20 이격%": round((latest - ma20) / ma20 * 100, 2) if ma20 else None,
-        "추세":       trend,
-    }
+# _compute_live_ind 는 data.loader.compute_live_indicators 별칭(상단 import)
 
 
 def render(embedded: bool = False):
@@ -295,10 +250,7 @@ def render(embedded: bool = False):
 
     # ── 0. 30초 스캔 레이어 (표 위) — 리더/러거드/과열 + breadth ─────────────────
     def _series_3m(tk: str) -> list[float]:
-        s = history.get(tk)
-        if s is None or s.empty:
-            return []
-        return [float(v) for v in s.iloc[-63:].tolist()]
+        return series_last_n(history.get(tk))
 
     scan_items = []
     for _, r in stocks_live.iterrows():

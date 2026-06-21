@@ -17,6 +17,7 @@ from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.color_utils import shade as _shade
+from data.loader import batch_close_history
 
 # 종목 내용(추종 대상)에 맞는 시그니처 색 — 이름/티커 키워드 매칭(구체적 항목 먼저).
 # 앵커 색은 색상환에 고르게 펼쳐 ΔE(지각 거리)≥22를 만족 — 비교 차트에서 서로 또렷이 구별된다.
@@ -67,27 +68,9 @@ _KR_ETF_UNIVERSE = [
 _KR_ETF_GROUPS = ["대표 지수", "섹터·테마", "배당·리츠", "채권·현금", "해외·원자재"]
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def _etf_history(tickers_key: str, period: str = "6mo") -> dict:
-    tickers = [t for t in tickers_key.split(",") if t]
-    if not tickers:
-        return {}
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period=period, interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}
-        out, multi = {}, len(tickers) > 1
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if multi else raw["Close"].dropna()
-                if not closes.empty:
-                    out[tk] = closes
-            except Exception:
-                pass
-        return out
-    except Exception:
-        return {}
+    """기간 종가 배치 — 공용 batch_close_history 위임."""
+    return batch_close_history(tickers_key, period)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
