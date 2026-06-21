@@ -133,7 +133,7 @@ st.html("""
 """)
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
-from ui.pages import overview, portfolio, market, risk_signals, stock_detail
+from ui.pages import overview, portfolio, market, risk_signals, stock_detail, telegram_connect
 from ui.components.dash_style import inject_shell_css, render_shell_header
 
 # 미국주식·한국주식·원자재·FX&금리·전 자산 비교(구 '주요 이동')는 시장 페이지 내부 탭으로 통합됨.
@@ -146,6 +146,13 @@ def _home_render():
 # 구(舊) 독립 페이지 경로(/movers·/us-stocks·/kr-stocks·/commodities·/fx)는 시장 탭으로 통합되며
 # 라우트가 사라져, 그 URL을 북마크/히스토리로 다시 열면 Streamlit "Page not found" 모달이 뜬다.
 # → 레거시 경로를 모두 시장 페이지로 흡수해 모달이 절대 뜨지 않게 한다(커스텀 네비엔 노출 안 됨).
+# 텔레그램 알림 연결(네비 비노출) — 로그인 유저만. 게스트는 안내 후 차단.
+def _telegram_connect_render():
+    if st.session_state.get("auth_role") == "guest" or not st.session_state.get("username"):
+        st.info("텔레그램 위험 알림은 로그인 후 이용할 수 있어요.")
+        return
+    telegram_connect.render(st.session_state["username"])
+
 def _legacy_movers():       market.render()
 def _legacy_us_stocks():    market.render()
 def _legacy_kr_stocks():    market.render()
@@ -159,6 +166,7 @@ _pages = [
     st.Page(market.render,        title="시장",       url_path="market"),
     st.Page(risk_signals.render,  title="리스크",     url_path="risk"),
     st.Page(stock_detail.render,  title="종목",       url_path="stock"),   # 검색·워치리스트 종착지(네비 비노출)
+    st.Page(_telegram_connect_render, title="알림 연결", url_path="telegram"),  # 텔레그램 연결(네비 비노출)
     # ── 레거시 경로 흡수(네비 비노출) — 모달 방지 ──
     st.Page(_legacy_movers,       title="시장",       url_path="movers"),
     st.Page(_legacy_us_stocks,    title="시장",       url_path="us-stocks"),
