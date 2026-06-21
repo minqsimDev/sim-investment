@@ -167,12 +167,14 @@ def save_credentials(username, provider: str, app_key: str, app_secret: str, acc
 
 
 def load_saved_credentials(username=None) -> dict | None:
-    """계정별 우선, 없으면 전역 파일(레거시) 폴백."""
+    """계정별 우선. username 이 주어지면 그 계정만 반환(교차 노출 방지) —
+    전역 레거시 파일 폴백은 username 이 None(단일소유 호환 경로)일 때만."""
     if username:
         from core import accounts
         data = accounts.get_setting(username, "brokerage")
         if data and all(k in data for k in ("provider", "app_key", "app_secret", "account_no")):
             return data
+        return None
     try:
         data = json.loads(_CREDS_FILE.read_text())
         if all(k in data for k in ("provider", "app_key", "app_secret", "account_no")):
@@ -186,6 +188,7 @@ def delete_saved_credentials(username=None) -> None:
     if username:
         from core import accounts
         accounts.set_setting(username, "brokerage", None)
+        return   # 공용 전역 파일은 건드리지 않음(다른 유저 폴백 보존)
     try:
         _CREDS_FILE.unlink(missing_ok=True)
     except Exception:
