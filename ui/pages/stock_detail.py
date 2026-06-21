@@ -28,17 +28,17 @@ _DETAIL_CSS = """<style>
 .sd-headrow .sd-cell{flex:1 1 108px;display:flex;flex-direction:column;justify-content:center}
 .sd-id{min-width:0}
 .sd-id h2{margin:0;color:#E7E9EE;font-size:23px;font-weight:950;letter-spacing:-.02em}
-.sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
-.sd-starx.on{color:#D9A441}
-.sd-starx:hover{color:#D9A441}
+.sd-starx{font-size:22px;line-height:1;text-decoration:none;color:#D9A441!important;flex-shrink:0;transition:color .15s}
+.sd-starx.on{color:#D9A441!important}
+.sd-starx:hover{color:#E7C06A!important}
 .sd-chart-hd{font-size:16px;font-weight:900;color:#E7E9EE;padding-top:7px;display:flex;align-items:baseline;gap:12px}
 .sd-chart-hd .p{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
 .sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:6px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
   border:1px solid #262A33;border-radius:999px;padding:3px 10px;margin-right:6px}
-.sd-px{text-align:right;flex-shrink:0}
-.sd-px .v{font-size:25px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
-.sd-px .d{font-size:12.5px;font-weight:900;margin-top:5px;font-variant-numeric:tabular-nums}
+.sd-px{display:flex;align-items:baseline;gap:9px;flex-shrink:0}
+.sd-px .v{font-size:24px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums}
+.sd-px .d{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums}
 .sd-px .d.up{color:#F25560}.sd-px .d.down{color:#4D90F0}
 /* 카드 그리드(보유 항목·지표) — auto-fit로 개수에 맞춰 고르게 채움 */
 .sd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:0 0 14px}
@@ -55,9 +55,9 @@ _DETAIL_CSS = """<style>
 .sd-hold .k{font-size:10px;font-weight:850;color:#7E8694}
 .sd-hold .v{font-size:17px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;margin-top:3px}
 .sd-hold .v.up{color:#F25560}.sd-hold .v.down{color:#4D90F0}
-.sd-back{display:inline-flex;align-items:center;gap:4px;color:#9AA0AD;font-size:12px;font-weight:850;
+.sd-back{display:inline-flex;align-items:center;gap:4px;color:#D9A441!important;font-size:12px;font-weight:850;
   text-decoration:none;margin:2px 0 10px}
-.sd-back:hover{color:#E7E9EE}
+.sd-back:hover{color:#E7C06A!important}
 .sd-star{font-size:12px;font-weight:850;text-decoration:none;border-radius:999px;padding:5px 12px;
   border:1px solid rgba(217,164,65,.34);background:rgba(217,164,65,.10);color:#D9A441;white-space:nowrap}
 .sd-star.on{background:rgba(217,164,65,.2);border-color:#D9A441}
@@ -228,7 +228,7 @@ def render() -> None:
         f'<div class="sd-toprow"><a class="sd-back" href="/market{qs}" target="_self">← 시장으로</a>'
         f'<div class="sd-topright">'
         f'<span class="sd-cat" style="color:{catc};background:{catc}26;border-color:{catc}">{info["category"]}</span>'
-        f'<span class="sd-tk" style="color:{sig}">{ticker}</span>'
+        f'<span class="sd-cat" style="color:{sig};background:{sig}26;border-color:{sig};margin:0">{ticker}</span>'
         f'<a class="sd-starx {"on" if on else ""}" href="{_star_href}" target="_self" title="워치리스트">{"★" if on else "☆"}</a>'
         f'</div></div>',
         unsafe_allow_html=True,
@@ -242,8 +242,8 @@ def render() -> None:
 
     head = (
         f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2></div>'
-        f'<div class="sd-px"><div class="v">{price_html}</div>'
-        f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>'
+        f'<div class="sd-px"><span class="v">{price_html}</span>'
+        f'<span class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></span></div></div>'
     )
     pos = _my_holding(ticker, data)
     cells = ""
