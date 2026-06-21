@@ -16,13 +16,20 @@ from siminvest_theme import UP, DOWN, GOLD
 from format import currency, won
 
 _DETAIL_CSS = """<style>
-.sd-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:8px 0 14px;flex-wrap:wrap}
+/* 종목상세는 콘텐츠가 적어 전폭(1380)이면 휑함 → 이 페이지만 폭을 좁혀 밀도를 높인다(스코프: 렌더 시에만 주입) */
+[data-testid="stAppViewBlockContainer"], .block-container{max-width:960px!important}
+.sd-head{display:flex;align-items:flex-end;justify-content:flex-start;gap:30px;margin:8px 0 12px;flex-wrap:wrap;
+  background:#16181F;border:1px solid #262A33;border-radius:16px;padding:16px 20px}
 .sd-id{min-width:0}
+.sd-title-row{display:flex;align-items:center;gap:10px}
 .sd-id h2{margin:0;color:#E7E9EE;font-size:24px;font-weight:950;letter-spacing:-.02em}
-.sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:4px}
+.sd-starx{font-size:21px;line-height:1;text-decoration:none;color:#5A6270;flex-shrink:0;transition:color .15s}
+.sd-starx.on{color:#D9A441}
+.sd-starx:hover{color:#D9A441}
+.sd-id .sd-meta{color:#7E8694;font-size:12px;font-weight:800;margin-top:5px}
 .sd-cat{display:inline-block;font-size:10.5px;font-weight:850;color:#9AA0AD;background:#1E2029;
   border:1px solid #262A33;border-radius:999px;padding:3px 10px;margin-right:6px}
-.sd-px{text-align:right}
+.sd-px{text-align:left}
 .sd-px .v{font-size:26px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .sd-px .d{font-size:13px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
 .sd-px .d.up{color:#F25560}.sd-px .d.down{color:#4D90F0}
@@ -136,6 +143,30 @@ def _toggle_watch(ticker: str) -> None:
     st.session_state["_guest_watchlist"] = wl
 
 
+def _sig_color(ticker: str, category: str) -> str:
+    """종목 고유 시그니처색 — 시장 페이지 브랜드 맵에서 조회, 없으면 골드 폴백."""
+    short = ticker.replace(".KS", "").replace(".KQ", "").replace("-USD", "").upper()
+    try:
+        from ui.pages.us_stocks import _US_BRAND
+        if short in _US_BRAND:
+            return _US_BRAND[short]
+    except Exception:
+        pass
+    try:
+        from ui.pages.kr_stocks import _KR_BRAND
+        if ticker in _KR_BRAND:
+            return _KR_BRAND[ticker]
+    except Exception:
+        pass
+    try:
+        from ui.pages.crypto import _CRYPTO_COLOR
+        if f"{short}-USD" in _CRYPTO_COLOR:
+            return _CRYPTO_COLOR[f"{short}-USD"]
+    except Exception:
+        pass
+    return GOLD
+
+
 def render() -> None:
     L.viewport_width()
     L.inject_responsive_css()
@@ -162,23 +193,35 @@ def render() -> None:
     ticker = info["ticker"]
     cur = info["currency"]
 
-    # ── 헤더: 이름·카테고리·티커 + 현재가·오늘 + 워치 별표 ──
+    # ── 헤더: 이름+별표 · 가격(이름 옆) · 카테고리/티커(시그니처색) ──
+    sig = _sig_color(ticker, info["category"])
+    # 워치리스트 토글 — 별표 인라인 링크(쿼리파라미터). 토글 후 watch 플래그 제거하고 재실행.
+    _wkey = f"_watch_done_{ticker}"
+    if st.query_params.get("watch") == "1":
+        if not st.session_state.get(_wkey):   # 클릭당 1회만(재실행 더블토글 방지)
+            _toggle_watch(ticker)
+            st.session_state[_wkey] = True
+        _qp = {k: v for k, v in st.query_params.items() if k != "watch"}
+        st.query_params.clear()
+        st.query_params.update(_qp)   # watch 플래그 제거 → URL 정리(새로고침 재토글 방지)
+    else:
+        st.session_state.pop(_wkey, None)     # 플래그 없으면 가드 해제(다음 클릭 대비)
     price_html = currency(info["price"], cur) if info["price"] is not None else "—"
     chg = info["change_pct"]
     dcls = "up" if (chg or 0) >= 0 else "down"
     dtxt = f'{"+" if (chg or 0) >= 0 else ""}{chg:.2f}%' if isinstance(chg, (int, float)) else "—"
     on = ticker in _watchlist()
-    star_label = "★ 워치리스트" if on else "☆ 워치리스트"
+    _star_href = f"?symbol={symbol}&watch=1" + (f"&{sfx}" if sfx else "")
     st.markdown(
-        f'<div class="sd-head"><div class="sd-id"><h2>{info["name"]}</h2>'
-        f'<div class="sd-meta"><span class="sd-cat">{info["category"]}</span>{ticker}</div></div>'
+        f'<div class="sd-head"><div class="sd-id">'
+        f'<div class="sd-title-row"><h2>{info["name"]}</h2>'
+        f'<a class="sd-starx {"on" if on else ""}" href="{_star_href}" target="_self" title="워치리스트">{"★" if on else "☆"}</a></div>'
+        f'<div class="sd-meta"><span class="sd-cat" style="color:{sig};background:{sig}1A;border-color:{sig}66">{info["category"]}</span>'
+        f'<span style="color:{sig};font-weight:850">{ticker}</span></div></div>'
         f'<div class="sd-px"><div class="v">{price_html}</div>'
         f'<div class="d {dcls}">{dtxt} <span style="color:#7E8694;font-weight:700">오늘</span></div></div></div>',
         unsafe_allow_html=True,
     )
-    if st.button(star_label, key="sd_watch"):
-        _toggle_watch(ticker)
-        st.rerun()
 
     # ── 내 보유 (있으면) ──
     pos = _my_holding(ticker, data)
@@ -197,8 +240,8 @@ def render() -> None:
     # ── 기간 지표 (1W·1M·3M·MA20·추세) — DB indicator_summary ──
     _render_indicators(ticker)
 
-    # ── 6개월 추이 차트 ──
-    _render_chart(ticker, info, cur)
+    # ── 6개월 추이 차트(종목 시그니처색) ──
+    _render_chart(ticker, info, cur, sig)
 
     # ── 애널리스트 목표가 (가능 시) ──
     _render_analyst(ticker, info)
@@ -225,15 +268,15 @@ def _render_indicators(ticker: str) -> None:
     tcls = "up" if trend == "상승" else ("down" if trend == "하락" else "")
     st.markdown(
         '<div class="sd-grid">'
-        + cell("1주", r.get("return_1w_pct"))
-        + cell("1개월", r.get("return_1m_pct"))
-        + cell("3개월", r.get("return_3m_pct"))
+        + cell("1W", r.get("return_1w_pct"))
+        + cell("1M", r.get("return_1m_pct"))
+        + cell("3M", r.get("return_3m_pct"))
         + cell("MA20 이격", r.get("distance_ma20_pct"))
         + f'<div class="sd-cell"><div class="k">추세</div><div class="v {tcls}">{trend}</div></div>'
         + '</div>', unsafe_allow_html=True)
 
 
-def _render_chart(ticker: str, info: dict, cur: str) -> None:
+def _render_chart(ticker: str, info: dict, cur: str, sig: str = GOLD) -> None:
     hist = _chart(ticker)
     if hist.empty:
         empty_state("차트 데이터 준비 중")
@@ -249,17 +292,22 @@ def _render_chart(ticker: str, info: dict, cur: str) -> None:
     st.markdown(f'<div class="sd-card" style="padding-bottom:6px"><div class="t">가격 추이 '
                 f'<span style="color:{color};font-size:11px">{"+" if pct>=0 else ""}{pct:.1f}% ({_pd_label})</span></div></div>',
                 unsafe_allow_html=True)
+    _sh = sig.lstrip("#")
+    _fill = f"rgba({int(_sh[0:2],16)},{int(_sh[2:4],16)},{int(_sh[4:6],16)},0.07)"
     fig = go.Figure(go.Scatter(
         x=h["Date"], y=h["Close"], mode="lines",
-        line=dict(color=GOLD, width=1.6), fill="tozeroy", fillcolor="rgba(217,164,65,0.06)",
+        line=dict(color=sig, width=1.6), fill="tozeroy", fillcolor=_fill,
         hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
     ))
     fmt = ",.0f" if cur == "KRW" else ",.2f"
+    # y축을 데이터 범위로 — 0부터 시작하지 않아 라인이 패널을 채움(휑함 제거)
+    _lo, _hi = float(h["Close"].min()), float(h["Close"].max())
+    _pad = (_hi - _lo) * 0.10 or _hi * 0.02
     fig.update_layout(
-        height=240, margin=dict(l=0, r=0, t=4, b=0),
+        height=170, margin=dict(l=0, r=0, t=4, b=0),
         paper_bgcolor="rgba(22,24,31,0.97)", plot_bgcolor="#0E0F13",
         xaxis=dict(showgrid=False, showline=True, linecolor="#262A33", tickfont=dict(size=9, color="#7E8694")),
-        yaxis=dict(showgrid=True, gridcolor="#262A33", tickformat=fmt,
+        yaxis=dict(showgrid=True, gridcolor="#262A33", tickformat=fmt, range=[_lo - _pad, _hi + _pad],
                    tickfont=dict(size=9, color="#7E8694"), side="right"),
         showlegend=False,
     )
@@ -269,7 +317,7 @@ def _render_chart(ticker: str, info: dict, cur: str) -> None:
 def L_period():
     """기간 토글(공통 컴포넌트 재사용) — 6개월 데이터 슬라이스."""
     from ui.components.dash_style import period_toggle
-    return period_toggle("sd_period", options=("1W", "1M", "3M", "6M"), default="3M")
+    return period_toggle("sd_period", options=("1W", "1M", "3M", "6M"), default="3M", align="left")
 
 
 def _render_analyst(ticker: str, info: dict) -> None:
