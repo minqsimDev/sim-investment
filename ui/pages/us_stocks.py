@@ -14,6 +14,7 @@ from src.analyst import fetch_analyst_targets
 from ui.components.analyst_fmp import render_fmp_drilldown
 from ui.components.analyst_scatter import analyst_scatter_fig
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.color_utils import hex_to_lab as _hex2lab, delta_e as _de, shade as _shade
 from ui.components.dash_style import (
     data_source_note,
     empty_state,
@@ -78,29 +79,7 @@ _LINE_COLORS = [
 ]
 
 
-def _hex2lab(h: str):
-    h = h.lstrip("#"); r, g, b = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
-    def f(c): return ((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92
-    r, g, b = f(r), f(g), f(b)
-    x = r * 0.4124 + g * 0.3576 + b * 0.1805; y = r * 0.2126 + g * 0.7152 + b * 0.0722
-    z = r * 0.0193 + g * 0.1192 + b * 0.9505
-    x /= 0.95047; z /= 1.08883
-    def g2(t): return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
-    fx, fy, fz = g2(x), g2(y), g2(z)
-    return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
-
-
-def _de(a, b):  # CIE76 색차
-    return sum((a[i] - b[i]) ** 2 for i in range(3)) ** 0.5
-
-
-def _shade(h: str, fct: float) -> str:
-    h = h.lstrip("#"); r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    if fct >= 1:
-        r, g, b = (int(c + (255 - c) * (fct - 1)) for c in (r, g, b))
-    else:
-        r, g, b = (int(c * fct) for c in (r, g, b))
-    return "#" + "".join(f"{max(0, min(255, c)):02X}" for c in (r, g, b))
+# 색 유틸(_hex2lab/_de/_shade)은 ui.components.color_utils 공용 모듈 사용(상단 import)
 
 
 _NUDGES = [0.6, 1.5, 0.42, 1.8, 0.32, 1.95, 0.75, 1.25, 0.5, 1.65]

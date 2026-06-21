@@ -16,6 +16,7 @@ from ui.components.dash_style import (
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.color_utils import shade as _shade
 
 # 종목 내용(추종 대상)에 맞는 시그니처 색 — 이름/티커 키워드 매칭(구체적 항목 먼저).
 # 앵커 색은 색상환에 고르게 펼쳐 ΔE(지각 거리)≥22를 만족 — 비교 차트에서 서로 또렷이 구별된다.
@@ -47,15 +48,7 @@ def _etf_color(name: str, ticker: str) -> str | None:
     return None
 
 
-def _shade(hex_c: str, f: float) -> str:
-    """명도 시프트 — f>1 밝게, f<1 어둡게. 같은 테마색 중복 구별용."""
-    h = hex_c.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    if f >= 1:
-        r, g, b = (int(c + (255 - c) * (f - 1)) for c in (r, g, b))
-    else:
-        r, g, b = (int(c * f) for c in (r, g, b))
-    return "#" + "".join(f"{max(0, min(255, c)):02X}" for c in (r, g, b))
+# 명도 시프트(_shade)는 ui.components.color_utils 공용 모듈 사용(상단 import)
 
 # 주요 국내 ETF 유니버스 — 시장 조망용(대표 지수·섹터·채권·해외). '시장' 탭은 제너럴 시장 파악이
 # 목적이므로 보유(config my_etfs)가 아니라 시총/대표 큐레이션을 노출한다(보유는 포트폴리오 영역).
