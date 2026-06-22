@@ -588,9 +588,9 @@ hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
     font-size:0 !important; display:inline-flex !important;
     align-items:center !important; justify-content:center !important; min-width:116px !important;
 }}
-/* P0 픽스: 원래 아이콘(SVG)·'Browse files' 노드 제거 — font-size:0 은 텍스트만 죽이고
-   SVG 는 width 가 남아 라벨이 우측으로 밀린다(로그인 업로더와 동일 버그). */
-[data-testid="stFileUploaderDropzone"] button > * {{ display:none !important; }}
+/* P0 픽스: 원래 아이콘(SVG)만 숨김 — font-size:0 은 텍스트만 죽이고 SVG 는 width 가 남아
+   라벨이 우측으로 밀림(로그인 업로더와 동일). svg 만 타겟(파일 input 보호 — 안전). */
+[data-testid="stFileUploaderDropzone"] button svg {{ display:none !important; }}
 [data-testid="stFileUploaderDropzone"] button::after {{
     content:"파일 선택"; font-size:13px; font-weight:800;
 }}

@@ -137,10 +137,17 @@ div[data-testid="stButton"] > button {
   height: auto !important;
 }
 div[data-testid="stButton"] > button:hover { color: #9AA0AD !important; }
-/* #4: 보조 액션 간격 정리 + 돌아가기를 카드(420px) 좌측에 맞춤(back 은 왼쪽이 관습적) */
-div[data-testid="stButton"] { margin: 2px auto 0 !important; max-width: 420px !important;
+/* #4: 보조 액션(돌아가기 등) 정렬. 버튼 컨테이너(element-container)가 내용폭(63px)으로
+   줄어 있어 정렬 제어가 안 됐다 → 컬럼 폭을 꽉 채우게 강제. */
+[data-testid="stElementContainer"]:has(> div[data-testid="stButton"]) { width: 100% !important; }
+div[data-testid="stButton"] { margin: 2px 0 0 !important; width: 100% !important;
   display: flex !important; justify-content: flex-start !important; }
 div[data-testid="stButton"] > button { width: auto !important; }
+/* 폼 카드(로그인·회원가입)는 max-width:420 가운데 정렬(좌측 504). 돌아가기도 같은 420 센터
+   박스로 만들어 '카드 좌측 끝'에 정확히 맞춘다(flex-start). 폼이 없는 화면(포트폴리오 등록)은
+   콘텐츠가 컬럼을 꽉 채우므로 기본(컬럼 좌측)에 이미 정렬됨 — 여기엔 적용 안 함. */
+[data-testid="stVerticalBlock"]:has([data-testid="stForm"]) div[data-testid="stButton"] {
+  max-width: 420px !important; margin-left: auto !important; margin-right: auto !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
 /* 파일 업로더 한국어화 — 골드 점선 CTA(포트폴리오 화면 업로더와 통일) */
@@ -203,9 +210,9 @@ div[data-testid="stButton"] > button { width: auto !important; }
   border-radius: 10px !important;
   transition: background .15s, border-color .15s !important;
 }
-/* P0 픽스: 원래 아이콘(SVG)·'Browse files' 노드 제거 — font-size:0 은 텍스트만 죽이고
-   SVG 는 width 가 남아 라벨이 우측으로 밀린다. 자식 노드를 실제로 숨겨야 중앙정렬됨. */
-[data-testid="stFileUploaderDropzone"] button > * { display: none !important; }
+/* P0 픽스: 원래 아이콘(SVG)만 숨김 — font-size:0 은 텍스트만 죽이고 SVG 는 width 가 남아
+   라벨이 우측으로 밀림. svg 만 타겟(파일 input 등 다른 노드는 절대 건드리지 않게 — 안전). */
+[data-testid="stFileUploaderDropzone"] button svg { display: none !important; }
 [data-testid="stFileUploaderDropzone"] button:hover {
   background: rgba(217,164,65,0.14) !important;
   border-color: #D9A441 !important;
