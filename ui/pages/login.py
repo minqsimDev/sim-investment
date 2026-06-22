@@ -143,23 +143,34 @@ div[data-testid="stButton"] { margin: 2px auto 0 !important; max-width: 420px !i
 div[data-testid="stButton"] > button { width: auto !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
-/* 파일 업로더 한국어화 */
+/* 파일 업로더 한국어화 — 골드 점선 CTA(포트폴리오 화면 업로더와 통일) */
 [data-testid="stFileUploaderDropzone"] {
-  background: rgba(255,255,255,0.04) !important;
-  border: 1.5px dashed #262A33 !important;
-  border-radius: 14px !important;
+  background: rgba(217,164,65,0.06) !important;
+  border: 1.5px dashed rgba(217,164,65,0.5) !important;
+  border-radius: 16px !important;
+  transition: border-color .15s, background .15s;
 }
 [data-testid="stFileUploaderDropzone"]:hover {
   border-color: #D9A441 !important;
-  background: rgba(217,164,65,0.05) !important;
+  background: rgba(217,164,65,0.12) !important;
 }
+/* 3단계 시각 안내(① 캡처 → ② 끌어놓기 → ③ 자동 인식) — 포트폴리오 업로더와 동일 */
+.scr-steps{display:flex;align-items:stretch;gap:8px;margin:4px 0 14px;flex-wrap:wrap}
+.scr-step{display:flex;align-items:center;gap:9px;flex:1;min-width:150px;
+  background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:10px 12px}
+.scr-step-n{flex:0 0 22px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(217,164,65,.15);color:#D9A441;font-size:12px;font-weight:950}
+.scr-step b{display:block;color:#E7E9EE;font-size:13px;font-weight:850}
+.scr-step em{display:block;color:#9AA0AD;font-size:12px;font-weight:700;font-style:normal;margin-top:1px}
+.scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}
+@media(max-width:640px){.scr-step-arr{display:none}.scr-step{min-width:0;flex:1 1 100%}}
 [data-testid="stFileUploaderDropzoneInstructions"] > div > span {
   font-size: 0 !important;
 }
 [data-testid="stFileUploaderDropzoneInstructions"] > div > span::after {
   content: "파일을 여기에 드래그하거나";
   font-size: 13px;
-  color: #3a3026;
+  color: #C7CBD2;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 [data-testid="stFileUploaderDropzoneInstructions"] > div > small {
@@ -168,7 +179,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div > small::after {
   content: "최대 200MB · PNG, JPG, JPEG, WEBP";
   font-size: 10px;
-  color: #9a8b79;
+  color: #7E8694;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 [data-testid="stFileUploaderDropzone"] button {
@@ -178,7 +189,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
 [data-testid="stFileUploaderDropzone"] button::after {
   content: "파일 선택";
   font-size: 12px;
-  color: #1c1a14;
+  color: #E7E9EE;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 </style>
@@ -521,13 +532,12 @@ def _render_portfolio_setup() -> None:
     _, col, _ = st.columns([1, 2, 1])
     with col:
         st.markdown("""
-<div style="background:rgba(255,255,255,0.45);border:1px solid rgba(80,65,50,0.15);border-radius:14px;
-     padding:14px 16px;margin-bottom:16px;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
-  <div style="font-size:12px;font-weight:600;color:#1c1a14;margin-bottom:6px;">증권사 앱 스크린샷 등록</div>
-  <div style="font-size:11px;color:#7a6d5e;line-height:1.6;">
-    보유종목 화면을 캡처해서 올려주세요.<br>
-    AI가 자동으로 종목을 분석합니다.
-  </div>
+<div class="scr-steps">
+  <div class="scr-step"><span class="scr-step-n">1</span><div><b>증권사 앱 캡처</b><em>보유 종목 화면을 스크린샷</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">2</span><div><b>끌어다 놓기</b><em>아래에 이미지를 드롭</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">3</span><div><b>자동 인식</b><em>종목·평가금액 추출</em></div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -569,18 +579,18 @@ def _render_portfolio_setup() -> None:
         if parsed:
             rows_html = "".join(
                 f'<div style="display:flex;justify-content:space-between;padding:7px 0;'
-                f'border-bottom:1px solid rgba(80,65,50,0.08);font-size:12px;">'
-                f'<span style="color:#1c1a14;font-weight:500;">{h.get("name","—")}</span>'
-                f'<span style="color:#7a6d5e;">{h.get("ticker") or h.get("asset_class","")}</span>'
+                f'border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;">'
+                f'<span style="color:#E7E9EE;font-weight:500;">{h.get("name","—")}</span>'
+                f'<span style="color:#9AA4B2;">{h.get("ticker") or h.get("asset_class","")}</span>'
                 f'</div>'
                 for h in parsed
             )
             st.markdown(f"""
-<div style="font-size:11px;color:#7a6d5e;margin:4px 0 6px;
+<div style="font-size:11px;color:#9AA4B2;margin:4px 0 6px;
      font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
   {len(parsed)}개 종목 감지됨
 </div>
-<div style="background:rgba(255,255,255,0.45);border:1px solid rgba(80,65,50,0.15);border-radius:14px;
+<div style="background:rgba(255,255,255,0.04);border:1px solid #262A33;border-radius:14px;
      padding:12px 16px;margin-bottom:14px;max-height:220px;overflow-y:auto;
      font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
   {rows_html}
