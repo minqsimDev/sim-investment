@@ -137,9 +137,9 @@ div[data-testid="stButton"] > button {
   height: auto !important;
 }
 div[data-testid="stButton"] > button:hover { color: #9AA0AD !important; }
-/* #4: 보조 액션 간격 정리 + 돌아가기를 카드(420px) 우측 끝단에 맞춤 */
+/* #4: 보조 액션 간격 정리 + 돌아가기를 카드(420px) 좌측에 맞춤(back 은 왼쪽이 관습적) */
 div[data-testid="stButton"] { margin: 2px auto 0 !important; max-width: 420px !important;
-  display: flex !important; justify-content: flex-end !important; }
+  display: flex !important; justify-content: flex-start !important; }
 div[data-testid="stButton"] > button { width: auto !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
