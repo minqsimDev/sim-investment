@@ -2487,8 +2487,12 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
                 st.session_state[cache_key] = {"holdings": holdings, "cash_balance": 0.0}
             except Exception as e:
                 import logging
+                from core.vision_parser import VisionBusyError
                 logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
-                st.error("이미지를 분석하지 못했습니다. 잠시 후 다시 시도하거나 더 선명한 스크린샷을 사용해 주세요.")
+                if isinstance(e, VisionBusyError):
+                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
                 return
 
     result = st.session_state[cache_key]

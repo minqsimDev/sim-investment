@@ -628,9 +628,15 @@ def _render_portfolio_setup() -> None:
             holdings = _filter_valid_holdings(holdings)
             st.session_state["_parsed_holdings"] = holdings
         except Exception as e:
+            import logging
+            from core.vision_parser import VisionBusyError
+            logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
             loading_slot.empty()
             with col:
-                st.error(f"분석 실패: {e}")
+                if isinstance(e, VisionBusyError):
+                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
         else:
             loading_slot.empty()
 
