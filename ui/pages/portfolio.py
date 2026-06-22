@@ -1932,6 +1932,58 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
     )
 
 
+def _delete_holding(holdings: list[dict], index: int) -> list[dict]:
+    """holdings 에서 index 항목을 뺀 새 리스트 반환. 범위 밖이면 원본 복사본 그대로(원본 비변형)."""
+    if index < 0 or index >= len(holdings):
+        return list(holdings)
+    return [h for i, h in enumerate(holdings) if i != index]
+
+
+def _persist_holdings(holdings: list[dict]) -> None:
+    """세션 + 계정 저장소에 보유를 반영. 로그인 유저만 영속화(스크린샷 적용 경로와 동일 패턴)."""
+    st.session_state["brokerage_holdings"] = holdings
+    _uname = st.session_state.get("username")
+    if st.session_state.get("auth_role") == "user" and _uname:
+        from core.accounts import get_portfolios, save_portfolio
+        _ex = get_portfolios(_uname)
+        _pf_name = _ex[0]["name"] if _ex else "내 포트폴리오"
+        save_portfolio(_uname, holdings, name=_pf_name,
+                       cash=st.session_state.get("brokerage_cash_balance", 0.0))
+
+
+def _render_holdings_editor() -> None:
+    """편집 모드 — 원본 brokerage_holdings 를 순서대로 보여주고 행별 삭제(2단계 확인)."""
+    holdings = st.session_state.get("brokerage_holdings") or []
+    if not holdings:
+        st.info("보유 종목이 없습니다.")
+        return
+    _last_note = " · 마지막 한 종목을 지우면 온보딩 화면으로 돌아갑니다." if len(holdings) == 1 else ""
+    st.caption(f"삭제할 종목의 🗑 버튼을 누르세요.{_last_note}")
+
+    pending = st.session_state.get("_pending_delete_holding")
+    for i, h in enumerate(holdings):
+        name = h.get("name", "—")
+        amt = _cur(float(h.get("평가금액") or h.get("eval_amount") or 0), "KRW")
+        c_info, c_act = st.columns([4, 2])
+        with c_info:
+            st.markdown(f"**{name}**  ·  {amt}")
+        with c_act:
+            if pending == i:
+                cc1, cc2 = st.columns(2)
+                if cc1.button("삭제 확정", key=f"del_confirm_{i}", type="primary",
+                              use_container_width=True):
+                    _persist_holdings(_delete_holding(holdings, i))
+                    st.session_state.pop("_pending_delete_holding", None)
+                    st.rerun()
+                if cc2.button("취소", key=f"del_cancel_{i}", use_container_width=True):
+                    st.session_state.pop("_pending_delete_holding", None)
+                    st.rerun()
+            else:
+                if st.button("🗑 삭제", key=f"del_{i}", use_container_width=True):
+                    st.session_state["_pending_delete_holding"] = i
+                    st.rerun()
+
+
 def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
     st.markdown(_PB_CSS, unsafe_allow_html=True)
 
@@ -2008,15 +2060,19 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
 
     if pf == "holdings":
         st.markdown(_back, unsafe_allow_html=True)
-        sort_key = st.radio(
-            "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
-            index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
-        ) or "비중순"
-        sorted_positions = _sort_positions(positions, target_prices, sort_key)
-        st.markdown(
-            _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
-            unsafe_allow_html=True,
-        )
+        edit_mode = st.toggle("편집 — 종목 삭제", key="holdings_edit_mode")
+        if edit_mode:
+            _render_holdings_editor()
+        else:
+            sort_key = st.radio(
+                "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
+                index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
+            ) or "비중순"
+            sorted_positions = _sort_positions(positions, target_prices, sort_key)
+            st.markdown(
+                _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
+                unsafe_allow_html=True,
+            )
     elif pf == "detail":
         st.markdown(_back, unsafe_allow_html=True)
         st.markdown(_portfolio_diagnosis_html(sorted_by_weight, categories, summary), unsafe_allow_html=True)
@@ -2403,10 +2459,12 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
   <div class="scr-step"><span class="scr-step-n">3</span><div><b>자동 인식</b><em>종목·평가금액 추출</em></div></div>
 </div>""", unsafe_allow_html=True)
 
+    # 업로더는 위젯 key 를 바꿔야 비워진다 → nonce 카운터를 붙여 적용/취소 후 리셋(재분석 방지).
+    nonce_key = f"_scr_nonce_{key}"
     uploaded = st.file_uploader(
         "보유 종목 화면 스크린샷",
         type=["png", "jpg", "jpeg"],
-        key=key,
+        key=f"{key}_{st.session_state.get(nonce_key, 0)}",
         label_visibility="collapsed",
     )
     st.markdown(
@@ -2466,11 +2524,21 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
             st.session_state["brokerage_cash_balance"] = cash
             st.session_state["brokerage_debug"] = result.get("_debug", {})
             st.session_state["brokerage_provider"] = "screenshot"
+            # 로그인 유저는 계정 저장소에도 영속화 — 안 하면 하드 nav(?_user=) 후
+            # app.py 세션 복원이 옛 보유로 되돌려 "업데이트가 안 되는" 것처럼 보임(login.py 저장 경로와 동일).
+            _uname = st.session_state.get("username")
+            if st.session_state.get("auth_role") == "user" and _uname:
+                from core.accounts import get_portfolios, save_portfolio
+                _existing = get_portfolios(_uname)
+                _pf_name = _existing[0]["name"] if _existing else "내 포트폴리오"
+                save_portfolio(_uname, holdings, name=_pf_name, cash=cash)
             st.session_state.pop(cache_key, None)
+            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
             st.rerun()
     with col_cancel:
         if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
             st.session_state.pop(cache_key, None)
+            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
             st.rerun()
 
 
@@ -2570,10 +2638,19 @@ def render():
         },
     )
 
-    # 스크린샷 업로더 — 요약 뷰에서 헤더+드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
-    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 메인 CTA로 노출.)
+    # 스크린샷 업로더 — 요약 뷰에서 드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
+    # 기존 사용자에겐 온보딩 3단계 가이드 대신 간결한 섹션 타이틀만(맥락 제공·중복 제거).
+    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 3단계 가이드로 노출.)
     if brokerage_connected and st.query_params.get("pf", "") == "":
-        _render_screenshot_upload(key="screenshot_update")
+        st.markdown(
+            '<div style="margin:18px 2px 8px;color:#E7E9EE;font-size:14px;font-weight:850;'
+            'font-family:-apple-system,BlinkMacSystemFont,\'Helvetica Neue\',sans-serif;">'
+            '📷 스크린샷으로 보유 갱신'
+            '<span style="display:block;color:#9AA0AD;font-size:12px;font-weight:650;margin-top:2px;">'
+            '새 캡처를 올리면 종목·평가금액을 다시 인식해 교체해요</span></div>',
+            unsafe_allow_html=True,
+        )
+        _render_screenshot_upload(key="screenshot_update", show_header=False)
 
     # 푸터는 전 페이지 동일하게 jj_footer() 1개로 통일(포트폴리오 전용 데이터 캡션 제거).
     st.markdown(jj_footer(), unsafe_allow_html=True)
