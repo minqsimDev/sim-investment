@@ -1755,10 +1755,11 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                 new_target = int(round(new_target_eok * 1e8))
                 new_start = float(round(new_start_eok * 1e8))
                 changed = False
-                # 반올림 오차로 인한 허위 변경 방지 → 0.01억(=100만) 이상 차이만 실제 변경으로
-                if abs(new_target - target) > 1_000_000:
+                # 사용자가 입력값을 실제로 변경했을 때만 저장(표시된 기본값과 비교). 이전엔 원본값과
+                # 비교해, 반올림된 기본값이 '편집'으로 오인돼 stale 한 초기투자금이 저장되곤 했음.
+                if new_target_eok != _target_eok:
                     _journey_set("target_value", new_target, username, is_guest); changed = True
-                if abs(new_start - start_value) > 1_000_000:
+                if new_start_eok != _start_eok:
                     _journey_set("start_value", new_start, username, is_guest); changed = True
                 if new_start_date.isoformat() != start_date.isoformat():
                     _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
@@ -1934,10 +1935,14 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
     for label, val, mine in rows:
         w = abs(val) / max_abs * 100
         sign = "+" if val >= 0 else "−"
-        if mine:
-            # 내 포트폴리오 = 항상 골드(강조). 부호는 +/−로만 표기(손익색은 다른 화면이 담당)
+        if mine and val < 0:
+            # 내 포트폴리오가 손실이면 골드(긍정)로 보이면 안 됨 → 하락=파랑(한국식)로 명확히 음수 표기
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'
+            valspan = f'<span class="bm-val mine" style="color:{DOWN}">−{abs(val):.1f}%</span>'
+        elif mine:
+            # 내 포트폴리오(이익·강조) = 골드
             bar = f'<i class="bm-mine" style="width:{w:.0f}%"></i>'
-            valspan = f'<span class="bm-val mine">{sign}{abs(val):.1f}%</span>'
+            valspan = f'<span class="bm-val mine">+{val:.1f}%</span>'
         elif val < 0:
             # 벤치마크 손실: 하락=파랑
             bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'

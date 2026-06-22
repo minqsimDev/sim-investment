@@ -43,11 +43,11 @@ def test_holdings_table_uses_krw_primary_and_usd_secondary():
         {"TSLA": 420},
     )
 
-    assert "₩600,000" in html
-    assert "≈ $394.22" in html
-    assert "상세</div>" in html
-    assert 'details class="pd-row-actions"' in html
-    assert "pd-holding-card" not in html
+    assert "₩600,000" in html          # KRW 1차(원화 환산)
+    assert "≈ $394.22" in html          # USD 2차(현지통화)
+    assert "pd-table-card" in html      # 현재 구조: 테이블형 카드
+    assert "여력" in html                # 행 상세(목표가·여력)
+    assert "pd-holding-card" not in html  # 옛 카드 그리드 아님
 
 
 def test_holdings_panel_wraps_compact_table():
