@@ -2563,19 +2563,8 @@ def render():
     mark_active_nav("/portfolio")
     st.markdown(_PORT_CSS, unsafe_allow_html=True)
 
-    # 텔레그램 위험 알림 연결 진입점(로그인 유저). 연결 전엔 안내, 연결 후엔 상태 표시.
-    _tg_user = st.session_state.get("username")
-    if _tg_user:
-        from core.accounts import get_setting as _get_setting
-        _tg_suf = "?_user=" + _tg_user  # 세션 보존 하드 nav(코드베이스 공통 패턴)
-        _tg_label = ("🔔 텔레그램 알림: 연결됨"
-                     if _get_setting(_tg_user, "telegram_chat_id")
-                     else "🔔 텔레그램 위험 알림 연결하기")
-        st.markdown(
-            f'<a href="/telegram{_tg_suf}" target="_self" '
-            f'style="font-size:0.85rem;color:#9AA4B2;text-decoration:none">{_tg_label} ›</a>',
-            unsafe_allow_html=True,
-        )
+    # 텔레그램 위험 알림 연결은 리스크 페이지(risk_signals._telegram_settings)에 전체 UI 가 있어
+    # 여기 상단 중복 바로가기는 제거(본문/위험 내용 우선).
 
     brokerage_holdings = st.session_state.get("brokerage_holdings")
     if not brokerage_holdings:   # None(미연결) 또는 [](0종목) → 첫 사용 온보딩(B1, 토큰 체크보다 우선)
