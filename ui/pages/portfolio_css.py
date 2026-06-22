@@ -521,6 +521,8 @@ _AJ_CSS = """<style>
 .aj-chart svg{height:100%}
 .aj-chart-hint{position:absolute;right:9px;bottom:6px;font-size:10.5px;font-weight:850;color:#9A7B2E;
   opacity:.8;transition:opacity .15s;pointer-events:none;z-index:2}
+/* 추이 모드는 끝점 금액 라벨이 우하단에 있어 힌트와 겹침 → 힌트를 우상단으로 */
+.aj-chart-trend .aj-chart-hint{top:6px;bottom:auto}
 /* 추이 등장 애니메이션 — 바닥(0)에서 천천히 차오름 */
 .aj-chart-trend svg{animation:aj-rise .8s cubic-bezier(.22,.61,.36,1) both;transform-origin:bottom}
 @keyframes aj-rise{from{transform:scaleY(0);opacity:.25}to{transform:scaleY(1);opacity:1}}
@@ -542,9 +544,9 @@ _AJ_CSS = """<style>
 [data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"] button:hover{
   background:rgba(217,164,65,0.07)!important}
 .aj-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0}
-.aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;gap:6px}
-.aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;
+.aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0;text-align:right}
+.aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;text-align:right;
   font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aj-auto{font-size:9px;font-weight:800;color:var(--sv-gold);background:rgba(217,164,65,.13);
   border-radius:5px;padding:1px 5px;letter-spacing:.02em}

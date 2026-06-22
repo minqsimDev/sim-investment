@@ -3,6 +3,8 @@ from ui.pages.portfolio import (
     _holdings_table_html,
     _portfolio_today_state,
     _delete_holding,
+    _journey_eta_display,
+    _yf_history_symbol,
 )
 
 
@@ -78,3 +80,39 @@ def test_delete_holding_out_of_range_returns_unchanged_copy():
 
     assert _delete_holding(holdings, 5) == holdings
     assert _delete_holding(holdings, -1) == holdings
+
+
+def test_journey_eta_unreachable_when_growth_negative():
+    # 연 성장률(CAGR) 음수 → 현재 추세로는 목표 도달 불가
+    m = {"cagr_pct": -12.3, "years_to_goal": None}
+    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "목표 도달 불가"
+
+
+def test_journey_eta_unreachable_when_growth_flat():
+    m = {"cagr_pct": 0.0, "years_to_goal": None}
+    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "목표 도달 불가"
+
+
+def test_journey_eta_shows_period_when_growing():
+    # 성장 중이면 기간 라벨(목표 도달 불가가 아님)
+    m = {"cagr_pct": 8.0, "years_to_goal": 3.5}
+    out = _journey_eta_display(m, current=50_000_000, target=100_000_000)
+    assert out != "목표 도달 불가"
+    assert "년" in out or "개월" in out
+
+
+def test_journey_eta_reached_goal():
+    m = {"cagr_pct": -5.0, "years_to_goal": None}  # 음수여도 이미 목표 넘었으면 도달
+    assert _journey_eta_display(m, current=120_000_000, target=100_000_000) == "목표 도달"
+
+
+def test_yf_history_symbol_crypto_gets_usd_pair():
+    # bare 'BTC' 는 yfinance 에서 엉뚱한 주식 → 'BTC-USD'(USD)로 정규화
+    assert _yf_history_symbol("BTC", None, "크립토") == ("BTC-USD", "USD")
+    assert _yf_history_symbol("eth", None, "크립토") == ("ETH-USD", "USD")
+
+
+def test_yf_history_symbol_keeps_normal_tickers():
+    assert _yf_history_symbol("005930.KS", "KRW", "국내주식") == ("005930.KS", "KRW")
+    assert _yf_history_symbol("TSLA", "USD", "미국주식") == ("TSLA", "USD")
+    assert _yf_history_symbol("BTC-USD", "USD", "크립토") == ("BTC-USD", "USD")

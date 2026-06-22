@@ -1468,6 +1468,21 @@ def _record_today_snapshot(username: str | None, summary: dict, positions: list[
 # _AT_CSS → ui.pages.portfolio_css 로 이동
 
 
+def _yf_history_symbol(ticker: str, currency, category) -> tuple[str, object]:
+    """yfinance 가격 이력용 심볼·통화 정규화.
+
+    크립토는 'BTC' → 'BTC-USD'(USD결제)로 바꾼다. bare 'BTC'/'ETH'는 yfinance에서
+    동명의 엉뚱한 주식($27 등)으로 잡혀 추이 총액이 망가지던 버그(끝값 24원)의 원인.
+    이미 -USD/.KS/=X/=F/^ 등 정규 심볼이거나 크립토가 아니면 그대로 둔다.
+    """
+    t = (ticker or "").upper()
+    if t.endswith(("-USD", ".KS", ".KQ", "=X", "=F")) or t.startswith("^"):
+        return ticker, currency
+    if category == "크립토" or t in _COIN_SOLID:
+        return f"{t}-USD", "USD"
+    return ticker, currency
+
+
 def _portfolio_value_series(positions: list[dict], period: str, fx: float, start: str | None = None):
     """보유 × 기간 일별 종가 → 일별 총 평가액(원화) 시계열. 현재 수량을 기간 내 보유했다고 가정(추세 근사).
 
@@ -1475,8 +1490,12 @@ def _portfolio_value_series(positions: list[dict], period: str, fx: float, start
     """
     import pandas as pd
     from data.session import cached_download
-    holds = [(p["ticker"], float(p.get("quantity") or 0), p.get("currency"))
-             for p in positions if p.get("ticker") and (p.get("quantity") or 0) > 0]
+    holds = []
+    for p in positions:
+        if not p.get("ticker") or not ((p.get("quantity") or 0) > 0):
+            continue
+        sym, cur = _yf_history_symbol(p["ticker"], p.get("currency"), p.get("category"))
+        holds.append((sym, float(p.get("quantity") or 0), cur))
     if not holds:
         return None
     tickers = [t for t, _, _ in holds]
@@ -1603,15 +1622,33 @@ def _asset_trend_svg(series) -> str:
             f'preserveAspectRatio="none" style="width:100%;height:auto;display:block">{svg}</svg>')
 
 
-def _journey_cards_html(current: float, m: dict) -> str:
-    from core.journey import krw_compact, eta_label
+def _journey_eta_display(m: dict, current: float, target: float) -> str:
+    """예상 기간 라벨. 이미 목표 도달이면 '목표 도달',
+    연 성장률(CAGR)이 0 이하면 현재 추세로는 닿지 못하므로 '목표 도달 불가',
+    그 외에는 'N년 M개월'."""
+    from core.journey import eta_label
+    if target > 0 and current >= target:
+        return "목표 도달"
+    if m.get("cagr_pct", 0) <= 0:
+        return "목표 도달 불가"
+    return eta_label(m.get("years_to_goal"))
+
+
+def _journey_cards_html(current: float, m: dict, target: float = 0.0) -> str:
+    from core.journey import krw_compact
+    eta = _journey_eta_display(m, current, target)
+    unreachable = eta == "목표 도달 불가"
+    eta_cls = ' style="color:%s"' % DOWN if unreachable else ''      # 하락=파랑(한국식)
+    cagr = m["cagr_pct"]
+    cagr_html = (f'<span style="color:{DOWN}">{cagr:.1f}%</span>'    # 음수 성장률=파랑
+                 if cagr < 0 else f'{cagr:.1f}%')
     return (
         f'<div class="aj-card"><div class="k">목표까지</div>'
         f'<div class="v">{krw_compact(m["remaining"])}</div></div>'
         f'<div class="aj-card"><div class="k">예상 기간 <span class="aj-auto">자동</span></div>'
-        f'<div class="v">{eta_label(m["years_to_goal"])}</div></div>'
+        f'<div class="v"{eta_cls}>{eta}</div></div>'
         f'<div class="aj-card"><div class="k">연 성장률 <span class="aj-auto">자동</span></div>'
-        f'<div class="v">{m["cagr_pct"]:.1f}%</div></div>'
+        f'<div class="v">{cagr_html}</div></div>'
         f'<div class="aj-card"><div class="k">현재 자산</div>'
         f'<div class="v">{krw_compact(current)}</div></div>'
     )
@@ -1641,7 +1678,7 @@ def _journey_block_html(current: float, target: float, m: dict, chart_svg: str |
     # 단일 그리드(클릭 없음, 게스트 등) — 좌(헤드라인+차트) | 우(카드)
     left = _journey_leftcell_html(current, target, m, chart_svg, headline_label, headline_val_html, clickable=False)
     return (_AJ_CSS + '<div class="aj-grid"><div>' + left + '</div>'
-            f'<div class="aj-cards">{_journey_cards_html(current, m)}</div></div>')
+            f'<div class="aj-cards">{_journey_cards_html(current, m, target)}</div></div>')
 
 
 def _journey_get(key, username, is_guest, default):
@@ -1789,7 +1826,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                     st.session_state["journey_trend_open"] = not open_
                     st.rerun(scope="fragment")
             with _rc:
-                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m)}</div>',
+                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
                             unsafe_allow_html=True)
 
 
