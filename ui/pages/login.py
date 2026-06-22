@@ -172,9 +172,11 @@ div[data-testid="stButton"] > button { width: auto !important; }
 .scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}
 @media(max-width:640px){.scr-step-arr{display:none}.scr-step{min-width:0;flex:1 1 100%}}
 /* 안내문구: 원문(span/small) 숨기고 ::before/::after 로 교체(dash_style 와 동일·버전 견고) */
+/* Streamlit DOM 은 [버튼][안내] 순서라 column 에선 버튼이 위로 옴 → order 로 안내를 위로(안내 위·버튼 아래) */
 [data-testid="stFileUploaderDropzoneInstructions"] {
   display: flex !important; flex-direction: column !important;
   align-items: center !important; justify-content: center !important; text-align: center !important;
+  order: -1 !important;
 }
 [data-testid="stFileUploaderDropzoneInstructions"] span,
 [data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
