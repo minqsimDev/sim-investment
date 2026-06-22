@@ -171,7 +171,7 @@ def _guest_home_html(
             '<div class="gp-pos-row">'
             f'{logo}'
             f'<div class="gp-pos-main"><b>{_escape(p["name"])}</b><span>{_escape(short_ticker)} · {_escape(p["category"])}</span></div>'
-            f'<div class="gp-pos-val"><b>{_money(p["market_value"], "KRW", compact=True)}원</b><span>{pct_weight(p["weight"])}%</span></div>'
+            f'<div class="gp-pos-val"><b>{_money(p["market_value"], "KRW", compact=True)}</b><span>{pct_weight(p["weight"])}%</span></div>'
             f'<div class="gp-pos-chg {chg_cls}">{_escape(chg_label)}</div>'
             '</div>'
         )
@@ -183,7 +183,7 @@ def _guest_home_html(
         '<span class="gp-kicker">샘플 포트폴리오</span>'
         '<div class="gp-total-label">샘플 총자산</div>'
         f'<div class="gp-total">{won(current_asset)}</div>'
-        f'<div class="gp-delta {today_cls}"><b>{today_label}원</b><span>{today_pct_label} 오늘</span></div>'
+        f'<div class="gp-delta {today_cls}"><b>{today_label}</b><span>{today_pct_label} 오늘</span></div>'
         '</div>'
         f'<div class="gp-chart">{_guest_curve_svg(today_pct)}</div>'
         '<div class="gp-actions">'

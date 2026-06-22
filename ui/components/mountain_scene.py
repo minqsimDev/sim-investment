@@ -160,14 +160,14 @@ html,body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSys
     <section class="journey-copy">
       <div>
         <span class="journey-kicker">ASSET JOURNEY · {status}</span>
-        <h2>목표까지<br>{remaining_label}원</h2>
-        <p class="journey-primary">현재 {current_label}원에서 목표 {target_label}원까지 가는 경로입니다. 큰 일러스트보다 지금 위치와 다음 구간을 먼저 보여줍니다.</p>
+        <h2>목표까지<br>{remaining_label}</h2>
+        <p class="journey-primary">현재 {current_label}에서 목표 {target_label}까지 가는 경로입니다. 큰 일러스트보다 지금 위치와 다음 구간을 먼저 보여줍니다.</p>
       </div>
       <div class="journey-meta" aria-label="자산 여정 요약">
         <div class="journey-stat"><span>진행률</span><b>{progress_label}</b></div>
         <div class="journey-stat"><span>예상 기간</span><b>{eta}</b></div>
         <div class="journey-stat"><span>연 성장률</span><b>{growth_label}</b></div>
-        <div class="journey-stat"><span>앞으로 갈 길</span><b>{remaining_label}원</b></div>
+        <div class="journey-stat"><span>앞으로 갈 길</span><b>{remaining_label}</b></div>
       </div>
     </section>
     <section class="journey-visual" aria-label="자산 여정">
@@ -224,7 +224,7 @@ html,body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSys
       <div id="journey-panel" class="journey-panel">
         <b>현재 위치 {progress_label}</b>
         <p>걸어온 길 {progress_label} · 앞으로 갈 길 {_pct_text(1 - progress)}</p>
-        <p>목표까지 남은 금액은 {remaining_label}원, 현재 성장률 기준 예상 기간은 {eta}입니다.</p>
+        <p>목표까지 남은 금액은 {remaining_label}, 현재 성장률 기준 예상 기간은 {eta}입니다.</p>
       </div>
     </section>
   </div>

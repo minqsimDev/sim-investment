@@ -1666,6 +1666,23 @@ def _journey_set(key, value, username, is_guest) -> None:
         set_setting(username, key, value)
 
 
+def _estimate_start_value(positions: list[dict] | None, total: float) -> float:
+    """초기 투자금(원가) 추정 — 매입금액이 없어도 보유 수익률(gain_loss_pct)로 평가금액에서
+    역산해 실제 수익률이 반영되게(원가 = 평가금액 / (1+수익률/100)). 데이터 없으면 0.62×현재 폴백.
+    이전엔 무조건 0.62×현재라, 손실 포트폴리오도 '수익률 +61.3%'(=1/0.62-1)로 잘못 표기됐음."""
+    cost, ok = 0.0, False
+    for p in (positions or []):
+        mv = p.get("market_value")
+        if mv is None:
+            continue
+        gp = p.get("gain_loss_pct")
+        if gp is not None and (1 + gp / 100) > 0.01:
+            cost += mv / (1 + gp / 100); ok = True
+        else:
+            cost += mv
+    return cost if (ok and cost > 0) else max(1.0, total * 0.62)
+
+
 @st.fragment
 def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                           positions: list[dict] | None = None, fx: float | None = None) -> None:
@@ -1678,7 +1695,8 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
 
     username = st.session_state.get("username")
     target = int(_journey_get("target_value", username, is_guest, 1_500_000_000))
-    start_value = float(_journey_get("start_value", username, is_guest, max(1.0, current_value * 0.62)))
+    start_value = float(_journey_get("start_value", username, is_guest,
+                                     _estimate_start_value(positions, current_value)))
     sd_raw = _journey_get("start_date", username, is_guest, (_date.today() - timedelta(days=730)).isoformat())
     start_date = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
 
@@ -1821,12 +1839,15 @@ def _account_diag(positions: list[dict], total: float, cash: float,
     (총수익·KOSPI 대비·벤치마크 등이 화면마다 달라지던 문제 해소. bench 는 캐시 래퍼 하나로 통일.)"""
     from datetime import date as _date
     from core.pb import holdings_for_pb, pb_diagnostics
-    sval = float(_journey_get("start_value", uname, is_guest, max(1.0, total * 0.62)))
+    # 벤치마크 '내 포트폴리오 수익률'은 실제 원가(수익률 역산) 기준 — 여정의 초기투자금 설정값
+    # (사용자가 임의 설정/과거 기본값 저장 가능)에 묶이면 손실 종목도 +로 나오는 오류가 났음.
+    cost_basis = _estimate_start_value(positions, total)
+    sval = float(_journey_get("start_value", uname, is_guest, cost_basis))  # 여정 표시·설정용(저장값 우선)
     sd_raw = _journey_get("start_date", uname, is_guest,
                           (_date.today() - timedelta(days=730)).isoformat())
     sd = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
     bench = _get_bench_returns(sd.isoformat())            # 두 화면 동일한 캐시 소스
-    diag = pb_diagnostics(holdings_for_pb(positions), total, cash, sd, sval, bench)
+    diag = pb_diagnostics(holdings_for_pb(positions), total, cash, sd, cost_basis, bench)
     return {"diag": diag, "bench": bench, "start": sd, "start_value": sval}
 
 

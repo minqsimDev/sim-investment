@@ -60,10 +60,10 @@ def krw_compact(value) -> str:
         if man >= 10_000:          # 반올림 자리올림 → 억으로 승격
             eok += 1
             man = 0
-        return f"{sign}{eok:,}억" + (f" {man:,}만" if man else "")
+        return f"{sign}{eok:,}억" + (f" {man:,}만원" if man else "원")
     if v >= 10_000:
-        return f"{sign}{int(round(v / 10_000)):,}만"
-    return f"{sign}{v:,.0f}"
+        return f"{sign}{int(round(v / 10_000)):,}만원"
+    return f"{sign}{v:,.0f}원"
 
 
 def pct_weight(value) -> str:
