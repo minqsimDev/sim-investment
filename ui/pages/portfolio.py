@@ -1935,17 +1935,18 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
     for label, val, mine in rows:
         w = abs(val) / max_abs * 100
         sign = "+" if val >= 0 else "−"
+        # 음수(손실)는 '오른쪽→왼쪽' 채움(margin-left:auto)으로 양수와 반대 방향 → 채워진 막대가
+        # +처럼 보이던 문제 해소. 색도 하락=파랑(한국식)으로.
         if mine and val < 0:
-            # 내 포트폴리오가 손실이면 골드(긍정)로 보이면 안 됨 → 하락=파랑(한국식)로 명확히 음수 표기
-            bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN};margin-left:auto"></i>'
             valspan = f'<span class="bm-val mine" style="color:{DOWN}">−{abs(val):.1f}%</span>'
         elif mine:
             # 내 포트폴리오(이익·강조) = 골드
             bar = f'<i class="bm-mine" style="width:{w:.0f}%"></i>'
             valspan = f'<span class="bm-val mine">+{val:.1f}%</span>'
         elif val < 0:
-            # 벤치마크 손실: 하락=파랑
-            bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'
+            # 벤치마크 손실: 하락=파랑 + 오른쪽 채움
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN};margin-left:auto"></i>'
             valspan = f'<span class="bm-val" style="color:{DOWN}">−{abs(val):.1f}%</span>'
         else:
             bar = f'<i class="bm-other" style="width:{w:.0f}%"></i>'
