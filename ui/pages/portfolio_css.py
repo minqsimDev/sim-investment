@@ -524,15 +524,21 @@ _AJ_CSS = """<style>
 .aj-chart-trend svg{animation:aj-rise .8s cubic-bezier(.22,.61,.36,1) both;transform-origin:bottom}
 @keyframes aj-rise{from{transform:scaleY(0);opacity:.25}to{transform:scaleY(1);opacity:1}}
 /* 바 위 투명 오버레이 버튼 = '바 클릭'으로 추이 전환(아래 별도 버튼 없이). hover 시 옅은 골드 틴트 */
+/* 그래프 클릭=전환 오버레이. 컨테이너 testid 가 Streamlit 버전마다 다름
+   (1.37.x: element-container / 1.58.x: stElementContainer) → 양쪽 모두 매칭. */
 .aj-barclick-anchor{height:0;margin:0;padding:0;line-height:0}
-[data-testid="stVerticalBlock"]:has(> [data-testid="element-container"] .aj-barclick-anchor){gap:0!important}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"]{
+[data-testid="stVerticalBlock"]:has(> [data-testid="element-container"] .aj-barclick-anchor),
+[data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .aj-barclick-anchor){gap:0!important}
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"],
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"]{
   margin-top:-104px!important;height:120px!important;position:relative;z-index:6}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button{
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button,
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"] button{
   height:120px!important;width:100%!important;min-height:0!important;border:0!important;border-radius:12px!important;
   background:transparent!important;color:transparent!important;box-shadow:none!important;cursor:pointer!important;
   padding:0!important;transition:background .15s!important}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button:hover{
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"] button:hover{
   background:rgba(217,164,65,0.07)!important}
 .aj-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0}
