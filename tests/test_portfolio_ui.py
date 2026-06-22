@@ -83,21 +83,21 @@ def test_delete_holding_out_of_range_returns_unchanged_copy():
 
 
 def test_journey_eta_unreachable_when_growth_negative():
-    # 연 성장률(CAGR) 음수 → 현재 추세로는 목표 도달 불가
+    # 연 성장률(CAGR) 음수 → 현재 추세로는 투자 실패
     m = {"cagr_pct": -12.3, "years_to_goal": None}
-    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "목표 도달 불가"
+    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "투자 실패"
 
 
 def test_journey_eta_unreachable_when_growth_flat():
     m = {"cagr_pct": 0.0, "years_to_goal": None}
-    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "목표 도달 불가"
+    assert _journey_eta_display(m, current=50_000_000, target=100_000_000) == "투자 실패"
 
 
 def test_journey_eta_shows_period_when_growing():
-    # 성장 중이면 기간 라벨(목표 도달 불가가 아님)
+    # 성장 중이면 기간 라벨(투자 실패가 아님)
     m = {"cagr_pct": 8.0, "years_to_goal": 3.5}
     out = _journey_eta_display(m, current=50_000_000, target=100_000_000)
-    assert out != "목표 도달 불가"
+    assert out != "투자 실패"
     assert "년" in out or "개월" in out
 
 

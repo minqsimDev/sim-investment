@@ -1624,21 +1624,21 @@ def _asset_trend_svg(series) -> str:
 
 def _journey_eta_display(m: dict, current: float, target: float) -> str:
     """예상 기간 라벨. 이미 목표 도달이면 '목표 도달',
-    연 성장률(CAGR)이 0 이하면 현재 추세로는 닿지 못하므로 '목표 도달 불가',
+    연 성장률(CAGR)이 0 이하면 현재 추세로는 닿지 못하므로 '투자 실패',
     그 외에는 'N년 M개월'."""
     from core.journey import eta_label
     if target > 0 and current >= target:
         return "목표 도달"
     if m.get("cagr_pct", 0) <= 0:
-        return "목표 도달 불가"
+        return "투자 실패"
     return eta_label(m.get("years_to_goal"))
 
 
 def _journey_cards_html(current: float, m: dict, target: float = 0.0) -> str:
     from core.journey import krw_compact
     eta = _journey_eta_display(m, current, target)
-    unreachable = eta == "목표 도달 불가"
-    eta_cls = ' style="color:%s"' % DOWN if unreachable else ''      # 하락=파랑(한국식)
+    unreachable = eta == "투자 실패"
+    eta_cls = ' style="color:%s"' % _CONC_ALARM if unreachable else ''   # 위험경고=주황
     cagr = m["cagr_pct"]
     cagr_html = (f'<span style="color:{DOWN}">{cagr:.1f}%</span>'    # 음수 성장률=파랑
                  if cagr < 0 else f'{cagr:.1f}%')
