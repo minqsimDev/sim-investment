@@ -144,11 +144,18 @@ div[data-testid="stButton"] > button { width: auto !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
 /* 파일 업로더 한국어화 — 골드 점선 CTA(포트폴리오 화면 업로더와 통일) */
+/* 세로 중앙정렬 CTA: 안내문구 위 · '파일 선택' 버튼 아래 가운데(기본은 좌측 안내+우측 버튼이라 어색) */
 [data-testid="stFileUploaderDropzone"] {
   background: rgba(217,164,65,0.06) !important;
   border: 1.5px dashed rgba(217,164,65,0.5) !important;
   border-radius: 16px !important;
   transition: border-color .15s, background .15s;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  text-align: center !important;
+  padding: 22px 16px !important;
 }
 [data-testid="stFileUploaderDropzone"]:hover {
   border-color: #D9A441 !important;
@@ -164,22 +171,21 @@ div[data-testid="stButton"] > button { width: auto !important; }
 .scr-step em{display:block;color:#9AA0AD;font-size:12px;font-weight:700;font-style:normal;margin-top:1px}
 .scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}
 @media(max-width:640px){.scr-step-arr{display:none}.scr-step{min-width:0;flex:1 1 100%}}
-[data-testid="stFileUploaderDropzoneInstructions"] > div > span {
-  font-size: 0 !important;
+/* 안내문구: 원문(span/small) 숨기고 ::before/::after 로 교체(dash_style 와 동일·버전 견고) */
+[data-testid="stFileUploaderDropzoneInstructions"] {
+  display: flex !important; flex-direction: column !important;
+  align-items: center !important; justify-content: center !important; text-align: center !important;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] > div > span::after {
-  content: "파일을 여기에 드래그하거나";
-  font-size: 13px;
-  color: #C7CBD2;
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
+[data-testid="stFileUploaderDropzoneInstructions"]::before {
+  content: "여기로 이미지를 끌어다 놓으세요"; display: block;
+  font-size: 13px; font-weight: 750; color: #C7CBD2;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] > div > small {
-  font-size: 0 !important;
-}
-[data-testid="stFileUploaderDropzoneInstructions"] > div > small::after {
-  content: "최대 200MB · PNG, JPG, JPEG, WEBP";
-  font-size: 10px;
-  color: #7E8694;
+[data-testid="stFileUploaderDropzoneInstructions"]::after {
+  content: "최대 200MB · PNG, JPG, JPEG, WEBP"; display: block; margin-top: 3px;
+  font-size: 11px; font-weight: 600; color: #7E8694;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 [data-testid="stFileUploaderDropzone"] button {
