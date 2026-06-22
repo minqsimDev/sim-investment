@@ -177,33 +177,9 @@ def _market_price_maps(data: dict) -> dict[str, dict]:
     return maps
 
 
-# 둘 다 실패(완전 오프라인)할 때만 쓰는 최후 폴백. 평시엔 시장데이터(토스 우선)→보조 FX API가 최신 반영.
-_FX_FALLBACK = 1450.0
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def _fetch_live_usdkrw() -> float | None:
-    """시장데이터 USD/KRW(토스)가 없을 때 보조 USD/KRW — 무료 FX API(키 불필요, 15분 캐시)."""
-    import json
-    import urllib.request
-    try:
-        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=6) as r:
-            rate = json.load(r).get("rates", {}).get("KRW")
-        return float(rate) if rate else None
-    except Exception:
-        return None
-
-
-def _usdkrw(data: dict) -> float | None:
-    """USD/KRW. 1순위 시장데이터(USDKRW=X — 토스 우선·yfinance 폴백), 실패 시 보조 FX API."""
-    fx = data.get("fx", pd.DataFrame())
-    if fx is not None and not fx.empty and "pair" in fx.columns:
-        row = fx[fx["pair"] == "usd_krw"]
-        if not row.empty:
-            rate = _num(row.iloc[0].get("rate"))
-            if rate:
-                return rate
-    return _fetch_live_usdkrw()   # 시장데이터에 환율 없으면 보조 실시간 API(상수 폴백 아님)
+# USD/KRW 환율은 data/fx.py 단일 출처에 위임(이전엔 이 UI 파일 안에 자체 HTTP 호출이 박혀
+# 있었음). _usdkrw·_FX_FALLBACK 은 기존 호출부(`_usdkrw(data) or _FX_FALLBACK`) 호환 별칭.
+from data.fx import usdkrw as _usdkrw, FX_FALLBACK as _FX_FALLBACK
 
 
 def _category_for_holding(row: dict, ticker: str) -> str:
