@@ -584,7 +584,13 @@ hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
     content:"최대 200MB · PNG·JPG·JPEG"; display:block; margin-top:3px;
     font-size:11px; font-weight:600; color:{META};
 }}
-[data-testid="stFileUploaderDropzone"] button {{ font-size:0 !important; }}
+[data-testid="stFileUploaderDropzone"] button {{
+    font-size:0 !important; display:inline-flex !important;
+    align-items:center !important; justify-content:center !important; min-width:116px !important;
+}}
+/* P0 픽스: 원래 아이콘(SVG)·'Browse files' 노드 제거 — font-size:0 은 텍스트만 죽이고
+   SVG 는 width 가 남아 라벨이 우측으로 밀린다(로그인 업로더와 동일 버그). */
+[data-testid="stFileUploaderDropzone"] button > * {{ display:none !important; }}
 [data-testid="stFileUploaderDropzone"] button::after {{
     content:"파일 선택"; font-size:13px; font-weight:800;
 }}

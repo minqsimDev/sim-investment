@@ -182,22 +182,39 @@ div[data-testid="stButton"] > button { width: auto !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
   content: "여기로 이미지를 끌어다 놓으세요"; display: block;
-  font-size: 13px; font-weight: 750; color: #C7CBD2;
+  font-size: 14px; font-weight: 750; color: #C7CBD2;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 [data-testid="stFileUploaderDropzoneInstructions"]::after {
-  content: "최대 200MB · PNG, JPG, JPEG, WEBP"; display: block; margin-top: 3px;
+  content: "PNG · JPG · JPEG · WEBP"; display: block; margin-top: 3px;
   font-size: 11px; font-weight: 600; color: #7E8694;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 [data-testid="stFileUploaderDropzone"] button {
   font-size: 0 !important;
   color: transparent !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 116px !important;
+  padding: 8px 18px !important;
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(217,164,65,0.55) !important;
+  border-radius: 10px !important;
+  transition: background .15s, border-color .15s !important;
+}
+/* P0 픽스: 원래 아이콘(SVG)·'Browse files' 노드 제거 — font-size:0 은 텍스트만 죽이고
+   SVG 는 width 가 남아 라벨이 우측으로 밀린다. 자식 노드를 실제로 숨겨야 중앙정렬됨. */
+[data-testid="stFileUploaderDropzone"] button > * { display: none !important; }
+[data-testid="stFileUploaderDropzone"] button:hover {
+  background: rgba(217,164,65,0.14) !important;
+  border-color: #D9A441 !important;
 }
 [data-testid="stFileUploaderDropzone"] button::after {
   content: "파일 선택";
-  font-size: 12px;
-  color: #E7E9EE;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: #E7E9EE !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 </style>
