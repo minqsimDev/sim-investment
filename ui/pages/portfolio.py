@@ -228,7 +228,10 @@ def _display_currency(row: dict, ticker: str, category: str) -> str:
     currency = str(_first(row, "currency", "ccy") or "").upper()
     if currency in {"KRW", "USD"}:
         return currency
-    if category in {"국내주식", "ETF", "현금"} or ticker.endswith(".KS") or ticker.endswith(".KQ"):
+    # 크립토는 KRW 로 본다 — 국내 거래소(업비트·빗썸) 스크린샷의 평가금액이 원화이고,
+    # currency 미상일 때 USD 로 보면 ×환율(약 1530배)되어 총액이 폭증함(예: 1,200만→184억).
+    # render() 의 _to_krw 도 us_stock 만 환산하므로(크립토는 원화 취급) 두 경로를 일치시킴.
+    if category in {"국내주식", "ETF", "현금", "크립토", "원자재"} or ticker.endswith(".KS") or ticker.endswith(".KQ"):
         return "KRW"
     return "USD"
 
@@ -1718,13 +1721,18 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             # 목표수정: 톱니 아이콘만(헤더 제자리라 '설정'으로 직관적). 높이는 배지와 통일(28px)
             with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
                 st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
+                # value 는 반드시 [min,max] 범위 안이어야 함(작은 포트폴리오 — 예: 크립토 수백만원 —
+                # 에서 초기투자금이 0.1억 미만이면 StreamlitValueBelowMinError 로 여정이 통째로 깨졌음).
+                _TGT_MIN, _ST_MIN, _EOK_MAX = 0.1, 0.01, 2000.0
+                _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
+                _start_eok = min(_EOK_MAX, max(_ST_MIN, round(start_value / 1e8, 2)))
                 new_target_eok = st.number_input(
-                    "목표 금액 (억원)", min_value=1.0, max_value=2000.0,
-                    value=round(target / 1e8, 1), step=0.5, format="%.1f", key="aj_target_eok",
+                    "목표 금액 (억원)", min_value=_TGT_MIN, max_value=_EOK_MAX,
+                    value=_target_eok, step=0.5, format="%.1f", key="aj_target_eok",
                 )
                 new_start_eok = st.number_input(
-                    "초기 투자금 (억원)", min_value=0.1, max_value=2000.0,
-                    value=round(start_value / 1e8, 2), step=0.1, format="%.2f", key="aj_start_eok",
+                    "초기 투자금 (억원)", min_value=_ST_MIN, max_value=_EOK_MAX,
+                    value=_start_eok, step=0.1, format="%.2f", key="aj_start_eok",
                 )
                 new_start_date = st.date_input(
                     "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
