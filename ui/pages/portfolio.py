@@ -224,16 +224,22 @@ def _category_for_holding(row: dict, ticker: str) -> str:
     return "기타"
 
 
+def _holding_currency(row: dict, ticker: str = "", category: str = "") -> str:
+    """보유 1건의 환산·표시 통화(KRW|USD) — 전 화면 '보유→원화' 변환의 단일 출처(SSOT).
+
+    규칙: 명시 currency(KRW/USD) 우선 → 없으면 카테고리로 판정.
+    '미국주식'(us_stock)만 USD(×환율 대상), 그 외(국내·ETF·크립토·원자재·현금·기타)는 KRW.
+    크립토를 USD 로 보면 국내거래소 원화 평가금액에 ×환율되어 총액이 폭증함(예: 1,200만→184억).
+    render()·_render_portfolio_detail() 두 경로가 이 함수 하나만 쓰게 해 결과 불일치를 차단한다."""
+    cur = str(_first(row, "currency", "ccy") or "").upper()
+    if cur in {"KRW", "USD"}:
+        return cur
+    cat = category or _category_for_holding(row, ticker)
+    return "USD" if cat == "미국주식" else "KRW"
+
+
 def _display_currency(row: dict, ticker: str, category: str) -> str:
-    currency = str(_first(row, "currency", "ccy") or "").upper()
-    if currency in {"KRW", "USD"}:
-        return currency
-    # 크립토는 KRW 로 본다 — 국내 거래소(업비트·빗썸) 스크린샷의 평가금액이 원화이고,
-    # currency 미상일 때 USD 로 보면 ×환율(약 1530배)되어 총액이 폭증함(예: 1,200만→184억).
-    # render() 의 _to_krw 도 us_stock 만 환산하므로(크립토는 원화 취급) 두 경로를 일치시킴.
-    if category in {"국내주식", "ETF", "현금", "크립토", "원자재"} or ticker.endswith(".KS") or ticker.endswith(".KQ"):
-        return "KRW"
-    return "USD"
+    return _holding_currency(row, ticker, category)  # 하위호환 별칭 — 단일 출처 위임
 
 
 def _name_ticker_map(price_maps: dict[str, dict]) -> dict[str, str]:
@@ -644,12 +650,25 @@ _BRAND_SOLID = {
     "brand-green": "#3AA384", "brand-violet": "#7B6FD6", "brand-gold": "#D6A23A",
 }
 _STOCK_FALLBACK = ["#5E6573", "#4A515E", "#3E4450", "#33383F", "#2A2E36"]  # 브랜드 미상 종목(중립 회색)
+# 코인 고유색(배지 .coin-* 그라데이션의 대표 솔리드) — 집중도 바도 같은 색을 쓰게.
+_COIN_SOLID = {
+    "BTC": "#F7931A", "ETH": "#627EEA", "SOL": "#14F195", "ADA": "#0033AD",
+    "XRP": "#23A5DE", "DOGE": "#C2A633", "USDT": "#26A17B", "USDC": "#2775CA",
+}
 
 
-def _stock_bar_color(ticker: str, idx: int) -> str:
-    """종목 → 고유 브랜드 색(있으면), 없으면 중립 회색 차등."""
-    cls = _BRAND_CLASSES.get(_ticker_key(ticker), "")
-    return _BRAND_SOLID.get(cls, _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)])
+def _stock_bar_color(pos, idx: int) -> str:
+    """종목 → 고유 브랜드/코인 색. 크립토는 코인 고유색, 그 외 브랜드 미상은 중립 회색 차등."""
+    ticker = str((pos.get("ticker", "") if isinstance(pos, dict) else pos) or "")
+    key = _ticker_key(ticker)
+    cls = _BRAND_CLASSES.get(key, "")
+    if cls:
+        return _BRAND_SOLID.get(cls, _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)])
+    if isinstance(pos, dict):
+        ac = str(pos.get("asset_class") or "").lower()
+        if pos.get("category") == "크립토" or "crypto" in ac:
+            return _COIN_SOLID.get(key.replace("-USD", ""), _CAT_COLOR.get("크립토", "#F0A030"))
+    return _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)]
 
 
 def _conc_color(rank: int, leader_alarm: bool) -> str:
@@ -706,7 +725,7 @@ def _holdings_concentration_html(positions: list[dict]) -> str:
     bars, legends = [], []
     for i, p in enumerate(colored):
         w = p.get("weight", 0)
-        c = _stock_bar_color(p.get("ticker", ""), i)
+        c = _stock_bar_color(p, i)
         nm = _escape(p.get("name", ""))
         bars.append(f'<i style="width:{w:.1f}%;background:{c}" title="{nm} {pct_weight(w)}%"></i>')
         legends.append(f'<span><i class="pd-mini-dot" style="background:{c}"></i>{nm} {pct_weight(w)}%</span>')
@@ -2628,7 +2647,7 @@ def render():
         _fx = _usdkrw(data) or _FX_FALLBACK
         def _to_krw(h: dict, field: str) -> float:
             val = float(h.get(field) or 0)
-            if val and h.get("asset_class") == "us_stock":
+            if val and _holding_currency(h, str(h.get("ticker") or "")) == "USD":  # 단일 출처
                 val *= _fx
             return val
         live_holdings_total = sum(_to_krw(h, "평가금액") for h in brokerage_holdings)
