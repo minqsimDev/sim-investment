@@ -4,12 +4,14 @@ from PIL import Image
 import streamlit as st
 from dotenv import load_dotenv
 
+from core.brand import APP_NAME
+
 load_dotenv()
 
 _icon = Image.open(Path(__file__).parent / "assets" / "intro" / "sim_heart_logo_transparent.png")
 
 st.set_page_config(
-    page_title="SIM INVESTMENT",
+    page_title=APP_NAME,
     page_icon=_icon,
     layout="wide",
 )

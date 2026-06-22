@@ -7,6 +7,8 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
+from core.brand import APP_NAME, APP_TAGLINE, LOGO_CHAR
+
 # ── Color tokens (Dark Theme) ─────────────────────────────────────────────────
 NAVY     = "#F3F5F8"   # headings (text only — bg uses BASALT)
 CHARCOAL = "#9AA0AD"   # medium text
@@ -923,7 +925,7 @@ def _asset_data_uri(filename: str, mime: str = "image/png") -> str:
 
 def render_shell_header(pages=None):
     logo_src = _asset_data_uri("sim_heart_logo_transparent.png") or _asset_data_uri("sim_heart_logo.png")
-    logo_html = f'<img src="{logo_src}" alt="SIM INVESTMENT 心 로고">' if logo_src else "<span>心</span>"
+    logo_html = f'<img src="{logo_src}" alt="{APP_NAME} {LOGO_CHAR} 로고">' if logo_src else f"<span>{LOGO_CHAR}</span>"
     is_guest = st.session_state.get("auth_role") == "guest"
     _username = st.session_state.get("username", "")
     if is_guest:
@@ -959,11 +961,11 @@ def render_shell_header(pages=None):
         f"""
 <div class="sv-shell">
   <div class="sv-app-header">
-    <a class="sv-brand" href="/" target="_self" aria-label="SIM INVESTMENT 홈">
+    <a class="sv-brand" href="/" target="_self" aria-label="{APP_NAME} 홈">
       <div class="sv-logo">{logo_html}</div>
       <div>
-        <h1>SIM INVESTMENT</h1>
-        <p>진심으로 보는 투자</p>
+        <h1>{APP_NAME}</h1>
+        <p>{APP_TAGLINE}</p>
       </div>
     </a>
     <nav class="sv-nav" aria-label="주요 메뉴">
@@ -1181,7 +1183,7 @@ def jj_alert_strip(title: str, note: str = "", icon: str = "!") -> str:
     )
 
 
-def jj_footer(text: str = "SIM INVESTMENT · 데이터는 참고용이며 매매 권유가 아닙니다.") -> str:
+def jj_footer(text: str = f"{APP_NAME} · 데이터는 참고용이며 매매 권유가 아닙니다.") -> str:
     return f'<div class="jj-footer">{text}</div>'
 
 

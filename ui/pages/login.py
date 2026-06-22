@@ -3,6 +3,7 @@ import streamlit as st
 from pathlib import Path
 
 from core.accounts import authenticate, create_account, get_portfolios, save_portfolio, has_accounts
+from core.brand import APP_NAME
 
 _ASSETS = Path(__file__).parent.parent.parent / "assets" / "intro"
 
@@ -388,7 +389,7 @@ def _logo_header(subtitle: str = "") -> str:
   <img src="data:image/png;base64,{logo}" width="60" height="60" alt="心"
        style="display:block;opacity:0.95;filter:brightness(0) invert(1);">
   <!-- #1: 브랜드명이 검정(#1c1a14)이라 안 보이던 문제 → 밝은 흰색으로 -->
-  <div style="font-size:15px;letter-spacing:0.18em;font-weight:800;color:#EFE8D6;margin-top:8px;">SIM INVESTMENT</div>
+  <div style="font-size:15px;letter-spacing:0.18em;font-weight:800;color:#EFE8D6;margin-top:8px;">{APP_NAME}</div>
   {sub_html}
 </div>
 """
@@ -427,7 +428,7 @@ def _render_landing() -> None:
     <div class="sim-logo">
       <img src="data:image/png;base64,{logo}" alt="心">
     </div>
-    <div class="sim-title">SIM INVESTMENT</div>
+    <div class="sim-title">{APP_NAME}</div>
     <div class="sim-sub">진심<b>(心)</b>으로 보는 투자</div>
     <div class="sim-value">내 포트폴리오의 가장 큰 리스크를 먼저 짚어주는 투자 코치</div>
     <div class="sim-btns">
