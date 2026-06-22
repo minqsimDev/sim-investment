@@ -584,14 +584,16 @@ hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
     content:"최대 200MB · PNG·JPG·JPEG"; display:block; margin-top:3px;
     font-size:11px; font-weight:600; color:{META};
 }}
-[data-testid="stFileUploaderDropzone"] button {{
+/* '파일 선택' 라벨/스타일은 브라우즈 버튼만 — 업로드 후 칩의 삭제(Remove)·추가(Add files)
+   버튼은 제외(그것들까지 '파일 선택'으로 둔갑 방지). 브라우즈 버튼 aria-label 은 빈값. */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) {{
     font-size:0 !important; display:inline-flex !important;
     align-items:center !important; justify-content:center !important; min-width:116px !important;
 }}
 /* P0 픽스: 버튼 내용(아이콘 폰트 div + 'Browse files')을 숨겨 ::after 라벨을 정중앙에.
-   아이콘이 svg 가 아니라 Material 폰트 글리프 → 자식 전체. input 은 보호(:not(input)). */
-[data-testid="stFileUploaderDropzone"] button > *:not(input) {{ display:none !important; }}
-[data-testid="stFileUploaderDropzone"] button::after {{
+   아이콘이 svg 가 아니라 Material 폰트 글리프 → 자식 전체. input 보호 + 칩 버튼 제외. */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) > *:not(input) {{ display:none !important; }}
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"])::after {{
     content:"파일 선택"; font-size:13px; font-weight:800;
 }}
 div[data-testid="stCaption"] {{ font-size:12px !important; color:{META} !important; }}

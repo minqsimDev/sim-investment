@@ -197,7 +197,10 @@ div[data-testid="stButton"] > button { width: auto !important; }
   font-size: 11px; font-weight: 600; color: #7E8694;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
-[data-testid="stFileUploaderDropzone"] button {
+/* 아래 '파일 선택' 버튼 스타일/라벨은 *브라우즈 버튼만* 대상.
+   파일 업로드 후 나타나는 칩의 삭제(aria-label^="Remove")·추가(aria-label="Add files")
+   버튼까지 '파일 선택'으로 둔갑시키면 안 되므로 명시적으로 제외(브라우즈 버튼 aria-label="" 빈값). */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) {
   font-size: 0 !important;
   color: transparent !important;
   display: inline-flex !important;
@@ -210,15 +213,15 @@ div[data-testid="stButton"] > button { width: auto !important; }
   border-radius: 10px !important;
   transition: background .15s, border-color .15s !important;
 }
-/* P0 픽스: 원래 버튼 내용(아이콘 폰트 div + 'Browse files' 텍스트)을 숨겨 ::after 라벨을
-   정중앙에. 아이콘이 svg 가 아니라 Material 폰트 글리프라 'svg' 셀렉터론 안 잡힘 → 자식 전체.
-   단, 파일 input(<input>)은 보호(:not(input)) — 버전별 DOM 달라도 파일 선택이 안 막히게. */
-[data-testid="stFileUploaderDropzone"] button > *:not(input) { display: none !important; }
-[data-testid="stFileUploaderDropzone"] button:hover {
+/* P0 픽스: 버튼 내용(아이콘 폰트 div + 'Browse files')을 숨겨 ::after 라벨을 정중앙에.
+   아이콘이 svg 가 아니라 Material 폰트 글리프라 'svg' 셀렉터론 안 잡힘 → 자식 전체.
+   파일 input 보호(:not(input)) + 칩 버튼 제외(위와 동일). */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) > *:not(input) { display: none !important; }
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]):hover {
   background: rgba(217,164,65,0.14) !important;
   border-color: #D9A441 !important;
 }
-[data-testid="stFileUploaderDropzone"] button::after {
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"])::after {
   content: "파일 선택";
   font-size: 13px !important;
   font-weight: 800 !important;
