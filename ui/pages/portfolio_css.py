@@ -273,7 +273,8 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .pd-back{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:850;color:#9AA0AD!important;
   text-decoration:none;margin:2px 0 10px}
 .pd-back:hover{color:#E7E9EE}
-.pd-diagnosis-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px}
+/* 카드 수(3~5)에 맞춰 한 줄을 채움 — 3열 고정 시 4번째가 외톨이로 떨어지던 문제 해소 */
+.pd-diagnosis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:16px}
 .pd-diagnosis-item{border:1px solid #262A33;border-radius:10px;background:#1E2029;padding:10px 11px;border-left:3px solid #262A33}
 .pd-diagnosis-item strong{display:block;color:#E7E9EE;font-size:12px;font-weight:950;margin-bottom:4px}
 .pd-diagnosis-item span{display:block;color:#9AA0AD;font-size:11px;font-weight:760;line-height:1.45}
