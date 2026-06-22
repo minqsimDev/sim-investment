@@ -210,9 +210,10 @@ div[data-testid="stButton"] > button { width: auto !important; }
   border-radius: 10px !important;
   transition: background .15s, border-color .15s !important;
 }
-/* P0 픽스: 원래 아이콘(SVG)만 숨김 — font-size:0 은 텍스트만 죽이고 SVG 는 width 가 남아
-   라벨이 우측으로 밀림. svg 만 타겟(파일 input 등 다른 노드는 절대 건드리지 않게 — 안전). */
-[data-testid="stFileUploaderDropzone"] button svg { display: none !important; }
+/* P0 픽스: 원래 버튼 내용(아이콘 폰트 div + 'Browse files' 텍스트)을 숨겨 ::after 라벨을
+   정중앙에. 아이콘이 svg 가 아니라 Material 폰트 글리프라 'svg' 셀렉터론 안 잡힘 → 자식 전체.
+   단, 파일 input(<input>)은 보호(:not(input)) — 버전별 DOM 달라도 파일 선택이 안 막히게. */
+[data-testid="stFileUploaderDropzone"] button > *:not(input) { display: none !important; }
 [data-testid="stFileUploaderDropzone"] button:hover {
   background: rgba(217,164,65,0.14) !important;
   border-color: #D9A441 !important;

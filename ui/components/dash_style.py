@@ -588,9 +588,9 @@ hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
     font-size:0 !important; display:inline-flex !important;
     align-items:center !important; justify-content:center !important; min-width:116px !important;
 }}
-/* P0 픽스: 원래 아이콘(SVG)만 숨김 — font-size:0 은 텍스트만 죽이고 SVG 는 width 가 남아
-   라벨이 우측으로 밀림(로그인 업로더와 동일). svg 만 타겟(파일 input 보호 — 안전). */
-[data-testid="stFileUploaderDropzone"] button svg {{ display:none !important; }}
+/* P0 픽스: 버튼 내용(아이콘 폰트 div + 'Browse files')을 숨겨 ::after 라벨을 정중앙에.
+   아이콘이 svg 가 아니라 Material 폰트 글리프 → 자식 전체. input 은 보호(:not(input)). */
+[data-testid="stFileUploaderDropzone"] button > *:not(input) {{ display:none !important; }}
 [data-testid="stFileUploaderDropzone"] button::after {{
     content:"파일 선택"; font-size:13px; font-weight:800;
 }}
