@@ -1690,8 +1690,10 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
 
     username = st.session_state.get("username")
     target = int(_journey_get("target_value", username, is_guest, 1_500_000_000))
-    start_value = float(_journey_get("start_value", username, is_guest,
-                                     _estimate_start_value(positions, current_value)))
+    # 초기 투자금은 보유 수익률 역산 원가(=실제 투자원금)로 자동 산출 — 벤치마크 수익률과 동일 기준.
+    # (이전엔 게어의 수동 입력값을 저장·사용했는데, 키 위젯의 stale 세션값이 재저장돼 손실인데도
+    #  연 성장률이 +로 나오는 오류가 반복됨. 자동 원가로 단일화해 벤치마크와 일관성 확보.)
+    start_value = _estimate_start_value(positions, current_value)
     sd_raw = _journey_get("start_date", username, is_guest, (_date.today() - timedelta(days=730)).isoformat())
     start_date = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
 
@@ -1734,37 +1736,28 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             # 목표수정: 톱니 아이콘만(헤더 제자리라 '설정'으로 직관적). 높이는 배지와 통일(28px)
             with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
                 st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
-                # value 는 반드시 [min,max] 범위 안이어야 함(작은 포트폴리오 — 예: 크립토 수백만원 —
-                # 에서 초기투자금이 0.1억 미만이면 StreamlitValueBelowMinError 로 여정이 통째로 깨졌음).
-                _TGT_MIN, _ST_MIN, _EOK_MAX = 0.1, 0.01, 2000.0
+                # 목표 금액(억원, 작은 포트폴리오 대비 value clamp). 초기투자금은 보유 원가로 자동
+                # 산출하므로 입력 제거(키 위젯 stale 세션값이 재저장돼 연 성장률이 잘못 나오던 오염원).
+                _TGT_MIN, _EOK_MAX = 0.1, 2000.0
                 _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
-                _start_eok = min(_EOK_MAX, max(_ST_MIN, round(start_value / 1e8, 2)))
                 new_target_eok = st.number_input(
                     "목표 금액 (억원)", min_value=_TGT_MIN, max_value=_EOK_MAX,
                     value=_target_eok, step=0.5, format="%.1f", key="aj_target_eok",
                 )
-                new_start_eok = st.number_input(
-                    "초기 투자금 (억원)", min_value=_ST_MIN, max_value=_EOK_MAX,
-                    value=_start_eok, step=0.1, format="%.2f", key="aj_start_eok",
-                )
                 new_start_date = st.date_input(
                     "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
                 )
-                st.caption("초기 투자금·시작일로 연 성장률(CAGR)과 예상 기간을 자동 계산합니다.")
+                st.caption("초기 투자금은 보유 원가로 자동 산출 · 시작일로 연 성장률(CAGR)·예상 기간을 계산합니다.")
 
                 new_target = int(round(new_target_eok * 1e8))
-                new_start = float(round(new_start_eok * 1e8))
                 changed = False
-                # 사용자가 입력값을 실제로 변경했을 때만 저장(표시된 기본값과 비교). 이전엔 원본값과
-                # 비교해, 반올림된 기본값이 '편집'으로 오인돼 stale 한 초기투자금이 저장되곤 했음.
+                # 사용자가 입력값을 실제로 변경했을 때만 저장(표시된 기본값과 비교).
                 if new_target_eok != _target_eok:
                     _journey_set("target_value", new_target, username, is_guest); changed = True
-                if new_start_eok != _start_eok:
-                    _journey_set("start_value", new_start, username, is_guest); changed = True
                 if new_start_date.isoformat() != start_date.isoformat():
                     _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
                 if changed:
-                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일/초기자본 반영
+                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일 반영
         # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
         open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
         chart_svg = _hl_label = _hl_val = None
