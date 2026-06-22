@@ -119,7 +119,7 @@ div[data-testid="stFormSubmitButton"] > button {
   width: 100%;
   height: 50px;
   border-radius: 12px;
-  background: #D9A441 !important;
+  background: var(--sv-gold) !important;
   color: #0E0F13 !important;
   border: none !important;
   font-size: 13px !important;
@@ -169,7 +169,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
 [data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] button:hover,
 [data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] button:hover {
   background: linear-gradient(180deg, rgba(217,164,65,0.32), rgba(217,164,65,0.19)) !important;
-  border-color: #D9A441 !important; transform: translateY(-1px) !important;
+  border-color: var(--sv-gold) !important; transform: translateY(-1px) !important;
   box-shadow: 0 8px 22px rgba(217,164,65,0.24), inset 0 1px 0 rgba(255,255,255,0.08) !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
@@ -188,7 +188,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
   padding: 22px 16px !important;
 }
 [data-testid="stFileUploaderDropzone"]:hover {
-  border-color: #D9A441 !important;
+  border-color: var(--sv-gold) !important;
   background: rgba(217,164,65,0.12) !important;
 }
 /* 3단계 시각 안내(① 캡처 → ② 끌어놓기 → ③ 자동 인식) — 포트폴리오 업로더와 동일 */
@@ -196,7 +196,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
 .scr-step{display:flex;align-items:center;gap:9px;flex:1;min-width:150px;
   background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:10px 12px}
 .scr-step-n{flex:0 0 22px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
-  background:rgba(217,164,65,.15);color:#D9A441;font-size:12px;font-weight:950}
+  background:rgba(217,164,65,.15);color:var(--sv-gold);font-size:12px;font-weight:950}
 .scr-step b{display:block;color:#E7E9EE;font-size:13px;font-weight:850}
 .scr-step em{display:block;color:#9AA0AD;font-size:12px;font-weight:700;font-style:normal;margin-top:1px}
 .scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}
@@ -242,7 +242,7 @@ div[data-testid="stButton"] > button { width: auto !important; }
 [data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) > *:not(input) { display: none !important; }
 [data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]):hover {
   background: rgba(217,164,65,0.14) !important;
-  border-color: #D9A441 !important;
+  border-color: var(--sv-gold) !important;
 }
 [data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"])::after {
   content: "파일 선택";
@@ -282,7 +282,7 @@ _LOGO_ANIM_CSS = """
     opacity: 0; margin-top: 8px; font-size: 13px; letter-spacing: 0.04em;
     font-weight: 600; color: #C9CDD4; animation: sim-fade 1s ease forwards 3.6s;
   }
-  .sim-sub b { color: #D9A441; font-weight: 800; }
+  .sim-sub b { color: var(--sv-gold); font-weight: 800; }
   .sim-value {
     opacity: 0; margin-top: 6px; font-size: 11.5px; letter-spacing: 0.01em;
     color: #9AA0AD; text-align: center; line-height: 1.5; max-width: 320px;
@@ -296,7 +296,7 @@ _LOGO_ANIM_CSS = """
   .sim-btn-primary {
     display: flex; align-items: center; justify-content: center;
     width: 100%; height: 50px; border-radius: 12px;
-    background: #D9A441; color: #0E0F13 !important; border: none;
+    background: var(--sv-gold); color: #0E0F13 !important; border: none;
     font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
     text-decoration: none !important; cursor: pointer;
     transition: background 0.2s, transform 0.12s;
@@ -312,7 +312,7 @@ _LOGO_ANIM_CSS = """
     text-decoration: none !important; cursor: pointer;
     transition: background 0.2s, border-color 0.2s;
   }
-  .sim-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: #D9A441; }
+  .sim-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: var(--sv-gold); }
   .sim-btn-guest {
     display: flex; align-items: center; justify-content: space-between;
     width: 100%; height: 48px; border-radius: 12px; padding: 0 18px;
@@ -323,8 +323,8 @@ _LOGO_ANIM_CSS = """
     transition: background 0.2s, border-color 0.2s;
   }
   .sim-btn-guest .g-arrow { color: #9AA0AD; font-weight: 700; }
-  .sim-btn-guest:hover { background: #22262F; border-color: #D9A441; }
-  .sim-btn-guest:hover .g-arrow { color: #D9A441; }
+  .sim-btn-guest:hover { background: #22262F; border-color: var(--sv-gold); }
+  .sim-btn-guest:hover .g-arrow { color: var(--sv-gold); }
   .sim-guest-note {
     margin-top: 7px; font-size: 11px; color: #7E8694; letter-spacing: 0.02em;
   }
@@ -332,7 +332,7 @@ _LOGO_ANIM_CSS = """
     margin-top: 20px; font-size: 12.5px; color: #9AA0AD !important;
     text-decoration: none !important; letter-spacing: 0.01em;
   }
-  .sim-signup-link b { color: #D9A441; font-weight: 700; }
+  .sim-signup-link b { color: var(--sv-gold); font-weight: 700; }
   .sim-signup-link:hover b { color: rgba(217,164,65,0.82); }
   .sim-trust {
     /* WCAG AA(#5): 면책 문구 대비 2.35:1 → 5.2:1 (캡션 토큰과 통일) */

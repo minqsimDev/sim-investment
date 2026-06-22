@@ -723,7 +723,7 @@ _MARKET_CSS = f"""<style>
   padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700}}
 .risk-card-badge.high{{background:rgba(242,85,96,0.15);color:#F25560;
   border:1px solid rgba(242,85,96,0.30)}}
-.risk-card-badge.mid{{background:rgba(217,164,65,0.15);color:#D9A441;
+.risk-card-badge.mid{{background:rgba(217,164,65,0.15);color:var(--sv-gold);
   border:1px solid rgba(217,164,65,0.30)}}
 .risk-card-badge.low{{background:rgba(63,178,127,0.15);color:#3FB27F;
   border:1px solid rgba(63,178,127,0.28)}}
@@ -732,7 +732,7 @@ _MARKET_CSS = f"""<style>
 .risk-alert{{border-radius:16px;padding:14px 18px;margin-bottom:12px;
   font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px}}
 .risk-alert.red{{background:rgba(242,85,96,0.10);border:1px solid rgba(242,85,96,0.30);color:#F25560}}
-.risk-alert.amber{{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.32);color:#D9A441}}
+.risk-alert.amber{{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.32);color:var(--sv-gold)}}
 .risk-hist-card{{background:#16181F;border:1px solid {BORDER};
   border-radius:20px;padding:18px 20px;box-shadow:0 4px 16px rgba(0,0,0,0.25);
   margin-bottom:16px}}
@@ -791,7 +791,7 @@ _JEJU_CSS = f"""<style>
   font-size:11px;font-weight:800;background:rgba(255,255,255,0.06);color:{CHARCOAL};
   margin:3px 4px 0 0;letter-spacing:0.01em;white-space:nowrap}}
 .jj-tag.dark{{background:{ACCENT};color:#0E0F13}}
-.jj-tag.orange{{background:rgba(217,164,65,0.16);color:#D9A441}}
+.jj-tag.orange{{background:rgba(217,164,65,0.16);color:var(--sv-gold)}}
 .jj-tag.green{{background:rgba(242,85,96,0.14);color:#F25560}}
 .jj-tag.red{{background:rgba(77,144,240,0.14);color:#4D90F0}}
 .jj-tag.sea{{background:rgba(159,203,211,0.20);color:#3a5458}}

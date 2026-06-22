@@ -5,6 +5,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from core.brand import APP_NAME
+from siminvest_theme import theme_root_css
 
 load_dotenv()
 
@@ -15,6 +16,10 @@ st.set_page_config(
     page_icon=_icon,
     layout="wide",
 )
+
+# 색 토큰(:root CSS 변수) 전역 주입 — 인증 게이트보다 먼저(로그인 포함 모든 페이지가
+# var(--sv-gold) 등을 쓸 수 있게). 색의 단일 출처는 siminvest_theme.py.
+st.markdown(theme_root_css(), unsafe_allow_html=True)
 
 
 # ── Cache warming (서버 부팅 1회) ────────────────────────────────────────────────
