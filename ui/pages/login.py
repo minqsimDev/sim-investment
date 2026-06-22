@@ -148,24 +148,28 @@ div[data-testid="stButton"] > button { width: auto !important; }
    콘텐츠가 컬럼을 꽉 채우므로 기본(컬럼 좌측)에 이미 정렬됨 — 여기엔 적용 안 함. */
 [data-testid="stVerticalBlock"]:has([data-testid="stForm"]) div[data-testid="stButton"] {
   max-width: 420px !important; margin-left: auto !important; margin-right: auto !important; }
-/* 셋업 CTA(분석하기·저장하고 시작·기존 포트폴리오) = 위 카드(드롭존) 폭에 맞춘 반투명 골드 버튼.
-   (돌아가기 등 보조 링크와 구분해 key 로 타겟. ※ st-key 클래스는 Streamlit 1.39+; 1.37.x 에선
-   미적용되어 기본 텍스트 버튼으로 폴백 — 깨지진 않음.) */
-.st-key-btn_analyze div[data-testid="stButton"],
-.st-key-btn_save_portfolio div[data-testid="stButton"],
-.st-key-btn_use_existing div[data-testid="stButton"] {
-  max-width: none !important; width: 100% !important; margin: 8px auto 0 !important; }
-.st-key-btn_analyze div[data-testid="stButton"] > button,
-.st-key-btn_save_portfolio div[data-testid="stButton"] > button,
-.st-key-btn_use_existing div[data-testid="stButton"] > button {
-  width: 100% !important; height: auto !important; padding: 12px 16px !important;
-  background: rgba(217,164,65,0.12) !important; border: 1px solid rgba(217,164,65,0.55) !important;
-  border-radius: 12px !important; color: #E7E9EE !important;
-  font-size: 14px !important; font-weight: 750 !important; letter-spacing: 0.02em !important; }
-.st-key-btn_analyze div[data-testid="stButton"] > button:hover,
-.st-key-btn_save_portfolio div[data-testid="stButton"] > button:hover,
-.st-key-btn_use_existing div[data-testid="stButton"] > button:hover {
-  background: rgba(217,164,65,0.20) !important; border-color: #D9A441 !important; }
+/* 셋업 CTA(분석하기·저장하고 시작·기존 포트폴리오) = 카드 폭 골드 버튼.
+   버전 무관: st-key(1.39+) 대신 버튼 앞 마커(span.sv-cta-anchor) + 인접 선택자로 타겟.
+   컨테이너 testid 가 버전마다 달라(element-container/stElementContainer) 양쪽 매칭.
+   (:has 는 브라우저 기능이라 Streamlit 버전과 무관.) 돌아가기 등은 마커 없어 미적용. */
+[data-testid="element-container"]:has(.sv-cta-anchor),
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) { display:none !important; }  /* 마커 ec 숨김(공간 0, 인접 선택은 유지) */
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] div[data-testid="stButton"],
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] div[data-testid="stButton"] {
+  max-width: none !important; width: 100% !important; margin: 6px auto 2px !important; }
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] button,
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] button {
+  width: 100% !important; height: auto !important; padding: 13px 16px !important;
+  background: linear-gradient(180deg, rgba(217,164,65,0.20), rgba(217,164,65,0.11)) !important;
+  border: 1px solid rgba(217,164,65,0.6) !important; border-radius: 12px !important;
+  color: #F4E4C1 !important; font-size: 14px !important; font-weight: 800 !important; letter-spacing: 0.02em !important;
+  box-shadow: 0 4px 14px rgba(217,164,65,0.12), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  transition: filter .15s, box-shadow .15s, transform .12s, background .2s !important; }
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] button:hover {
+  background: linear-gradient(180deg, rgba(217,164,65,0.32), rgba(217,164,65,0.19)) !important;
+  border-color: #D9A441 !important; transform: translateY(-1px) !important;
+  box-shadow: 0 8px 22px rgba(217,164,65,0.24), inset 0 1px 0 rgba(255,255,255,0.08) !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
 /* 파일 업로더 한국어화 — 골드 점선 CTA(포트폴리오 화면 업로더와 통일) */
@@ -604,6 +608,8 @@ def _render_portfolio_setup() -> None:
         )
 
         has_files = bool(uploaded)
+        if has_files:  # CTA 골드 스타일 마커(버전 무관 CSS 타겟) — 버튼 바로 앞
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
         analyze_clicked = has_files and st.button("분석하기", key="btn_analyze", use_container_width=True)
 
     if analyze_clicked:
@@ -653,6 +659,7 @@ def _render_portfolio_setup() -> None:
 
             pf_name = st.text_input("포트폴리오 이름", value="내 포트폴리오", key="pf_name_input")
 
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
             if st.button("저장하고 시작", key="btn_save_portfolio", use_container_width=True):
                 name = pf_name.strip() or "내 포트폴리오"
                 save_portfolio(username, parsed, name=name)
@@ -672,6 +679,7 @@ def _render_portfolio_setup() -> None:
 
         existing = get_portfolios(username)
         if existing:
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
             if st.button("기존 포트폴리오로 시작", key="btn_use_existing", use_container_width=True):
                 first = existing[0]
                 st.session_state.pop("_parsed_holdings", None)
