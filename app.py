@@ -58,6 +58,41 @@ def _warm_caches_once():
 
 _warm_caches_once()
 
+# 연결 끊김 시 뜨는 Streamlit 기본 'Connection error' 모달(영어·개발자용 문구,
+# 'streamlit run yourscript.py' 등)을 한국어 안내로 교체. 인증 게이트보다 먼저 — 로그인
+# 화면 포함 모든 페이지에서 끊김이 날 수 있으므로 항상 주입한다. 모달은 stApp 밖으로 portal
+# 되고 버전마다 DOM 이 달라 CSS 셀렉터가 불안정 → 텍스트로 식별해 rewrite. 연결 에러 문구는
+# 앱 자체 st.dialog 엔 절대 안 나오므로 오인 교체 위험 없음. (liquid_bg 와 동일한 부모 주입 패턴)
+from ui.components.html_embed import embed_html as _embed_html
+
+_conn_i18n_parent = (
+    "(function(){"
+    "if(window.__svConnObs) return;"
+    "function fix(){"
+    "  document.querySelectorAll('[data-testid=\"stDialog\"] [role=\"dialog\"]').forEach(function(d){"
+    "    var t=d.innerText||'';"
+    "    if(!/Connection error|Streamlit server is not responding|Is Streamlit still running/.test(t)) return;"
+    "    var head=d.children[0], body=d.children[1];"
+    "    if(head && head.getAttribute('data-sv-i18n')!=='1'){head.textContent='연결이 잠시 끊겼어요';head.setAttribute('data-sv-i18n','1');}"
+    "    if(body && body.getAttribute('data-sv-i18n')!=='1'){body.textContent='서버에 다시 연결하는 중입니다. 대개 잠시 후 자동으로 복구돼요. 계속되면 페이지를 새로고침해 주세요.';body.setAttribute('data-sv-i18n','1');}"
+    "  });"
+    "}"
+    "window.__svConnObs=new MutationObserver(fix);"
+    "window.__svConnObs.observe(document.body,{childList:true,subtree:true});"
+    "fix();"
+    "})();"
+)
+_conn_boot = (
+    '<script type="text/plain" id="sv-conn-src">' + _conn_i18n_parent + "</script>"
+    "<script>(function(){try{"
+    "var pdoc=window.parent.document, pwin=window.parent;"
+    "if(pwin.__svConnInjected) return; pwin.__svConnInjected=true;"
+    "var c=document.getElementById('sv-conn-src').textContent;"
+    "var s=pdoc.createElement('script'); s.textContent=c; pdoc.body.appendChild(s);"
+    "}catch(e){console.error('conn-i18n',e);}})();</script>"
+)
+_embed_html(_conn_boot, height=0)
+
 # ── Logout — 게스트/로그인 세션 종료 후 로그인 랜딩으로 ──────────────────────────
 if st.query_params.get("logout") == "1":
     for _k in ("authenticated", "auth_role", "username", "brokerage_provider",
