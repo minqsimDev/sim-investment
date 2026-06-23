@@ -1709,6 +1709,32 @@ def _estimate_start_value(positions: list[dict] | None, total: float) -> float:
     return cost if (ok and cost > 0) else max(1.0, total * 0.62)
 
 
+def _journey_gear_popover(target: int, start_date, username: str | None, is_guest: bool) -> None:
+    """여정 설정 팝오버(목표 금액·시작일) — 헤더/카드 상단 어디서든 재사용."""
+    from datetime import date as _date
+    with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
+        st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
+        # 목표 금액(억원). 초기투자금은 보유 원가로 자동 산출(stale 세션값 오염 방지).
+        _TGT_MIN, _EOK_MAX = 0.1, 2000.0
+        _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
+        new_target_eok = st.number_input(
+            "목표 금액 (억원)", min_value=_TGT_MIN, max_value=_EOK_MAX,
+            value=_target_eok, step=0.5, format="%.1f", key="aj_target_eok",
+        )
+        new_start_date = st.date_input(
+            "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
+        )
+        st.caption("초기 투자금은 보유 원가로 자동 산출 · 시작일로 연 성장률(CAGR)·예상 기간을 계산합니다.")
+        new_target = int(round(new_target_eok * 1e8))
+        changed = False
+        if new_target_eok != _target_eok:
+            _journey_set("target_value", new_target, username, is_guest); changed = True
+        if new_start_date.isoformat() != start_date.isoformat():
+            _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
+        if changed:
+            st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일 반영
+
+
 # NOTE: @st.fragment 제거 — 로그인 경로는 상위 _render_asset_section(fragment) 안에서 호출돼
 # fragment 중첩이 됐고, 그 탓에 st.rerun(scope="fragment")가 "can only be specified from
 # within a fragment"로 깨졌다. 외부 _render_asset_section 의 fragment scope 를 쓰면 정상.
@@ -1758,40 +1784,18 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
         _stage_cls = {"초반 구간": "s-early", "순항 중": "s-cruise",
                       "막바지 구간": "s-final", "목표 도달": "s-reached"}.get(_stage, "s-cruise")
 
+        _badge_html = (f'<div class="aj-badgewrap"><span class="aj-stage {_stage_cls}">'
+                       f'{_escape(_stage)}</span>{pace_html}</div>')
         with title_col:
             st.markdown(_AJ_CSS + '<div class="aj-top aj-top-row"><h3>자산 여정</h3></div>',
                         unsafe_allow_html=True)
-        with badge_col:
-            # [순항 중][페이스] 우측 정렬, 단계↔페이스 간격 = 컬럼 간격(=페이스↔톱니)과 맞춰 3개 등간격
-            st.markdown(
-                f'<div class="aj-badgewrap"><span class="aj-stage {_stage_cls}">{_escape(_stage)}</span>'
-                f'{pace_html}</div>', unsafe_allow_html=True)
-        with gear_col:
-            # 목표수정: 톱니 아이콘만(헤더 제자리라 '설정'으로 직관적). 높이는 배지와 통일(28px)
-            with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
-                st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
-                # 목표 금액(억원, 작은 포트폴리오 대비 value clamp). 초기투자금은 보유 원가로 자동
-                # 산출하므로 입력 제거(키 위젯 stale 세션값이 재저장돼 연 성장률이 잘못 나오던 오염원).
-                _TGT_MIN, _EOK_MAX = 0.1, 2000.0
-                _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
-                new_target_eok = st.number_input(
-                    "목표 금액 (억원)", min_value=_TGT_MIN, max_value=_EOK_MAX,
-                    value=_target_eok, step=0.5, format="%.1f", key="aj_target_eok",
-                )
-                new_start_date = st.date_input(
-                    "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
-                )
-                st.caption("초기 투자금은 보유 원가로 자동 산출 · 시작일로 연 성장률(CAGR)·예상 기간을 계산합니다.")
-
-                new_target = int(round(new_target_eok * 1e8))
-                changed = False
-                # 사용자가 입력값을 실제로 변경했을 때만 저장(표시된 기본값과 비교).
-                if new_target_eok != _target_eok:
-                    _journey_set("target_value", new_target, username, is_guest); changed = True
-                if new_start_date.isoformat() != start_date.isoformat():
-                    _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
-                if changed:
-                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일 반영
+        # 배지+설정 위치: 컬럼 레이아웃(로그인·positions有)에선 우측 '카드 윗부분'에 맞춰 카드 위로 내려 렌더.
+        # 게스트/블록(positions=None)에선 종전대로 헤더 우측 한 줄.
+        if positions is None:
+            with badge_col:
+                st.markdown(_badge_html, unsafe_allow_html=True)
+            with gear_col:
+                _journey_gear_popover(target, start_date, username, is_guest)
         # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
         open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
         chart_svg = _hl_label = _hl_val = None
@@ -1812,8 +1816,10 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             st.markdown(_journey_block_html(current_value, target, m, chart_svg=chart_svg,
                         headline_label=_hl_label, headline_val_html=_hl_val), unsafe_allow_html=True)
         else:
-            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로
-            _lc, _rc = st.columns([1.5, 1], gap="medium")
+            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로.
+            # vertical_alignment="center": 우측(배지·설정+카드)을 좌측 그래프 높이 중앙에 맞춰 정렬
+            # (bottom 은 '지나온 경로 보기'까지 내려가 과해 center 로 미세조정).
+            _lc, _rc = st.columns([1.5, 1], gap="medium", vertical_alignment="center")
             with _lc:
                 st.markdown(_AJ_CSS + _journey_leftcell_html(current_value, target, m, chart_svg=chart_svg,
                             headline_label=_hl_label, headline_val_html=_hl_val, clickable=True),
@@ -1823,6 +1829,12 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                     st.session_state["journey_trend_open"] = not open_
                     st.rerun(scope="fragment")
             with _rc:
+                # 배지(초반 구간 등) + 설정 톱니를 카드 바로 위에 우측 정렬로 — 카드 윗부분에 맞춤.
+                _bcol, _gcol = st.columns([5, 1], gap="small")
+                with _bcol:
+                    st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
+                with _gcol:
+                    _journey_gear_popover(target, start_date, username, is_guest)
                 st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
                             unsafe_allow_html=True)
 
