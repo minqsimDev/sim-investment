@@ -39,6 +39,20 @@ def batch_close_history(tickers_key: str, period: str = "6mo", _bucket: int = 0)
         return {}
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def batch_history(tickers_key: str, period: str = "1y", _bucket: int = 0) -> dict:
+    """OHLCV 히스토리 배치 → {ticker: DataFrame[Close, Volume]}. price_source 단일 진입점.
+    거래량이 필요한 ETF 규모·시장 스파크라인용(close-only는 batch_close_history)."""
+    tickers = [t for t in tickers_key.split(",") if t]
+    if not tickers:
+        return {}
+    try:
+        from data import price_source
+        return price_source.fetch_history(tickers, period)
+    except Exception:
+        return {}
+
+
 def series_last_n(closes, n: int = 63) -> list:
     """종가 시리즈의 최근 n개 → float 리스트(스파크라인용). 비거나 None이면 []."""
     if closes is None or getattr(closes, "empty", True):

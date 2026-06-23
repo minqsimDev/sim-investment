@@ -255,3 +255,33 @@ def fetch_close_history(tickers: list[str], period: str = "6mo") -> dict:
     if yf_all:
         out.update(_yf_close_history(yf_all, period))
     return out
+
+
+def fetch_history(tickers: list[str], period: str = "1y") -> dict:
+    """{ticker: DataFrame(index=날짜, cols=[Close, Volume])} — OHLCV 히스토리(yfinance 배치).
+    거래량이 필요한 용도(ETF 거래대금·시장 스파크라인) 전용. 토스 캔들은 거래량을 일관되게
+    주지 않아 이 경로는 yfinance로 일원화한다 — 토스는 시세/Close-only 히스토리 담당.
+    페이지가 data.session.cached_download 를 직접 부르지 않도록 price_source 단일 소유로 둔다."""
+    import pandas as pd
+    from data.session import cached_download
+    out: dict = {}
+    if not tickers:
+        return out
+    raw = cached_download(tickers, period=period, interval="1d", progress=False, auto_adjust=True)
+    if raw is None or getattr(raw, "empty", True):
+        return out
+    multi = len(tickers) > 1
+    for tk in tickers:
+        try:
+            c = raw["Close"][tk] if multi else raw["Close"]
+            v = raw["Volume"][tk] if multi else raw["Volume"]
+            if hasattr(c, "columns"):
+                c = c.iloc[:, 0]
+            if hasattr(v, "columns"):
+                v = v.iloc[:, 0]
+            df = pd.DataFrame({"Close": c, "Volume": v}).dropna(subset=["Close"])
+            if not df.empty:
+                out[tk] = df
+        except Exception:
+            pass
+    return out

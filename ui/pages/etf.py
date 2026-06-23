@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_history
 from ui.components.dash_style import (
     empty_state,
     inject_css, jj_footer, mark_active_nav, show_skeleton,
@@ -78,29 +78,19 @@ def _slice_period(s, pcode: str):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _etf_bundle(tickers_key: str) -> dict:
-    """ETF 1년치 종가+거래량 1회 배치 → {closes, turnover}.
+    """ETF 1년치 OHLCV 1회 배치 → {closes, turnover}. price_source 단일 진입점(batch_history) 경유.
 
     히스토리(현재가·1D%·3M·추세·스파크)·52주 레인지·추이 비교·규모(거래대금)를 모두
-    이 한 번의 다운로드에서 파생한다(이전엔 6mo·3mo·1y를 따로 받아 콜드 진입이 길었음)."""
-    tickers = [t for t in tickers_key.split(",") if t]
-    if not tickers:
-        return {"closes": {}, "turnover": {}}
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
-    except Exception:
-        return {"closes": {}, "turnover": {}}
-    if raw is None or getattr(raw, "empty", True):
-        return {"closes": {}, "turnover": {}}
-    closes, turnover, multi = {}, {}, len(tickers) > 1
-    for tk in tickers:
+    이 한 번의 다운로드에서 파생한다."""
+    hist = batch_history(tickers_key, "1y")
+    closes, turnover = {}, {}
+    for tk, df in hist.items():
         try:
-            c = (raw["Close"][tk] if multi else raw["Close"]).dropna()
+            c = df["Close"].dropna()
             if c.empty:
                 continue
             closes[tk] = c
-            v = (raw["Volume"][tk] if multi else raw["Volume"]).dropna()
-            tv = (c * v).dropna()
+            tv = (df["Close"] * df["Volume"]).dropna()
             if not tv.empty:
                 turnover[tk] = float(tv.tail(20).mean())
         except Exception:
