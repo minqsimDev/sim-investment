@@ -171,6 +171,23 @@ def consensus_notes(tickers: list[str]) -> dict[str, str]:
     return out
 
 
+_INDEX_URL = "https://m.stock.naver.com/api/index/{name}/basic"
+
+
+def fetch_naver_index(name: str) -> dict | None:
+    """네이버 금융 지수 시세(KOSPI·KOSDAQ 등) → {price, change_pct}. 실패 시 None.
+    yfinance .info(지수는 ~15분 지연)를 대체 — 거래소 직결 포털 집계라 더 신선하고 정확
+    (검증: 네이버 KOSPI 8,203.84/-9.99% ≈ yfinance 8,267/-9.46%, 2026-06-23)."""
+    try:
+        j = requests.get(_INDEX_URL.format(name=name), headers=_H, timeout=_TIMEOUT).json()
+    except Exception:
+        return None
+    price = _num(j.get("closePrice"))
+    if price is None:
+        return None
+    return {"price": price, "change_pct": _num(j.get("fluctuationsRatio"))}
+
+
 _US_NEWS = "https://api.stock.naver.com/news/worldStock/{rc}"
 
 

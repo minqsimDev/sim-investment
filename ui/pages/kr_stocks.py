@@ -103,12 +103,24 @@ def _kr_history(tickers_key: str, _bucket: int = 0) -> dict:
     return batch_close_history(tickers_key, "6mo", _bucket)
 
 
+_NAVER_INDEX = {"^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _bench_prices() -> dict:
-    """지수(KOSPI 등) 현재가·1D% — 시세 SSOT(price_source.fetch_prices_bulk) 경유."""
+    """지수(KOSPI·KOSDAQ) 현재가·1D% — 네이버 금융 지수 시세(신선) 우선, 실패 시 price_source 폴백.
+    yfinance 지수는 ~15분 지연이라 네이버가 더 신선·정확(검증 완료)."""
+    from src.analyst_naver import fetch_naver_index
     from data.price_source import fetch_prices_bulk
-    out = {}
-    for tk, q in fetch_prices_bulk(list(_KOSPI_BENCH.keys())).items():
+    out, missing = {}, []
+    for tk in _KOSPI_BENCH:
+        nm = _NAVER_INDEX.get(tk)
+        q = fetch_naver_index(nm) if nm else None
+        if q and q.get("price") is not None:
+            out[tk] = {"price": round(float(q["price"]), 2), "change_pct": q.get("change_pct")}
+        else:
+            missing.append(tk)
+    for tk, q in (fetch_prices_bulk(missing).items() if missing else []):
         if q and q.get("price") is not None:
             out[tk] = {"price": round(float(q["price"]), 2), "change_pct": q.get("change_pct")}
     return out
