@@ -8,8 +8,9 @@ import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data, batch_close_history
 from core.journey import pct_weight  # 비중(%) 정수 기본 포맷(전 화면 공통)
 from ui.components.dash_style import (
-    inject_css, jj_footer, mark_active_nav, show_skeleton, color_change,
+    inject_css, jj_footer, mark_active_nav, show_skeleton, color_change, mkt_section_header,
 )
+from ui.components.portfolio_treemap import portfolio_treemap
 from siminvest_theme import DOWN  # 하락=파랑 (벤치마크 막대 음수 처리)
 from format import won, currency as _cur  # 금액 표기 단일 출처
 from ui.components.mountain_scene import render_mountain
@@ -2196,6 +2197,10 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
                                  target_prices, limit=5, action=_hold_action),
             unsafe_allow_html=True,
         )
+        # 보유 히트맵 — 전종목을 비중×손익으로 한눈에(타일=평가금액, 색=수익률, 자산군 그룹)
+        st.markdown(mkt_section_header("보유 히트맵", "전종목 · 비중 × 손익 한눈에"), unsafe_allow_html=True)
+        portfolio_treemap(positions, key="holdings")
+
         # 자산 여정 ↔ 자산 추이 — segmented control 토글(fragment 부분 리런, 전체 리로드 없음)
         if journey:
             _render_asset_section(journey["current_asset"], _uname, positions,
