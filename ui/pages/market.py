@@ -12,7 +12,6 @@ import yfinance as yf
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data
-from data.analyst_data import ANALYST_NOTES as _ANALYST_NOTES
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton, mkt_stats_chips,
@@ -701,20 +700,32 @@ def _asset_metric(item: dict, target_prices: dict[str, float] | None, sparks: di
     return "상태", "확인 필요", "데이터 대기", "neu"
 
 
-def _item_note(item: dict, category: str) -> str:
-    key = str(item["key"])
-    note = _ANALYST_NOTES.get(key)
+@st.cache_data(ttl=86400, show_spinner=False)   # 컨센서스는 일 단위 안정 → 24h
+def _consensus_notes(tickers_key: str) -> dict:
+    """종목별 네이버 컨센서스 팩트 노트 {ticker: note}. 주식(us/kr)만 값이 있다."""
+    from src.analyst_naver import consensus_notes
+    return consensus_notes([t for t in tickers_key.split(",") if t])
+
+
+def _item_note(item: dict, notes: dict) -> str:
+    """카드 노트 — 주식은 네이버 컨센서스(투자의견·목표가·기준일), 그 외는 중립 가이드.
+    하드코딩/작문 해설은 쓰지 않는다."""
+    note = notes.get(str(item["key"]))
     if note:
         return note
-    if item["src"] == "kr":
-        return f"{item['name']}은(는) {category} 내 변동 상위 종목입니다. 환율, 외국인 수급, 업종 모멘텀을 함께 확인하세요."
-    return "변동 요인과 연관 지표를 확인 중입니다. 가격, 거래량, 금리·달러 흐름을 함께 관찰하세요."
+    if item["src"] in ("comm", "fx", "crypto"):
+        return "애널리스트 컨센서스 미제공 자산 · 가격·달러·금리 흐름과 함께 확인하세요."
+    return "네이버 컨센서스 미연결 · 가격·거래량·업종 모멘텀을 함께 확인하세요."
 
 
 def _category_payload(data: dict, sparks: dict[str, list[float]], target_prices: dict[str, float] | None = None) -> list[dict]:
     maps = _build_maps(data)
     quote_fallbacks = _market_pool_quotes(_POOL_VERSION)
     categories: list[dict] = []
+
+    # 주식(us/kr) 종목만 네이버 컨센서스 노트 — 비주식(원자재·환율·크립토)엔 컨센서스 없음
+    _stock_tks = sorted({k for pool in _CAT_POOLS.values() for (k, _n, s) in pool if s in ("us", "kr")})
+    notes = _consensus_notes(",".join(_stock_tks))
 
     for cat, pool in _CAT_POOLS.items():
         raw_items = []
@@ -753,7 +764,7 @@ def _category_payload(data: dict, sparks: dict[str, list[float]], target_prices:
                 "metricTone": metric_tone,
                 "logoHtml": _market_logo_html({"key": key, "src": src, "name": dname}),
                 "sparkHtml": spark_html,
-                "note": _item_note({"key": key, "src": src, "name": dname}, cat),
+                "note": _item_note({"key": key, "src": src, "name": dname}, notes),
             })
 
         raw_items.sort(key=lambda x: abs(x["changeValue"] or 0), reverse=True)
