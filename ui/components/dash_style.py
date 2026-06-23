@@ -1085,8 +1085,10 @@ def period_toggle(key: str, options=("1W", "1M", "3M"), default: str = "3M", ali
 _PERIOD_MAP = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y", "5Y": "5y"}
 _PERIOD_RADIO_CSS = (
     "<style>"
-    # stRadio 컨테이너(풀폭)를 flex-end → 라디오 블록 통째로 페이지 우측에 배치
-    "[data-testid=\"stRadio\"]{display:flex!important;justify-content:flex-end!important}"
+    # 라디오를 감싼 element container 가 내용 너비(≈287px)로 줄어 flex-end 가 밀 공간이 없던 게
+    # '계속 좌측' 원인 → 컨테이너부터 풀폭으로 펴고, stRadio 도 풀폭 flex-end 로 우측 배치.
+    "[data-testid=\"stElementContainer\"]:has(>[data-testid=\"stRadio\"]){width:100%!important}"
+    "[data-testid=\"stRadio\"]{display:flex!important;width:100%!important;justify-content:flex-end!important}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"]{justify-content:flex-end!important;flex-wrap:wrap}"
     # 칩 안 글자 가운데 정렬
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"] label{justify-content:center!important;text-align:center!important}"
@@ -1109,7 +1111,7 @@ _PERIOD_RADIO_CSS_FILL = (
 _PERIOD_RADIO_CSS_CARD = (
     "<style>"
     # 콤팩트 우측 정렬 — 칩 자연 너비 한 줄(카드 한 칸 수준 폭), 줄바꿈 없음.
-    "[data-testid=\"stRadio\"]{display:flex!important;justify-content:flex-end!important}"
+    "[data-testid=\"stRadio\"]{display:flex!important;width:100%!important;justify-content:flex-end!important}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"]{justify-content:flex-end!important;flex-wrap:nowrap!important;gap:5px}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"] label{justify-content:center!important;text-align:center!important;"
     "padding:4px 9px!important}"
