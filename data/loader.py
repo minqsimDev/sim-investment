@@ -93,25 +93,20 @@ def load_risk_signals_cached(db_path: str) -> "object":
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_target_prices() -> dict[str, float]:
-    """Analyst consensus target prices — shared 24h cache across all pages."""
-    import yfinance as yf
+    """Analyst consensus target prices — 네이버 금융 단일 소스(yfinance 경로 제거).
+    애널리스트 전망 전반과 동일 출처로 일원화 → 목표가/상승여력 표시 일관성 확보. 24h 캐시."""
     import pandas as pd
-    from concurrent.futures import ThreadPoolExecutor
+    from src.analyst_naver import fetch_naver_targets
 
-    def _one(tk: str) -> tuple[str, float | None]:
-        try:
-            from data.session import cached_ticker_info
-            info = cached_ticker_info(tk)
-            tp = info.get("targetMeanPrice") or info.get("targetMedianPrice")
-            if tp is not None and not pd.isna(float(tp)):
-                return tk, float(tp)
-        except Exception:
-            pass
-        return tk, None
-
-    with ThreadPoolExecutor(max_workers=min(len(_TP_TICKERS), 12)) as ex:
-        pairs = list(ex.map(_one, _TP_TICKERS))
-    return {tk: tp for tk, tp in pairs if tp is not None}
+    df = fetch_naver_targets(list(_TP_TICKERS))
+    out: dict[str, float] = {}
+    if df is None or df.empty:
+        return out
+    for _, r in df.iterrows():
+        tp = r.get("목표가_평균")
+        if tp is not None and not pd.isna(tp):
+            out[str(r["ticker"])] = float(tp)
+    return out
 
 
 def clear_market_cache() -> None:
