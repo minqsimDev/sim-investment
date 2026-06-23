@@ -1812,8 +1812,9 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             st.markdown(_journey_block_html(current_value, target, m, chart_svg=chart_svg,
                         headline_label=_hl_label, headline_val_html=_hl_val), unsafe_allow_html=True)
         else:
-            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로
-            _lc, _rc = st.columns([1.5, 1], gap="medium")
+            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로.
+            # vertical_alignment="bottom": 우측 2×2 카드를 좌측 그래프(타임라인) 밑단에 맞춰 정렬.
+            _lc, _rc = st.columns([1.5, 1], gap="medium", vertical_alignment="bottom")
             with _lc:
                 st.markdown(_AJ_CSS + _journey_leftcell_html(current_value, target, m, chart_svg=chart_svg,
                             headline_label=_hl_label, headline_val_html=_hl_val, clickable=True),
