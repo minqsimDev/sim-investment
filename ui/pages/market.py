@@ -169,14 +169,28 @@ _CRYPTO_VISUALS = {
     "DOT-USD": ("DOT", "coin-sol"),
 }
 
-# Static theme cards
-_THEME_CARDS = [
-    {"title": "AI 반도체",    "tone": "good",  "body": "대형 클라우드 CAPEX 코멘트가 핵심 드라이버. CAPEX 유지·상향 시 NVDA·TSMC·HBM 밸류체인 우호."},
-    {"title": "금리·달러",    "tone": "warn",  "body": "10년물과 DXY 동시 상승 시 성장주·원화자산 부담. 금리 안정 + DXY 둔화 구간이 기술주 매수 적기."},
-    {"title": "원자재",       "tone": "",      "body": "금은 방어자산, 은·구리는 경기민감. 달러 방향과 중국 경기를 같이 확인. 실질금리 상승 구간엔 금 수익률 주의."},
-    {"title": "국내 대형주",  "tone": "",      "body": "외국인 수급·환율·반도체 업황이 KOSPI 체감에 핵심. 삼성전자 HBM 경쟁력 확인 전까지 SK하이닉스가 AI메모리 대표 수혜."},
-    {"title": "애널리스트",   "tone": "good",  "body": "목표가 상향 시 EPS 리비전 동반 여부가 핵심. 단순 멀티플 확장보다 실적 추정치 상향이 더 신뢰도 높은 시그널."},
-    {"title": "크립토·고변동","tone": "alert", "body": "BTC 현물 ETF 기관 유입 지속. ETF 승인 이후 기관 유입 확대. 고변동 자산 특성상 비중 한도 관리 필수."},
+# 테마별 시장 동향 카드 — 본문/배지/순서를 모두 실시세(토스·yfinance)에서 파생한다.
+# AI 작문·정적 문구 없음. chip=대표 배지·정렬키(당일 |등락률|), basket=브레드스/리더·러거드 산출용.
+_COMM_KOR = {"gold": "금", "silver": "은", "copper": "구리",
+             "wti_crude": "WTI", "brent_crude": "브렌트", "natural_gas": "천연가스"}
+
+_THEMES = [
+    {"title": "AI 반도체",    "tone": "good",
+     "chip": ("반도체", "benchmarks", "ticker", "SOXX"),
+     "basket": {"group": "us_stocks", "sectors": ("semiconductor", "ai_semiconductor"),
+                "noun": "반도체"}},
+    {"title": "금리·달러",    "tone": "warn",
+     "chip": ("달러지수", "fx", "pair", "dxy"),
+     "rates": True},
+    {"title": "원자재",       "tone": "",
+     "chip": ("금", "commodities", "name", "gold"),
+     "basket": {"group": "commodities", "noun": "원자재", "labels": _COMM_KOR}},
+    {"title": "국내 대형주",  "tone": "",
+     "chip": ("코스피", "kospi", None, None),
+     "basket": {"group": "kr_stocks", "noun": "대형주"}},
+    {"title": "크립토·고변동","tone": "alert",
+     "chip": ("BTC", "crypto", "ticker", "BTC-USD"),
+     "basket": {"group": "crypto", "noun": "코인"}},
 ]
 
 _MARKET_LOCAL_CSS = """<style>
@@ -1172,30 +1186,82 @@ def _category_component_html(data: dict, sparks: dict[str, list[float]], target_
 """
 
 
-def _live_summary(data: dict) -> dict[str, str]:
-    out: dict[str, str] = {}
-    us_df = data.get("us_stocks", pd.DataFrame())
-    if not us_df.empty and "ticker" in us_df.columns:
-        m = {r["ticker"]: r["change_pct"] for _, r in us_df.iterrows()}
-        nvda = m.get("NVDA")
-        if nvda is not None and not (isinstance(nvda, float) and pd.isna(nvda)):
-            try:
-                v = float(nvda)
-                out["nvda_chg"] = f"{'+'if v>=0 else ''}{v:.2f}%"
-            except (TypeError, ValueError):
-                pass
-    fx_df = data.get("fx", pd.DataFrame())
-    if not fx_df.empty and "pair" in fx_df.columns:
-        m = {r["pair"]: r for _, r in fx_df.iterrows()}
-        krw = m.get("usd_krw")
-        if krw is not None:
-            rate = krw.get("rate") if isinstance(krw, dict) else getattr(krw, "rate", None)
-            if rate and rate != "N/A":
-                try:
-                    out["usdkrw"] = f"{float(rate):,.0f}"
-                except (TypeError, ValueError):
-                    pass
-    return out
+def _grp_change(data: dict, group: str, col: str | None, val) -> float | None:
+    """data[group] DataFrame에서 col==val 행의 change_pct(%) → float|None. group='kospi'는 특수 경로."""
+    if group == "kospi":
+        try:
+            from ui.pages.kr_stocks import _bench_prices as _krb
+            return _mkt_num((_krb().get("^KS11") or {}).get("change_pct"))
+        except Exception:
+            return None
+    df = data.get(group, pd.DataFrame())
+    if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
+        return None
+    r = df[df[col] == val]
+    return _mkt_num(r.iloc[0].get("change_pct")) if not r.empty else None
+
+
+def _usdkrw_level(data: dict) -> str | None:
+    """USD/KRW 현재 환율 문자열(예: '1,380') — 금리·달러 카드 본문용."""
+    fx = data.get("fx", pd.DataFrame())
+    if not isinstance(fx, pd.DataFrame) or fx.empty or "pair" not in fx.columns:
+        return None
+    r = fx[fx["pair"] == "usd_krw"]
+    if r.empty:
+        return None
+    rate = _mkt_num(r.iloc[0].get("rate"))
+    return f"{rate:,.0f}" if rate is not None else None
+
+
+def _basket_stats(data: dict, spec: dict) -> dict | None:
+    """바스켓(자산군 일부)의 브레드스·리더·러거드 산출. {n, up, lead, lag} 또는 None.
+    lead/lag = (이름, 등락률%). 전부 실시세 change_pct 기반(작문 없음)."""
+    df = data.get(spec["group"], pd.DataFrame())
+    if not isinstance(df, pd.DataFrame) or df.empty or "change_pct" not in df.columns:
+        return None
+    sub = df
+    if spec.get("sectors") and "sector" in df.columns:
+        sub = df[df["sector"].isin(spec["sectors"])]
+    rows = []
+    labels = spec.get("labels")
+    for _, r in sub.iterrows():
+        c = _mkt_num(r.get("change_pct"))
+        if c is None:
+            continue
+        nm = labels.get(r.get("name")) if labels else (r.get("name") or r.get("ticker"))
+        rows.append((str(nm), c))
+    if not rows:
+        return None
+    rows.sort(key=lambda x: x[1], reverse=True)
+    up = sum(1 for _, c in rows if c > 0)
+    return {"n": len(rows), "up": up, "lead": rows[0], "lag": rows[-1]}
+
+
+def _theme_body(data: dict, theme: dict) -> str:
+    """카드 본문 — 실시세 팩트만. 금리·달러는 레벨/방향, 그 외는 브레드스+리더·러거드."""
+    if theme.get("rates"):
+        dxy = _grp_change(data, "fx", "pair", "dxy")
+        tnx = _grp_change(data, "benchmarks", "ticker", "^TNX")
+        parts = []
+        if dxy is not None:
+            parts.append(f"DXY {dxy:+.2f}%")
+        krw = _usdkrw_level(data)
+        if krw:
+            parts.append(f"USD/KRW {krw}원")
+        if tnx is not None:
+            parts.append(f"美10Y {tnx:+.2f}%")
+        return " · ".join(parts) if parts else "환율·금리 데이터 준비 중"
+    spec = theme.get("basket") or {}
+    s = _basket_stats(data, spec)
+    if not s:
+        return "데이터 준비 중"
+    noun = spec.get("noun", "종목")
+    lead_nm, lead_c = s["lead"]
+    body = f"{noun} {s['n']}종 중 {s['up']}종 상승 · 리더 {lead_nm} {lead_c:+.1f}%"
+    lag_nm, lag_c = s["lag"]
+    if s["n"] >= 2 and lag_c < 0:
+        body += f" · 러거드 {lag_nm} {lag_c:+.1f}%"
+    return body
 
 
 def _mkt_num(v):
@@ -1296,27 +1362,29 @@ def _market_glance_html(data: dict, suffix: str = "") -> str:
     return _MG_CSS + f'<div class="mg-row">{html}</div>'
 
 
-def _build_news_grid(live: dict, chips: dict | None = None) -> str:
-    chips = chips or {}
+def _build_news_grid(data: dict) -> str:
+    """테마 카드 — 본문·배지·순서 모두 실시세 파생. 당일 |대표 등락률| 큰 테마부터 노출."""
+    built = []
+    for theme in _THEMES:
+        lbl, group, col, val = theme["chip"]
+        chg = _grp_change(data, group, col, val)
+        built.append({"theme": theme, "chip_lbl": lbl, "chip": chg,
+                      "body": _theme_body(data, theme)})
+    # 노출 순서: 당일 |등락률| 큰 순(값 없는 테마는 뒤로)
+    built.sort(key=lambda b: abs(b["chip"]) if b["chip"] is not None else -1.0, reverse=True)
+
     cards_html = ""
-    for card in _THEME_CARDS:
-        tone = card["tone"]
-        cls = {"alert": "alert-card", "good": "good-card", "warn": "warn-card"}.get(tone, "")
-        body = card["body"]
-        if card["title"] == "AI 반도체" and "nvda_chg" in live:
-            body = f'NVDA 당일 {live["nvda_chg"]}. ' + body
-        elif card["title"] == "금리·달러" and "usdkrw" in live:
-            body = f'USD/KRW {live["usdkrw"]}원. ' + body
-        chip = chips.get(card["title"])
+    for b in built:
+        cls = {"alert": "alert-card", "good": "good-card", "warn": "warn-card"}.get(b["theme"]["tone"], "")
         chip_html = ""
-        if chip and isinstance(chip[1], (int, float)):
-            lbl, v = chip
+        if b["chip"] is not None:
+            v = b["chip"]
             ccls = "pos" if v > 0 else ("neg" if v < 0 else "")
-            chip_html = f'<span class="mkt-theme-chip {ccls}">{lbl} {v:+.2f}%</span>'
+            chip_html = f'<span class="mkt-theme-chip {ccls}">{b["chip_lbl"]} {v:+.2f}%</span>'
         cards_html += (
             f'<div class="mkt-news-card {cls}">'
-            f'<h4>{card["title"]}{chip_html}</h4>'
-            f'<p>{body}</p>'
+            f'<h4>{b["theme"]["title"]}{chip_html}</h4>'
+            f'<p>{b["body"]}</p>'
             f'</div>'
         )
     return f'<div class="mkt-news-grid">{cards_html}</div>'
@@ -1368,8 +1436,6 @@ def _live_section(suffix: str = "") -> None:
         target_prices = _ft.result()
     ph.empty()
 
-    live = _live_summary(data)
-
     # 오늘의 핵심 지표 펄스 (요약 상단 — 지수·환율·원자재·크립토 1D)
     pulse = _pulse_chips(data)
     if pulse:
@@ -1388,39 +1454,10 @@ def _live_section(suffix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── 테마별 시장 동향 (+ 제목 옆 신호 칩) ────────────────────────────────────
-    _bm = data.get("benchmarks", pd.DataFrame())
-    _fx = data.get("fx", pd.DataFrame())
-    _cm = data.get("commodities", pd.DataFrame())
-    _cr = data.get("crypto", pd.DataFrame())
-    def _bmc(tk):
-        r = _bm[_bm["ticker"] == tk] if not _bm.empty else _bm
-        return _mkt_num(r.iloc[0].get("change_pct")) if (not _bm.empty and not r.empty) else None
-    def _fxc(pair):
-        r = _fx[_fx["pair"] == pair] if not _fx.empty else _fx
-        return _mkt_num(r.iloc[0].get("change_pct")) if (not _fx.empty and not r.empty) else None
-    def _cmc(name):
-        r = _cm[_cm["name"] == name] if not _cm.empty else _cm
-        return _mkt_num(r.iloc[0].get("change_pct")) if (not _cm.empty and not r.empty) else None
-    _btc = None
-    if not _cr.empty and "ticker" in _cr.columns:
-        r = _cr[_cr["ticker"] == "BTC-USD"]
-        _btc = _mkt_num(r.iloc[0].get("change_pct")) if not r.empty else None
-    try:
-        from ui.pages.kr_stocks import _bench_prices as _krb
-        _kospi = _mkt_num((_krb().get("^KS11") or {}).get("change_pct"))
-    except Exception:
-        _kospi = None
-    _chips = {
-        "AI 반도체":   ("반도체", _bmc("SOXX")),
-        "금리·달러":   ("달러지수", _fxc("dxy")),
-        "원자재":      ("금", _cmc("gold")),
-        "국내 대형주": ("코스피", _kospi),
-        "크립토·고변동": ("BTC", _btc),
-    }
-    st.markdown(mkt_section_header("테마별 시장 동향", "오늘 먼저 볼 흐름"), unsafe_allow_html=True)
+    # ── 테마별 시장 동향 — 본문·배지·순서 모두 실시세 파생(당일 |등락률| 큰 순) ──────
+    st.markdown(mkt_section_header("테마별 시장 동향", "오늘 먼저 볼 흐름 · 등락 큰 순"), unsafe_allow_html=True)
     st.markdown(
-        f'<div class="mkt-card mkt-theme-first">{_build_news_grid(live, _chips)}</div>',
+        f'<div class="mkt-card mkt-theme-first">{_build_news_grid(data)}</div>',
         unsafe_allow_html=True,
     )
 
