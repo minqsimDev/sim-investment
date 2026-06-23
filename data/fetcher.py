@@ -7,6 +7,30 @@ from data import price_source
 from data.providers.fred_provider import FredProvider
 
 
+def _resilient_prices(prices: dict) -> dict:
+    """라이브 시세 → DB 스냅샷 저장 + 실패분 DB 백필. DB 접근 실패해도 라이브 그대로 반환."""
+    try:
+        from src.database import save_quotes, load_quotes, DEFAULT_DB
+    except Exception:
+        return prices
+    prices = dict(prices or {})
+    live_ok = {tk: q for tk, q in prices.items() if q and q.get("price") is not None}
+    try:
+        save_quotes(live_ok, DEFAULT_DB)
+    except Exception:
+        pass
+    missing = [tk for tk, q in prices.items() if not (q and q.get("price") is not None)]
+    if missing:
+        try:
+            db = load_quotes(db_path=DEFAULT_DB)
+        except Exception:
+            db = {}
+        for tk in missing:
+            if tk in db:
+                prices[tk] = db[tk]
+    return prices
+
+
 def fetch_all(config: dict | None = None, force: bool = False) -> dict:
     if config is None:
         config = load_config()
@@ -34,6 +58,10 @@ def fetch_all(config: dict | None = None, force: bool = False) -> dict:
         macro_future  = ex.submit(_fetch_macro, config)
         prices = prices_future.result(timeout=45)
         macro  = macro_future.result(timeout=15)
+
+    # 복원력 + DB-서빙: 라이브 성공분은 DB 스냅샷으로 저장(앱 트래픽·배치가 DB를 따뜻하게 유지),
+    # 라이브 실패(None)분은 DB 마지막값(last-known-good)으로 백필 → 소스 장애에도 화면 유지.
+    prices = _resilient_prices(prices)
 
     results = {
         "fetched_at": datetime.now().isoformat(),

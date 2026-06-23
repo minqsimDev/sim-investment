@@ -7,7 +7,7 @@ but only the latest run_date matters for queries.
 """
 import math
 import sqlite3
-from datetime import date as _date
+from datetime import date as _date, datetime as _dt, timedelta as _td
 from pathlib import Path
 
 import pandas as pd
@@ -117,6 +117,18 @@ CREATE TABLE IF NOT EXISTS consensus (
     coverage      REAL,
     created_at    TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (run_date, ticker)
+);
+
+-- 최신 시세 스냅샷(티커당 1행). 라이브 성공 시 갱신, 소스 장애 시 last-known-good 백필용.
+CREATE TABLE IF NOT EXISTS quotes (
+    ticker     TEXT PRIMARY KEY,
+    price      REAL,
+    prev_close REAL,
+    change     REAL,
+    change_pct REAL,
+    currency   TEXT,
+    source     TEXT,
+    updated_at TEXT
 );
 """
 
@@ -254,6 +266,47 @@ def load_latest_consensus(db_path: str = DEFAULT_DB) -> pd.DataFrame:
         "target_mean": "목표가_평균", "opinion": "투자의견", "opinion_score": "의견점수",
         "base_date": "기준일", "coverage": "커버리지",
     })
+
+
+def save_quotes(prices: dict, db_path: str = DEFAULT_DB) -> int:
+    """라이브 시세 스냅샷 저장(price 있는 것만). 소스 장애 시 백필용 last-known-good."""
+    now = _dt.now().isoformat(timespec="seconds")
+    rows = []
+    for tk, q in (prices or {}).items():
+        if not q or _f(q.get("price")) is None:
+            continue
+        rows.append((str(tk), _f(q.get("price")), _f(q.get("prev_close")), _f(q.get("change")),
+                     _f(q.get("change_pct")), str(q.get("currency") or ""), str(q.get("source") or ""), now))
+    if not rows:
+        return 0
+    sql = ("INSERT OR REPLACE INTO quotes "
+           "(ticker, price, prev_close, change, change_pct, currency, source, updated_at) "
+           "VALUES (?,?,?,?,?,?,?,?)")
+    with _conn(db_path) as conn:
+        conn.executemany(sql, rows)
+    return len(rows)
+
+
+def load_quotes(max_age_sec: int = 7 * 86400, db_path: str = DEFAULT_DB) -> dict:
+    """{ticker: quote dict} — max_age_sec 보다 오래된 행은 제외. fetch_prices_bulk 동일 형태(source 'db')."""
+    try:
+        with _conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT ticker, price, prev_close, change, change_pct, currency, updated_at FROM quotes"
+            ).fetchall()
+    except Exception:
+        return {}
+    cutoff = _dt.now() - _td(seconds=max_age_sec)
+    out: dict = {}
+    for tk, price, prev, chg, chgp, cur, upd in rows:
+        try:
+            if upd and _dt.fromisoformat(upd) < cutoff:
+                continue
+        except Exception:
+            pass
+        out[tk] = {"price": price, "prev_close": prev, "change": chg,
+                   "change_pct": chgp, "currency": cur or None, "source": "db"}
+    return out
 
 
 def load_latest_indicator_summary(db_path: str = DEFAULT_DB) -> pd.DataFrame:
