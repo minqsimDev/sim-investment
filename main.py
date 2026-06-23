@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from core.brand import APP_NAME
 from core.config_loader import load_config
 from data.fetcher import fetch_all
 from src.indicators import build_summary
@@ -27,7 +28,7 @@ pd.set_option("display.float_format", "{:,.2f}".format)
 
 def main():
     config = load_config()
-    print(f"SIM INVESTMENT  |  base currency: {config['user']['base_currency']}")
+    print(f"{APP_NAME}  |  base currency: {config['user']['base_currency']}")
 
     # ── DB setup ──────────────────────────────────────────────────────────────
     Path("data").mkdir(exist_ok=True)

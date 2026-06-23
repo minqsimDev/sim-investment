@@ -1,6 +1,6 @@
-# SIMvest — AWS 단일 EC2 저비용 배포 가이드
+# SIM INVESTMENT — AWS 단일 EC2 저비용 배포 가이드
 
-새 AWS 계정의 **Free Tier(12개월)** 기반으로 SIMvest를 **단일 EC2 + Docker Compose + Caddy 자동 HTTPS**로 운영한다.
+새 AWS 계정의 **Free Tier(12개월)** 기반으로 SIM INVESTMENT를 **단일 EC2 + Docker Compose + Caddy 자동 HTTPS**로 운영한다.
 **ALB · NAT Gateway · RDS · ECS · CloudFront 미사용**(비용 최소화).
 
 > ⚠️ **이 앱은 단일 인스턴스 전용이다.** 상태가 로컬 파일(`~/.siminvest_accounts.json`, `alerts.json`, `data/market_data.db`)이고 동시성 보호가 **fcntl 파일락(한 호스트 한정)**이다. **오토스케일·다중 인스턴스 금지** — 그럴 경우 락이 무력화되고 상태가 쪼개진다. 수평 확장이 필요해지면 상태를 외부 DB로 옮기는 별도 작업이 선행되어야 한다.

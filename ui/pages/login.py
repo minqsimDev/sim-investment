@@ -3,6 +3,7 @@ import streamlit as st
 from pathlib import Path
 
 from core.accounts import authenticate, create_account, get_portfolios, save_portfolio, has_accounts
+from core.brand import APP_NAME
 
 _ASSETS = Path(__file__).parent.parent.parent / "assets" / "intro"
 
@@ -118,7 +119,7 @@ div[data-testid="stFormSubmitButton"] > button {
   width: 100%;
   height: 50px;
   border-radius: 12px;
-  background: #D9A441 !important;
+  background: var(--sv-gold) !important;
   color: #0E0F13 !important;
   border: none !important;
   font-size: 13px !important;
@@ -137,48 +138,117 @@ div[data-testid="stButton"] > button {
   height: auto !important;
 }
 div[data-testid="stButton"] > button:hover { color: #9AA0AD !important; }
-/* #4: 보조 액션 간격 정리 + 돌아가기를 카드(420px) 우측 끝단에 맞춤 */
-div[data-testid="stButton"] { margin: 2px auto 0 !important; max-width: 420px !important;
-  display: flex !important; justify-content: flex-end !important; }
+/* #4: 보조 액션(돌아가기 등) 정렬. 버튼 컨테이너(element-container)가 내용폭(63px)으로
+   줄어 있어 정렬 제어가 안 됐다 → 컬럼 폭을 꽉 채우게 강제. */
+[data-testid="stElementContainer"]:has(> div[data-testid="stButton"]) { width: 100% !important; }
+div[data-testid="stButton"] { margin: 2px 0 0 !important; width: 100% !important;
+  display: flex !important; justify-content: flex-start !important; }
 div[data-testid="stButton"] > button { width: auto !important; }
+/* 폼 카드(로그인·회원가입)는 max-width:420 가운데 정렬(좌측 504). 돌아가기도 같은 420 센터
+   박스로 만들어 '카드 좌측 끝'에 정확히 맞춘다(flex-start). 폼이 없는 화면(포트폴리오 등록)은
+   콘텐츠가 컬럼을 꽉 채우므로 기본(컬럼 좌측)에 이미 정렬됨 — 여기엔 적용 안 함. */
+[data-testid="stVerticalBlock"]:has([data-testid="stForm"]) div[data-testid="stButton"] {
+  max-width: 420px !important; margin-left: auto !important; margin-right: auto !important; }
+/* 셋업 CTA(분석하기·저장하고 시작·기존 포트폴리오) = 카드 폭 골드 버튼.
+   버전 무관: st-key(1.39+) 대신 버튼 앞 마커(span.sv-cta-anchor) + 인접 선택자로 타겟.
+   컨테이너 testid 가 버전마다 달라(element-container/stElementContainer) 양쪽 매칭.
+   (:has 는 브라우저 기능이라 Streamlit 버전과 무관.) 돌아가기 등은 마커 없어 미적용. */
+[data-testid="element-container"]:has(.sv-cta-anchor),
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) { display:none !important; }  /* 마커 ec 숨김(공간 0, 인접 선택은 유지) */
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] div[data-testid="stButton"],
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] div[data-testid="stButton"] {
+  max-width: none !important; width: 100% !important; margin: 6px auto 2px !important; }
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] button,
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] button {
+  width: 100% !important; height: auto !important; padding: 13px 16px !important;
+  background: linear-gradient(180deg, rgba(217,164,65,0.20), rgba(217,164,65,0.11)) !important;
+  border: 1px solid rgba(217,164,65,0.6) !important; border-radius: 12px !important;
+  color: #F4E4C1 !important; font-size: 14px !important; font-weight: 800 !important; letter-spacing: 0.02em !important;
+  box-shadow: 0 4px 14px rgba(217,164,65,0.12), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  transition: filter .15s, box-shadow .15s, transform .12s, background .2s !important; }
+[data-testid="element-container"]:has(.sv-cta-anchor) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.sv-cta-anchor) + [data-testid="stElementContainer"] button:hover {
+  background: linear-gradient(180deg, rgba(217,164,65,0.32), rgba(217,164,65,0.19)) !important;
+  border-color: var(--sv-gold) !important; transform: translateY(-1px) !important;
+  box-shadow: 0 8px 22px rgba(217,164,65,0.24), inset 0 1px 0 rgba(255,255,255,0.08) !important; }
 .stApp [data-testid="column"] [data-testid="stVerticalBlock"] { gap: 0.55rem !important; }
 
-/* 파일 업로더 한국어화 */
+/* 파일 업로더 한국어화 — 골드 점선 CTA(포트폴리오 화면 업로더와 통일) */
+/* 세로 중앙정렬 CTA: 안내문구 위 · '파일 선택' 버튼 아래 가운데(기본은 좌측 안내+우측 버튼이라 어색) */
 [data-testid="stFileUploaderDropzone"] {
-  background: rgba(255,255,255,0.04) !important;
-  border: 1.5px dashed #262A33 !important;
-  border-radius: 14px !important;
+  background: rgba(217,164,65,0.06) !important;
+  border: 1.5px dashed rgba(217,164,65,0.5) !important;
+  border-radius: 16px !important;
+  transition: border-color .15s, background .15s;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  text-align: center !important;
+  padding: 22px 16px !important;
 }
 [data-testid="stFileUploaderDropzone"]:hover {
-  border-color: #D9A441 !important;
-  background: rgba(217,164,65,0.05) !important;
+  border-color: var(--sv-gold) !important;
+  background: rgba(217,164,65,0.12) !important;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] > div > span {
-  font-size: 0 !important;
+/* 3단계 시각 안내(① 캡처 → ② 끌어놓기 → ③ 자동 인식) — 포트폴리오 업로더와 동일 */
+.scr-steps{display:flex;align-items:stretch;gap:8px;margin:4px 0 14px;flex-wrap:wrap}
+.scr-step{display:flex;align-items:center;gap:9px;flex:1;min-width:150px;
+  background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:10px 12px}
+.scr-step-n{flex:0 0 22px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(217,164,65,.15);color:var(--sv-gold);font-size:12px;font-weight:950}
+.scr-step b{display:block;color:#E7E9EE;font-size:13px;font-weight:850}
+.scr-step em{display:block;color:#9AA0AD;font-size:12px;font-weight:700;font-style:normal;margin-top:1px}
+.scr-step-arr{display:flex;align-items:center;color:#7E8694;font-size:16px;font-weight:900}
+@media(max-width:640px){.scr-step-arr{display:none}.scr-step{min-width:0;flex:1 1 100%}}
+/* 안내문구: 원문(span/small) 숨기고 ::before/::after 로 교체(dash_style 와 동일·버전 견고) */
+/* Streamlit DOM 은 [버튼][안내] 순서라 column 에선 버튼이 위로 옴 → order 로 안내를 위로(안내 위·버튼 아래) */
+[data-testid="stFileUploaderDropzoneInstructions"] {
+  display: flex !important; flex-direction: column !important;
+  align-items: center !important; justify-content: center !important; text-align: center !important;
+  order: -1 !important;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] > div > span::after {
-  content: "파일을 여기에 드래그하거나";
-  font-size: 13px;
-  color: #3a3026;
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
+[data-testid="stFileUploaderDropzoneInstructions"]::before {
+  content: "여기로 이미지를 끌어다 놓으세요"; display: block;
+  font-size: 14px; font-weight: 750; color: #C7CBD2;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] > div > small {
-  font-size: 0 !important;
-}
-[data-testid="stFileUploaderDropzoneInstructions"] > div > small::after {
-  content: "최대 200MB · PNG, JPG, JPEG, WEBP";
-  font-size: 10px;
-  color: #9a8b79;
+[data-testid="stFileUploaderDropzoneInstructions"]::after {
+  content: "PNG · JPG · JPEG · WEBP"; display: block; margin-top: 3px;
+  font-size: 11px; font-weight: 600; color: #7E8694;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
-[data-testid="stFileUploaderDropzone"] button {
+/* 아래 '파일 선택' 버튼 스타일/라벨은 *브라우즈 버튼만* 대상.
+   파일 업로드 후 나타나는 칩의 삭제(aria-label^="Remove")·추가(aria-label="Add files")
+   버튼까지 '파일 선택'으로 둔갑시키면 안 되므로 명시적으로 제외(브라우즈 버튼 aria-label="" 빈값). */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) {
   font-size: 0 !important;
   color: transparent !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 116px !important;
+  padding: 8px 18px !important;
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(217,164,65,0.55) !important;
+  border-radius: 10px !important;
+  transition: background .15s, border-color .15s !important;
 }
-[data-testid="stFileUploaderDropzone"] button::after {
+/* P0 픽스: 버튼 내용(아이콘 폰트 div + 'Browse files')을 숨겨 ::after 라벨을 정중앙에.
+   아이콘이 svg 가 아니라 Material 폰트 글리프라 'svg' 셀렉터론 안 잡힘 → 자식 전체.
+   파일 input 보호(:not(input)) + 칩 버튼 제외(위와 동일). */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) > *:not(input) { display: none !important; }
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]):hover {
+  background: rgba(217,164,65,0.14) !important;
+  border-color: var(--sv-gold) !important;
+}
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"])::after {
   content: "파일 선택";
-  font-size: 12px;
-  color: #1c1a14;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: #E7E9EE !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 </style>
@@ -212,7 +282,7 @@ _LOGO_ANIM_CSS = """
     opacity: 0; margin-top: 8px; font-size: 13px; letter-spacing: 0.04em;
     font-weight: 600; color: #C9CDD4; animation: sim-fade 1s ease forwards 3.6s;
   }
-  .sim-sub b { color: #D9A441; font-weight: 800; }
+  .sim-sub b { color: var(--sv-gold); font-weight: 800; }
   .sim-value {
     opacity: 0; margin-top: 6px; font-size: 11.5px; letter-spacing: 0.01em;
     color: #9AA0AD; text-align: center; line-height: 1.5; max-width: 320px;
@@ -226,7 +296,7 @@ _LOGO_ANIM_CSS = """
   .sim-btn-primary {
     display: flex; align-items: center; justify-content: center;
     width: 100%; height: 50px; border-radius: 12px;
-    background: #D9A441; color: #0E0F13 !important; border: none;
+    background: var(--sv-gold); color: #0E0F13 !important; border: none;
     font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
     text-decoration: none !important; cursor: pointer;
     transition: background 0.2s, transform 0.12s;
@@ -242,7 +312,7 @@ _LOGO_ANIM_CSS = """
     text-decoration: none !important; cursor: pointer;
     transition: background 0.2s, border-color 0.2s;
   }
-  .sim-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: #D9A441; }
+  .sim-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: var(--sv-gold); }
   .sim-btn-guest {
     display: flex; align-items: center; justify-content: space-between;
     width: 100%; height: 48px; border-radius: 12px; padding: 0 18px;
@@ -253,8 +323,8 @@ _LOGO_ANIM_CSS = """
     transition: background 0.2s, border-color 0.2s;
   }
   .sim-btn-guest .g-arrow { color: #9AA0AD; font-weight: 700; }
-  .sim-btn-guest:hover { background: #22262F; border-color: #D9A441; }
-  .sim-btn-guest:hover .g-arrow { color: #D9A441; }
+  .sim-btn-guest:hover { background: #22262F; border-color: var(--sv-gold); }
+  .sim-btn-guest:hover .g-arrow { color: var(--sv-gold); }
   .sim-guest-note {
     margin-top: 7px; font-size: 11px; color: #7E8694; letter-spacing: 0.02em;
   }
@@ -262,7 +332,7 @@ _LOGO_ANIM_CSS = """
     margin-top: 20px; font-size: 12.5px; color: #9AA0AD !important;
     text-decoration: none !important; letter-spacing: 0.01em;
   }
-  .sim-signup-link b { color: #D9A441; font-weight: 700; }
+  .sim-signup-link b { color: var(--sv-gold); font-weight: 700; }
   .sim-signup-link:hover b { color: rgba(217,164,65,0.82); }
   .sim-trust {
     /* WCAG AA(#5): 면책 문구 대비 2.35:1 → 5.2:1 (캡션 토큰과 통일) */
@@ -319,7 +389,7 @@ def _logo_header(subtitle: str = "") -> str:
   <img src="data:image/png;base64,{logo}" width="60" height="60" alt="心"
        style="display:block;opacity:0.95;filter:brightness(0) invert(1);">
   <!-- #1: 브랜드명이 검정(#1c1a14)이라 안 보이던 문제 → 밝은 흰색으로 -->
-  <div style="font-size:15px;letter-spacing:0.18em;font-weight:800;color:#EFE8D6;margin-top:8px;">SIM INVESTMENT</div>
+  <div style="font-size:15px;letter-spacing:0.18em;font-weight:800;color:#EFE8D6;margin-top:8px;">{APP_NAME}</div>
   {sub_html}
 </div>
 """
@@ -358,7 +428,7 @@ def _render_landing() -> None:
     <div class="sim-logo">
       <img src="data:image/png;base64,{logo}" alt="心">
     </div>
-    <div class="sim-title">SIM INVESTMENT</div>
+    <div class="sim-title">{APP_NAME}</div>
     <div class="sim-sub">진심<b>(心)</b>으로 보는 투자</div>
     <div class="sim-value">내 포트폴리오의 가장 큰 리스크를 먼저 짚어주는 투자 코치</div>
     <div class="sim-btns">
@@ -521,13 +591,12 @@ def _render_portfolio_setup() -> None:
     _, col, _ = st.columns([1, 2, 1])
     with col:
         st.markdown("""
-<div style="background:rgba(255,255,255,0.45);border:1px solid rgba(80,65,50,0.15);border-radius:14px;
-     padding:14px 16px;margin-bottom:16px;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
-  <div style="font-size:12px;font-weight:600;color:#1c1a14;margin-bottom:6px;">증권사 앱 스크린샷 등록</div>
-  <div style="font-size:11px;color:#7a6d5e;line-height:1.6;">
-    보유종목 화면을 캡처해서 올려주세요.<br>
-    AI가 자동으로 종목을 분석합니다.
-  </div>
+<div class="scr-steps">
+  <div class="scr-step"><span class="scr-step-n">1</span><div><b>증권사 앱 캡처</b><em>보유 종목 화면을 스크린샷</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">2</span><div><b>끌어다 놓기</b><em>아래에 이미지를 드롭</em></div></div>
+  <div class="scr-step-arr">→</div>
+  <div class="scr-step"><span class="scr-step-n">3</span><div><b>자동 인식</b><em>종목·평가금액 추출</em></div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -540,6 +609,8 @@ def _render_portfolio_setup() -> None:
         )
 
         has_files = bool(uploaded)
+        if has_files:  # CTA 골드 스타일 마커(버전 무관 CSS 타겟) — 버튼 바로 앞
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
         analyze_clicked = has_files and st.button("분석하기", key="btn_analyze", use_container_width=True)
 
     if analyze_clicked:
@@ -558,9 +629,15 @@ def _render_portfolio_setup() -> None:
             holdings = _filter_valid_holdings(holdings)
             st.session_state["_parsed_holdings"] = holdings
         except Exception as e:
+            import logging
+            from core.vision_parser import VisionBusyError
+            logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
             loading_slot.empty()
             with col:
-                st.error(f"분석 실패: {e}")
+                if isinstance(e, VisionBusyError):
+                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
         else:
             loading_slot.empty()
 
@@ -569,18 +646,18 @@ def _render_portfolio_setup() -> None:
         if parsed:
             rows_html = "".join(
                 f'<div style="display:flex;justify-content:space-between;padding:7px 0;'
-                f'border-bottom:1px solid rgba(80,65,50,0.08);font-size:12px;">'
-                f'<span style="color:#1c1a14;font-weight:500;">{h.get("name","—")}</span>'
-                f'<span style="color:#7a6d5e;">{h.get("ticker") or h.get("asset_class","")}</span>'
+                f'border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;">'
+                f'<span style="color:#E7E9EE;font-weight:500;">{h.get("name","—")}</span>'
+                f'<span style="color:#9AA4B2;">{h.get("ticker") or h.get("asset_class","")}</span>'
                 f'</div>'
                 for h in parsed
             )
             st.markdown(f"""
-<div style="font-size:11px;color:#7a6d5e;margin:4px 0 6px;
+<div style="font-size:11px;color:#9AA4B2;margin:4px 0 6px;
      font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
   {len(parsed)}개 종목 감지됨
 </div>
-<div style="background:rgba(255,255,255,0.45);border:1px solid rgba(80,65,50,0.15);border-radius:14px;
+<div style="background:rgba(255,255,255,0.04);border:1px solid #262A33;border-radius:14px;
      padding:12px 16px;margin-bottom:14px;max-height:220px;overflow-y:auto;
      font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
   {rows_html}
@@ -589,6 +666,7 @@ def _render_portfolio_setup() -> None:
 
             pf_name = st.text_input("포트폴리오 이름", value="내 포트폴리오", key="pf_name_input")
 
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
             if st.button("저장하고 시작", key="btn_save_portfolio", use_container_width=True):
                 name = pf_name.strip() or "내 포트폴리오"
                 save_portfolio(username, parsed, name=name)
@@ -608,6 +686,7 @@ def _render_portfolio_setup() -> None:
 
         existing = get_portfolios(username)
         if existing:
+            st.markdown('<span class="sv-cta-anchor"></span>', unsafe_allow_html=True)
             if st.button("기존 포트폴리오로 시작", key="btn_use_existing", use_container_width=True):
                 first = existing[0]
                 st.session_state.pop("_parsed_holdings", None)

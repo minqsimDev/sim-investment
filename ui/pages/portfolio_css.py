@@ -164,7 +164,7 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .pd-alloc-row{display:grid;grid-template-columns:86px minmax(0,1fr) 58px;align-items:center;gap:10px}
 .pd-alloc-name{color:#E7E9EE;font-size:12px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pd-alloc-track{height:9px;border-radius:999px;background:#1E2029;overflow:hidden}
-.pd-alloc-fill{height:100%;border-radius:999px;background:#D9A441}
+.pd-alloc-fill{height:100%;border-radius:999px;background:var(--sv-gold)}
 .pd-alloc-pct{text-align:right;color:#9AA0AD;font-size:11px;font-weight:950;font-variant-numeric:tabular-nums}
 .pd-risk-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 @media(max-width:760px){.pd-risk-list{grid-template-columns:1fr}}
@@ -246,7 +246,7 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .pd-hero-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .pd-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#1E2029;border:1px solid #262A33;
   color:#9AA0AD;padding:5px 8px;font-size:10px;font-weight:950;white-space:nowrap}
-/* 경고 채널 = 주황(주의 #E08A3C / 위험 #E2683C). 손익 빨강(#F25560)·강조 골드(#D9A441)와 분리 */
+/* 경고 채널 = 주황(주의 #E08A3C / 위험 #E2683C). 손익 빨강(#F25560)·강조 골드(var(--sv-gold))와 분리 */
 .pd-chip.warn{background:rgba(224,138,60,0.14);border-color:rgba(224,138,60,0.32);color:#E08A3C}
 .pd-chip.danger{background:rgba(226,104,60,0.14);border-color:rgba(226,104,60,0.34);color:#E2683C}
 /* 집중 위험 — 주황(위험)으로 통일 */
@@ -266,14 +266,15 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .pd-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .pd-header-sub .lv-badge{margin:0}
 /* 골드 강조 링크 — Streamlit 기본 링크색(파랑, 하락色과 혼동)을 덮도록 !important */
-.pd-jump{display:inline-flex;align-items:center;font-size:11px;font-weight:850;color:#D9A441!important;
+.pd-jump{display:inline-flex;align-items:center;font-size:11px;font-weight:850;color:var(--sv-gold)!important;
   text-decoration:none;background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.34);
   border-radius:999px;padding:3px 11px;white-space:nowrap}
-.pd-jump:hover{background:rgba(217,164,65,0.18);border-color:#D9A441}
+.pd-jump:hover{background:rgba(217,164,65,0.18);border-color:var(--sv-gold)}
 .pd-back{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:850;color:#9AA0AD!important;
   text-decoration:none;margin:2px 0 10px}
 .pd-back:hover{color:#E7E9EE}
-.pd-diagnosis-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px}
+/* 카드 수(3~5)에 맞춰 한 줄을 채움 — 3열 고정 시 4번째가 외톨이로 떨어지던 문제 해소 */
+.pd-diagnosis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:16px}
 .pd-diagnosis-item{border:1px solid #262A33;border-radius:10px;background:#1E2029;padding:10px 11px;border-left:3px solid #262A33}
 .pd-diagnosis-item strong{display:block;color:#E7E9EE;font-size:12px;font-weight:950;margin-bottom:4px}
 .pd-diagnosis-item span{display:block;color:#9AA0AD;font-size:11px;font-weight:760;line-height:1.45}
@@ -401,17 +402,17 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
   .rb-nm{grid-column:1/-1}
 }
 /* 운용 방식(철학) 레이어 — 추천 골드 테두리, 출처 라벨, 차이 표 */
-.rbm-diag{background:rgba(217,164,65,0.08);border:1px solid #D9A441;border-radius:12px;
+.rbm-diag{background:rgba(217,164,65,0.08);border:1px solid var(--sv-gold);border-radius:12px;
   padding:11px 15px;margin:2px 0 12px;font-size:12.5px;font-weight:750;color:#E7E9EE;line-height:1.55}
-.rbm-diag b{color:#D9A441;font-weight:900}
-.rbm-diag-k{display:inline-block;font-size:9px;font-weight:900;color:#D9A441;letter-spacing:.06em;
+.rbm-diag b{color:var(--sv-gold);font-weight:900}
+.rbm-diag-k{display:inline-block;font-size:9px;font-weight:900;color:var(--sv-gold);letter-spacing:.06em;
   text-transform:uppercase;background:rgba(217,164,65,0.15);border-radius:6px;padding:2px 7px;margin-right:8px}
 .rbm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
 .rbm-card{background:#1E2029;border:1px solid #262A33;border-radius:12px;padding:13px 14px}
-.rbm-card.rec{border-color:#D9A441;box-shadow:0 0 0 1px rgba(217,164,65,0.25)}
+.rbm-card.rec{border-color:var(--sv-gold);box-shadow:0 0 0 1px rgba(217,164,65,0.25)}
 .rbm-card.sel{background:#23262E}
 .rbm-h{display:flex;align-items:center;gap:7px;color:#E7E9EE;font-size:13px;font-weight:950;margin-bottom:6px}
-.rbm-badge{font-size:9px;font-weight:900;color:#D9A441;background:rgba(217,164,65,0.15);
+.rbm-badge{font-size:9px;font-weight:900;color:var(--sv-gold);background:rgba(217,164,65,0.15);
   border-radius:6px;padding:2px 7px;letter-spacing:.04em}
 .rbm-badge.sm{margin-left:5px}
 .rbm-d{color:#9AA0AD;font-size:11.5px;font-weight:730;line-height:1.5;min-height:50px}
@@ -419,7 +420,7 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .rbm-soon{display:block;color:#7E8694;font-weight:750;margin-top:3px}
 .rbm-pending-p{margin:0 0 8px;color:#C9CEDA;font-size:12px;font-weight:750;line-height:1.6}
 .rbm-pending-note{margin:0;color:#9AA0AD;font-size:11.5px;font-weight:700;line-height:1.55}
-.rbm-pending-note b{color:#D9A441}
+.rbm-pending-note b{color:var(--sv-gold)}
 .rbm-tbl{margin:2px 0}
 .rbm-thead,.rbm-trow{display:grid;grid-template-columns:1fr 1.3fr 1.1fr 1.3fr;gap:8px;align-items:center}
 .rbm-thead{font-size:10px;font-weight:900;color:#7E8694;text-transform:uppercase;letter-spacing:.04em;padding:0 12px 8px}
@@ -489,7 +490,7 @@ _AJ_CSS = """<style>
 .aj-stage.s-final{color:#27A37A;background:rgba(39,163,122,.14);border-color:rgba(39,163,122,.40)}    /* 막바지: 진초록 */
 .aj-stage.s-reached{color:#0E140F;background:#3DD68C;border-color:#3DD68C}                  /* 도달: 초록 강조(filled) */
 /* 페이스(예정 대비) — 앞섬=골드 / 부합=중립 / 뒤처짐=주황 경고(P&L 빨강·파랑과 분리) */
-.aj-pace.ahead{color:#D9A441;background:rgba(217,164,65,.12);border-color:rgba(217,164,65,.34)}
+.aj-pace.ahead{color:var(--sv-gold);background:rgba(217,164,65,.12);border-color:rgba(217,164,65,.34)}
 .aj-pace.ontrack{color:#9AA0AD;background:rgba(255,255,255,.05);border-color:#262A33}
 .aj-pace.behind{color:#E08A3C;background:rgba(224,138,60,.13);border-color:rgba(224,138,60,.38)}
 .aj-top-row{margin-bottom:0}
@@ -503,9 +504,9 @@ _AJ_CSS = """<style>
   display:inline-flex!important;align-items:center!important;justify-content:center!important;
   min-height:0!important;line-height:1!important;white-space:nowrap!important;
   margin-left:0!important;margin-top:0!important;box-shadow:none!important;
-  background:rgba(217,164,65,.10)!important;border:1px solid rgba(217,164,65,.40)!important;color:#D9A441!important}
+  background:rgba(217,164,65,.10)!important;border:1px solid rgba(217,164,65,.40)!important;color:var(--sv-gold)!important}
 [data-testid="stPopover"] button [data-testid="stIconMaterial"]{font-size:17px!important}
-[data-testid="stPopover"] button:hover{background:rgba(217,164,65,.2)!important;border-color:#D9A441!important}
+[data-testid="stPopover"] button:hover{background:rgba(217,164,65,.2)!important;border-color:var(--sv-gold)!important}
 [data-testid="stPopover"] button [data-testid="stMarkdownContainer"] p{margin:0!important;line-height:1.2!important}
 .aj-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:24px;align-items:center}
 @media(max-width:820px){.aj-grid{grid-template-columns:1fr;gap:16px}}
@@ -520,38 +521,46 @@ _AJ_CSS = """<style>
 .aj-chart svg{height:100%}
 .aj-chart-hint{position:absolute;right:9px;bottom:6px;font-size:10.5px;font-weight:850;color:#9A7B2E;
   opacity:.8;transition:opacity .15s;pointer-events:none;z-index:2}
+/* 추이 모드는 끝점 금액 라벨이 우하단에 있어 힌트와 겹침 → 힌트를 우상단으로 */
+.aj-chart-trend .aj-chart-hint{top:6px;bottom:auto}
 /* 추이 등장 애니메이션 — 바닥(0)에서 천천히 차오름 */
 .aj-chart-trend svg{animation:aj-rise .8s cubic-bezier(.22,.61,.36,1) both;transform-origin:bottom}
 @keyframes aj-rise{from{transform:scaleY(0);opacity:.25}to{transform:scaleY(1);opacity:1}}
 /* 바 위 투명 오버레이 버튼 = '바 클릭'으로 추이 전환(아래 별도 버튼 없이). hover 시 옅은 골드 틴트 */
+/* 그래프 클릭=전환 오버레이. 컨테이너 testid 가 Streamlit 버전마다 다름
+   (1.37.x: element-container / 1.58.x: stElementContainer) → 양쪽 모두 매칭. */
 .aj-barclick-anchor{height:0;margin:0;padding:0;line-height:0}
-[data-testid="stVerticalBlock"]:has(> [data-testid="element-container"] .aj-barclick-anchor){gap:0!important}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"]{
+[data-testid="stVerticalBlock"]:has(> [data-testid="element-container"] .aj-barclick-anchor),
+[data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .aj-barclick-anchor){gap:0!important}
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"],
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"]{
   margin-top:-104px!important;height:120px!important;position:relative;z-index:6}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button{
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button,
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"] button{
   height:120px!important;width:100%!important;min-height:0!important;border:0!important;border-radius:12px!important;
   background:transparent!important;color:transparent!important;box-shadow:none!important;cursor:pointer!important;
   padding:0!important;transition:background .15s!important}
-[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button:hover{
+[data-testid="element-container"]:has(.aj-barclick-anchor) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.aj-barclick-anchor) + [data-testid="stElementContainer"] button:hover{
   background:rgba(217,164,65,0.07)!important}
 .aj-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0}
-.aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;gap:6px}
-.aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;
+.aj-card{background:rgba(255,255,255,.03);border:1px solid #262A33;border-radius:14px;padding:12px 14px;min-width:0;text-align:right}
+.aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;justify-content:flex-start;text-align:left;gap:6px}
+.aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;text-align:right;
   font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.aj-auto{font-size:9px;font-weight:800;color:#D9A441;background:rgba(217,164,65,.13);
+.aj-auto{font-size:9px;font-weight:800;color:var(--sv-gold);background:rgba(217,164,65,.13);
   border-radius:5px;padding:1px 5px;letter-spacing:.02em}
 .aj-pop-t{font-size:13px;font-weight:900;color:#E7E9EE;margin-bottom:8px}
 /* D5: 목표 수정 트리거 — 골드 아웃라인 "⚙ 목표 수정" 라벨 칩(헤더 옆) */
 div[data-testid="stPopover"] > div button{
   background:rgba(217,164,65,.10)!important;border:1px solid rgba(217,164,65,.42)!important;
-  color:#D9A441!important;border-radius:999px!important;font-weight:850!important;
+  color:var(--sv-gold)!important;border-radius:999px!important;font-weight:850!important;
   height:28px!important;min-width:28px!important;padding:0 9px!important;
   display:inline-flex!important;align-items:center!important;justify-content:center!important;
   min-height:0!important;line-height:1!important;
   margin-left:0!important;margin-top:0!important;box-shadow:none!important;white-space:nowrap!important}
 div[data-testid="stPopover"] > div button:hover{
-  background:rgba(217,164,65,.18)!important;border-color:#D9A441!important;color:#D9A441!important}
+  background:rgba(217,164,65,.18)!important;border-color:var(--sv-gold)!important;color:var(--sv-gold)!important}
 </style>"""
 
 _AT_CSS = """<style>
@@ -561,7 +570,7 @@ _AT_CSS = """<style>
 .at-head span .up{color:#F25560}.at-head span .down{color:#4D90F0}
 /* 추이 헤더 = 자산 여정 복귀 링크(그래프/헤더 클릭 전환) */
 .at-back{color:#E7E9EE;font-size:20px;font-weight:800;text-decoration:none;cursor:pointer}
-.at-back:hover{color:#D9A441}
+.at-back:hover{color:var(--sv-gold)}
 /* 기간 라디오 — 우측 정렬 + 옵션 글자 가운데 */
 [data-testid="stRadio"] div[role="radiogroup"]{justify-content:flex-end!important}
 [data-testid="stRadio"] div[role="radiogroup"] label{text-align:center!important;justify-content:center!important}
@@ -579,7 +588,7 @@ _ASEC_CSS = """<style>
   padding:7px 12px!important;min-height:0!important;margin-top:-2px!important;box-shadow:none!important;
   transition:background .15s,border-color .15s,color .15s!important}
 [data-testid="element-container"]:has(.asec-strip-anchor) + [data-testid="element-container"] button:hover{
-  background:rgba(217,164,65,.14)!important;border-color:#D9A441!important;color:#D9A441!important}
+  background:rgba(217,164,65,.14)!important;border-color:var(--sv-gold)!important;color:var(--sv-gold)!important}
 .asec-strip-anchor{height:0;margin:0;padding:0}
 </style>"""
 
@@ -602,14 +611,14 @@ _PB_CSS = """<style>
 /* C4: 보더 명도 낮춰 배경에 안착(떠 보임 해소) — 좌측 보더 없이 옅은 채움+낮은 대비 테두리 */
 .pb-action{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.18);border-radius:12px;
   padding:11px 14px;font-size:13.5px;font-weight:850;color:#E7E9EE}
-.pb-action b{color:#D9A441}
+.pb-action b{color:var(--sv-gold)}
 .pb-cost{display:block;margin-top:5px;font-size:11.5px;font-weight:700;color:#9AA0AD}
 .pb-bench{margin-top:10px;font-size:12px;font-weight:700;color:#9AA0AD;font-variant-numeric:tabular-nums}
 /* E1: 재배분 '실행 예정' 표시 — 위험카드 바로 아래 한 줄(조언→행동 연결) */
 .pb-plan{margin:8px 0 0;padding:9px 13px;border-radius:11px;font-size:12px;font-weight:800;color:#C9CEDA;
   background:rgba(217,164,65,0.08);border:1px solid rgba(217,164,65,0.20)}
-.pb-plan b{color:#D9A441}
-.pb-plan-link{margin-left:8px;color:#D9A441!important;text-decoration:none;font-weight:850;white-space:nowrap}
+.pb-plan b{color:var(--sv-gold)}
+.pb-plan-link{margin-left:8px;color:var(--sv-gold)!important;text-decoration:none;font-weight:850;white-space:nowrap}
 .pb-plan-link:hover{text-decoration:underline}
 /* 내 계좌 탐욕 지수 — 게이지는 리스크 게이지와 동일 처리(명도·라벨). 색만으로 의미 전달 금지 */
 [data-testid="stVerticalBlockBorderWrapper"]:has(.agr-title){
@@ -620,7 +629,7 @@ _PB_CSS = """<style>
 .agr-therm-val{text-align:center;font-size:30px;font-weight:950;color:#E7E9EE;line-height:1;
   font-variant-numeric:tabular-nums;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:10px}
 .agr-therm-track{position:relative;height:14px;border-radius:999px;
-  background:linear-gradient(90deg,#3A8FC2 0%,#D9A441 50%,#C46A2B 100%)}
+  background:linear-gradient(90deg,#3A8FC2 0%,var(--sv-gold) 50%,#C46A2B 100%)}
 .agr-therm-marker{position:absolute;top:50%;width:4px;height:24px;border-radius:3px;background:#E7E9EE;
   transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(14,15,19,.65),0 1px 4px rgba(0,0,0,.4)}
 .agr-therm-scale{display:flex;justify-content:space-between;margin-top:8px;
@@ -628,7 +637,7 @@ _PB_CSS = """<style>
 .agr-band{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:2px}
 .agr-band .pill{font-size:12px;font-weight:900;color:#E7E9EE;border:1px solid #3A3F49;
   border-radius:999px;padding:3px 11px;background:rgba(255,255,255,0.04)}
-.agr-band .pill.hot{border-color:#D9A441;color:#E7B85C}
+.agr-band .pill.hot{border-color:var(--sv-gold);color:#E7B85C}
 .agr-interp{text-align:center;font-size:11.5px;font-weight:700;color:#8A8F9B;margin-top:7px;line-height:1.5}
 .agr-comp{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px 12px;align-items:center;
   font-size:12px;font-weight:700;padding:7px 2px;border-top:1px solid #23262E}
@@ -642,17 +651,17 @@ _PB_CSS = """<style>
 .bm-title{font-size:13px;font-weight:950;color:#E7E9EE;margin-bottom:12px}
 .bm-row{display:grid;grid-template-columns:120px 1fr 64px;gap:12px;align-items:center;margin:7px 0}
 .bm-lbl{font-size:12px;font-weight:800;color:#9AA0AD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bm-lbl.mine{color:#D9A441;font-weight:950}
+.bm-lbl.mine{color:var(--sv-gold);font-weight:950}
 .bm-track{height:12px;border-radius:999px;background:rgba(255,255,255,0.05);overflow:hidden}
 .bm-track i{display:block;height:100%;border-radius:999px}
-.bm-mine{background:#D9A441}.bm-other{background:#5E6573}  /* 내 포트폴리오 = 골드(강조), 벤치마크 = 회색 */
+.bm-mine{background:var(--sv-gold)}.bm-other{background:#5E6573}  /* 내 포트폴리오 = 골드(강조), 벤치마크 = 회색 */
 .bm-val{text-align:right;font-size:13px;font-weight:900;color:#9AA0AD;font-variant-numeric:tabular-nums}
-.bm-val.mine{color:#D9A441}
+.bm-val.mine{color:var(--sv-gold)}
 .bm-cap{margin-top:11px;font-size:11.5px;font-weight:700;color:#7E8694;line-height:1.5}
 /* 리밸런싱 보기 버튼 — 골드 */
 .st-key-pb_rebal_btn button{background:rgba(217,164,65,0.12)!important;border:1px solid rgba(217,164,65,0.42)!important;
-  color:#D9A441!important;border-radius:12px!important;font-weight:850!important;margin:-6px 0 14px!important}
-.st-key-pb_rebal_btn button:hover{background:rgba(217,164,65,0.2)!important;border-color:#D9A441!important}
+  color:var(--sv-gold)!important;border-radius:12px!important;font-weight:850!important;margin:-6px 0 14px!important}
+.st-key-pb_rebal_btn button:hover{background:rgba(217,164,65,0.2)!important;border-color:var(--sv-gold)!important}
 </style>"""
 
 _ONBOARD_CSS = """<style>
@@ -663,7 +672,7 @@ _ONBOARD_CSS = """<style>
 .ob-steps{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .ob-step{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:850;color:#9AA0AD;
   background:#1E2029;border:1px solid #262A33;border-radius:999px;padding:5px 12px}
-.ob-step b{color:#D9A441}
+.ob-step b{color:var(--sv-gold)}
 .ob-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 16px}
 @media(max-width:860px){.ob-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ob-c{background:#16181F;border:1px solid #262A33;border-radius:14px;padding:14px 15px}

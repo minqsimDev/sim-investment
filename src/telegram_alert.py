@@ -25,6 +25,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from core.locking import file_lock
+from core.brand import APP_NAME, APP_TAGLINE
 
 load_dotenv()
 
@@ -32,8 +33,8 @@ _API = "https://api.telegram.org/bot{token}/{method}"
 _CFG = Path.home() / ".siminvest_alerts.json"
 _LOCK_FILE = Path.home() / ".siminvest_alerts.lock"
 _COOLDOWN_H = 12  # 같은 알림 재발송 최소 간격(시간) — 중복 발송 방지
-_BRAND = "SIM INVESTMENT"
-_SIGN = "\n\n_SIM INVESTMENT · 진심으로 보는 투자_"  # 기본 서명(이탤릭)
+_BRAND = APP_NAME
+_SIGN = f"\n\n_{APP_NAME} · {APP_TAGLINE}_"  # 기본 서명(이탤릭)
 # 위험 알림용 서명 — 면책(매매 권유 아님) 한 줄을 얹어 정체성 유지
 _ALERT_SIGN = "\n\n_점검을 돕는 참고 정보일 뿐, 판단은 늘 직접._" + _SIGN
 

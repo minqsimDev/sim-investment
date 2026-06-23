@@ -10,8 +10,26 @@ import streamlit as st
 UP    = "#F25560"
 DOWN  = "#4D90F0"
 GOLD  = "#D9A441"
+GOLD_RGB = "217,164,65"          # 골드 rgb 채널(반투명 rgba(var(--sv-gold-rgb), a) 용)
+TEXT  = "#E7E9EE"                # 본문 텍스트
+MUTED = "#9AA0AD"                # 보조 텍스트
+BG    = "#0E0F13"                # 페이지 배경
 SURFACE = "#16181F"
 BORDER  = "rgba(255,255,255,.07)"
+BORDER_HEX = "#262A33"           # 카드/구분선(불투명)
+
+
+def theme_root_css() -> str:
+    """색 토큰을 CSS 변수(:root)로 전역 노출 — 색의 단일 출처(SSOT).
+    CSS 에선 var(--sv-gold) 등으로 참조. 값 변경은 이 파일 상수만 고치면 전 화면 반영."""
+    return (
+        "<style>:root{"
+        f"--sv-gold:{GOLD};--sv-gold-rgb:{GOLD_RGB};"
+        f"--sv-text:{TEXT};--sv-muted:{MUTED};"
+        f"--sv-bg:{BG};--sv-surface:{SURFACE};--sv-border:{BORDER_HEX};"
+        f"--sv-up:{UP};--sv-down:{DOWN};"
+        "}</style>"
+    )
 
 
 def inject_css():

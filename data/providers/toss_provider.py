@@ -18,6 +18,22 @@ from .base import BaseProvider
 _BASE_URL = "https://openapi.tossinvest.com"
 _TIMEOUT = 15
 
+# /prices 배치 응답이 전일종가(기준가)를 담을 수 있는 후보 키. 있으면 종목당 캔들 호출을 생략한다.
+_PREV_CLOSE_KEYS = ("base", "previousClose", "prevClose", "basePrice", "closePrice", "prevPrice")
+
+
+def prev_close_from_row(row: dict) -> float | None:
+    """/prices 한 행에서 전일종가를 추출. 후보 키 중 첫 숫자값을 반환, 없으면 None."""
+    for k in _PREV_CLOSE_KEYS:
+        v = row.get(k)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
 
 class TossClient(BaseProvider):
     def __init__(self, client_id: str | None = None, client_secret: str | None = None):
@@ -95,6 +111,7 @@ class TossClient(BaseProvider):
                     "lastPrice": row.get("lastPrice"),
                     "currency": row.get("currency"),
                     "timestamp": row.get("timestamp"),
+                    "prevClose": prev_close_from_row(row),   # 있으면 캔들 호출 생략(첫 로딩 단축)
                 }
                 for row in result
             }

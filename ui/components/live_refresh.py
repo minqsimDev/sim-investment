@@ -30,7 +30,12 @@ _BADGE_CSS = """<style>
 
 def _source_label(markets: list[str]) -> str:
     """시세 출처 표기를 markets 로 판별(지시서 5장 — 사실대로, 과장 금지).
-    주식·ETF = 토스증권 / 크립토 = yfinance ~15분 지연 / 둘 다 섞이면 혼합."""
+    주식·ETF = 토스증권 / 크립토 = yfinance ~15분 지연 / 둘 다 섞이면 혼합.
+    단, 소스 단일 스위치(price_source.USE_TOSS)가 꺼져 있으면 전부 yfinance 이므로
+    KR/US 도 거짓 없이 yfinance 로 표기한다(라벨도 스위치에서 파생 = SSOT)."""
+    import data.price_source as _ps
+    if not _ps.USE_TOSS:
+        return "yfinance ~15분 지연"
     ms = set(markets)
     has_toss = bool(ms & {"KR", "US"})
     has_yf = bool(ms & {"CRYPTO"})

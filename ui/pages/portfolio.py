@@ -177,33 +177,9 @@ def _market_price_maps(data: dict) -> dict[str, dict]:
     return maps
 
 
-# 둘 다 실패(완전 오프라인)할 때만 쓰는 최후 폴백. 평시엔 시장데이터(토스 우선)→보조 FX API가 최신 반영.
-_FX_FALLBACK = 1450.0
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def _fetch_live_usdkrw() -> float | None:
-    """시장데이터 USD/KRW(토스)가 없을 때 보조 USD/KRW — 무료 FX API(키 불필요, 15분 캐시)."""
-    import json
-    import urllib.request
-    try:
-        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=6) as r:
-            rate = json.load(r).get("rates", {}).get("KRW")
-        return float(rate) if rate else None
-    except Exception:
-        return None
-
-
-def _usdkrw(data: dict) -> float | None:
-    """USD/KRW. 1순위 시장데이터(USDKRW=X — 토스 우선·yfinance 폴백), 실패 시 보조 FX API."""
-    fx = data.get("fx", pd.DataFrame())
-    if fx is not None and not fx.empty and "pair" in fx.columns:
-        row = fx[fx["pair"] == "usd_krw"]
-        if not row.empty:
-            rate = _num(row.iloc[0].get("rate"))
-            if rate:
-                return rate
-    return _fetch_live_usdkrw()   # 시장데이터에 환율 없으면 보조 실시간 API(상수 폴백 아님)
+# USD/KRW 환율은 data/fx.py 단일 출처에 위임(이전엔 이 UI 파일 안에 자체 HTTP 호출이 박혀
+# 있었음). _usdkrw·_FX_FALLBACK 은 기존 호출부(`_usdkrw(data) or _FX_FALLBACK`) 호환 별칭.
+from data.fx import usdkrw as _usdkrw, FX_FALLBACK as _FX_FALLBACK
 
 
 def _category_for_holding(row: dict, ticker: str) -> str:
@@ -224,13 +200,22 @@ def _category_for_holding(row: dict, ticker: str) -> str:
     return "기타"
 
 
+def _holding_currency(row: dict, ticker: str = "", category: str = "") -> str:
+    """보유 1건의 환산·표시 통화(KRW|USD) — 전 화면 '보유→원화' 변환의 단일 출처(SSOT).
+
+    규칙: 명시 currency(KRW/USD) 우선 → 없으면 카테고리로 판정.
+    '미국주식'(us_stock)만 USD(×환율 대상), 그 외(국내·ETF·크립토·원자재·현금·기타)는 KRW.
+    크립토를 USD 로 보면 국내거래소 원화 평가금액에 ×환율되어 총액이 폭증함(예: 1,200만→184억).
+    render()·_render_portfolio_detail() 두 경로가 이 함수 하나만 쓰게 해 결과 불일치를 차단한다."""
+    cur = str(_first(row, "currency", "ccy") or "").upper()
+    if cur in {"KRW", "USD"}:
+        return cur
+    cat = category or _category_for_holding(row, ticker)
+    return "USD" if cat == "미국주식" else "KRW"
+
+
 def _display_currency(row: dict, ticker: str, category: str) -> str:
-    currency = str(_first(row, "currency", "ccy") or "").upper()
-    if currency in {"KRW", "USD"}:
-        return currency
-    if category in {"국내주식", "ETF", "현금"} or ticker.endswith(".KS") or ticker.endswith(".KQ"):
-        return "KRW"
-    return "USD"
+    return _holding_currency(row, ticker, category)  # 하위호환 별칭 — 단일 출처 위임
 
 
 def _name_ticker_map(price_maps: dict[str, dict]) -> dict[str, str]:
@@ -641,12 +626,25 @@ _BRAND_SOLID = {
     "brand-green": "#3AA384", "brand-violet": "#7B6FD6", "brand-gold": "#D6A23A",
 }
 _STOCK_FALLBACK = ["#5E6573", "#4A515E", "#3E4450", "#33383F", "#2A2E36"]  # 브랜드 미상 종목(중립 회색)
+# 코인 고유색(배지 .coin-* 그라데이션의 대표 솔리드) — 집중도 바도 같은 색을 쓰게.
+_COIN_SOLID = {
+    "BTC": "#F7931A", "ETH": "#627EEA", "SOL": "#14F195", "ADA": "#0033AD",
+    "XRP": "#23A5DE", "DOGE": "#C2A633", "USDT": "#26A17B", "USDC": "#2775CA",
+}
 
 
-def _stock_bar_color(ticker: str, idx: int) -> str:
-    """종목 → 고유 브랜드 색(있으면), 없으면 중립 회색 차등."""
-    cls = _BRAND_CLASSES.get(_ticker_key(ticker), "")
-    return _BRAND_SOLID.get(cls, _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)])
+def _stock_bar_color(pos, idx: int) -> str:
+    """종목 → 고유 브랜드/코인 색. 크립토는 코인 고유색, 그 외 브랜드 미상은 중립 회색 차등."""
+    ticker = str((pos.get("ticker", "") if isinstance(pos, dict) else pos) or "")
+    key = _ticker_key(ticker)
+    cls = _BRAND_CLASSES.get(key, "")
+    if cls:
+        return _BRAND_SOLID.get(cls, _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)])
+    if isinstance(pos, dict):
+        ac = str(pos.get("asset_class") or "").lower()
+        if pos.get("category") == "크립토" or "crypto" in ac:
+            return _COIN_SOLID.get(key.replace("-USD", ""), _CAT_COLOR.get("크립토", "#F0A030"))
+    return _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)]
 
 
 def _conc_color(rank: int, leader_alarm: bool) -> str:
@@ -703,7 +701,7 @@ def _holdings_concentration_html(positions: list[dict]) -> str:
     bars, legends = [], []
     for i, p in enumerate(colored):
         w = p.get("weight", 0)
-        c = _stock_bar_color(p.get("ticker", ""), i)
+        c = _stock_bar_color(p, i)
         nm = _escape(p.get("name", ""))
         bars.append(f'<i style="width:{w:.1f}%;background:{c}" title="{nm} {pct_weight(w)}%"></i>')
         legends.append(f'<span><i class="pd-mini-dot" style="background:{c}"></i>{nm} {pct_weight(w)}%</span>')
@@ -1470,6 +1468,21 @@ def _record_today_snapshot(username: str | None, summary: dict, positions: list[
 # _AT_CSS → ui.pages.portfolio_css 로 이동
 
 
+def _yf_history_symbol(ticker: str, currency, category) -> tuple[str, object]:
+    """yfinance 가격 이력용 심볼·통화 정규화.
+
+    크립토는 'BTC' → 'BTC-USD'(USD결제)로 바꾼다. bare 'BTC'/'ETH'는 yfinance에서
+    동명의 엉뚱한 주식($27 등)으로 잡혀 추이 총액이 망가지던 버그(끝값 24원)의 원인.
+    이미 -USD/.KS/=X/=F/^ 등 정규 심볼이거나 크립토가 아니면 그대로 둔다.
+    """
+    t = (ticker or "").upper()
+    if t.endswith(("-USD", ".KS", ".KQ", "=X", "=F")) or t.startswith("^"):
+        return ticker, currency
+    if category == "크립토" or t in _COIN_SOLID:
+        return f"{t}-USD", "USD"
+    return ticker, currency
+
+
 def _portfolio_value_series(positions: list[dict], period: str, fx: float, start: str | None = None):
     """보유 × 기간 일별 종가 → 일별 총 평가액(원화) 시계열. 현재 수량을 기간 내 보유했다고 가정(추세 근사).
 
@@ -1477,8 +1490,12 @@ def _portfolio_value_series(positions: list[dict], period: str, fx: float, start
     """
     import pandas as pd
     from data.session import cached_download
-    holds = [(p["ticker"], float(p.get("quantity") or 0), p.get("currency"))
-             for p in positions if p.get("ticker") and (p.get("quantity") or 0) > 0]
+    holds = []
+    for p in positions:
+        if not p.get("ticker") or not ((p.get("quantity") or 0) > 0):
+            continue
+        sym, cur = _yf_history_symbol(p["ticker"], p.get("currency"), p.get("category"))
+        holds.append((sym, float(p.get("quantity") or 0), cur))
     if not holds:
         return None
     tickers = [t for t, _, _ in holds]
@@ -1605,15 +1622,33 @@ def _asset_trend_svg(series) -> str:
             f'preserveAspectRatio="none" style="width:100%;height:auto;display:block">{svg}</svg>')
 
 
-def _journey_cards_html(current: float, m: dict) -> str:
-    from core.journey import krw_compact, eta_label
+def _journey_eta_display(m: dict, current: float, target: float) -> str:
+    """예상 기간 라벨. 이미 목표 도달이면 '목표 도달',
+    연 성장률(CAGR)이 0 이하면 현재 추세로는 닿지 못하므로 '투자 실패',
+    그 외에는 'N년 M개월'."""
+    from core.journey import eta_label
+    if target > 0 and current >= target:
+        return "목표 도달"
+    if m.get("cagr_pct", 0) <= 0:
+        return "투자 실패"
+    return eta_label(m.get("years_to_goal"))
+
+
+def _journey_cards_html(current: float, m: dict, target: float = 0.0) -> str:
+    from core.journey import krw_compact
+    eta = _journey_eta_display(m, current, target)
+    unreachable = eta == "투자 실패"
+    eta_cls = ' style="color:%s"' % _CONC_ALARM if unreachable else ''   # 위험경고=주황
+    cagr = m["cagr_pct"]
+    cagr_html = (f'<span style="color:{DOWN}">{cagr:.1f}%</span>'    # 음수 성장률=파랑
+                 if cagr < 0 else f'{cagr:.1f}%')
     return (
         f'<div class="aj-card"><div class="k">목표까지</div>'
         f'<div class="v">{krw_compact(m["remaining"])}</div></div>'
         f'<div class="aj-card"><div class="k">예상 기간 <span class="aj-auto">자동</span></div>'
-        f'<div class="v">{eta_label(m["years_to_goal"])}</div></div>'
+        f'<div class="v"{eta_cls}>{eta}</div></div>'
         f'<div class="aj-card"><div class="k">연 성장률 <span class="aj-auto">자동</span></div>'
-        f'<div class="v">{m["cagr_pct"]:.1f}%</div></div>'
+        f'<div class="v">{cagr_html}</div></div>'
         f'<div class="aj-card"><div class="k">현재 자산</div>'
         f'<div class="v">{krw_compact(current)}</div></div>'
     )
@@ -1643,7 +1678,7 @@ def _journey_block_html(current: float, target: float, m: dict, chart_svg: str |
     # 단일 그리드(클릭 없음, 게스트 등) — 좌(헤드라인+차트) | 우(카드)
     left = _journey_leftcell_html(current, target, m, chart_svg, headline_label, headline_val_html, clickable=False)
     return (_AJ_CSS + '<div class="aj-grid"><div>' + left + '</div>'
-            f'<div class="aj-cards">{_journey_cards_html(current, m)}</div></div>')
+            f'<div class="aj-cards">{_journey_cards_html(current, m, target)}</div></div>')
 
 
 def _journey_get(key, username, is_guest, default):
@@ -1663,6 +1698,23 @@ def _journey_set(key, value, username, is_guest) -> None:
         set_setting(username, key, value)
 
 
+def _estimate_start_value(positions: list[dict] | None, total: float) -> float:
+    """초기 투자금(원가) 추정 — 매입금액이 없어도 보유 수익률(gain_loss_pct)로 평가금액에서
+    역산해 실제 수익률이 반영되게(원가 = 평가금액 / (1+수익률/100)). 데이터 없으면 0.62×현재 폴백.
+    이전엔 무조건 0.62×현재라, 손실 포트폴리오도 '수익률 +61.3%'(=1/0.62-1)로 잘못 표기됐음."""
+    cost, ok = 0.0, False
+    for p in (positions or []):
+        mv = p.get("market_value")
+        if mv is None:
+            continue
+        gp = p.get("gain_loss_pct")
+        if gp is not None and (1 + gp / 100) > 0.01:
+            cost += mv / (1 + gp / 100); ok = True
+        else:
+            cost += mv
+    return cost if (ok and cost > 0) else max(1.0, total * 0.62)
+
+
 @st.fragment
 def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                           positions: list[dict] | None = None, fx: float | None = None) -> None:
@@ -1675,7 +1727,10 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
 
     username = st.session_state.get("username")
     target = int(_journey_get("target_value", username, is_guest, 1_500_000_000))
-    start_value = float(_journey_get("start_value", username, is_guest, max(1.0, current_value * 0.62)))
+    # 초기 투자금은 보유 수익률 역산 원가(=실제 투자원금)로 자동 산출 — 벤치마크 수익률과 동일 기준.
+    # (이전엔 게어의 수동 입력값을 저장·사용했는데, 키 위젯의 stale 세션값이 재저장돼 손실인데도
+    #  연 성장률이 +로 나오는 오류가 반복됨. 자동 원가로 단일화해 벤치마크와 일관성 확보.)
+    start_value = _estimate_start_value(positions, current_value)
     sd_raw = _journey_get("start_date", username, is_guest, (_date.today() - timedelta(days=730)).isoformat())
     start_date = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
 
@@ -1718,31 +1773,28 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             # 목표수정: 톱니 아이콘만(헤더 제자리라 '설정'으로 직관적). 높이는 배지와 통일(28px)
             with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
                 st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
+                # 목표 금액(억원, 작은 포트폴리오 대비 value clamp). 초기투자금은 보유 원가로 자동
+                # 산출하므로 입력 제거(키 위젯 stale 세션값이 재저장돼 연 성장률이 잘못 나오던 오염원).
+                _TGT_MIN, _EOK_MAX = 0.1, 2000.0
+                _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
                 new_target_eok = st.number_input(
-                    "목표 금액 (억원)", min_value=1.0, max_value=2000.0,
-                    value=round(target / 1e8, 1), step=0.5, format="%.1f", key="aj_target_eok",
-                )
-                new_start_eok = st.number_input(
-                    "초기 투자금 (억원)", min_value=0.1, max_value=2000.0,
-                    value=round(start_value / 1e8, 2), step=0.1, format="%.2f", key="aj_start_eok",
+                    "목표 금액 (억원)", min_value=_TGT_MIN, max_value=_EOK_MAX,
+                    value=_target_eok, step=0.5, format="%.1f", key="aj_target_eok",
                 )
                 new_start_date = st.date_input(
                     "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
                 )
-                st.caption("초기 투자금·시작일로 연 성장률(CAGR)과 예상 기간을 자동 계산합니다.")
+                st.caption("초기 투자금은 보유 원가로 자동 산출 · 시작일로 연 성장률(CAGR)·예상 기간을 계산합니다.")
 
                 new_target = int(round(new_target_eok * 1e8))
-                new_start = float(round(new_start_eok * 1e8))
                 changed = False
-                # 반올림 오차로 인한 허위 변경 방지 → 0.01억(=100만) 이상 차이만 실제 변경으로
-                if abs(new_target - target) > 1_000_000:
+                # 사용자가 입력값을 실제로 변경했을 때만 저장(표시된 기본값과 비교).
+                if new_target_eok != _target_eok:
                     _journey_set("target_value", new_target, username, is_guest); changed = True
-                if abs(new_start - start_value) > 1_000_000:
-                    _journey_set("start_value", new_start, username, is_guest); changed = True
                 if new_start_date.isoformat() != start_date.isoformat():
                     _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
                 if changed:
-                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일/초기자본 반영
+                    st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일 반영
         # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
         open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
         chart_svg = _hl_label = _hl_val = None
@@ -1774,7 +1826,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                     st.session_state["journey_trend_open"] = not open_
                     st.rerun(scope="fragment")
             with _rc:
-                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m)}</div>',
+                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
                             unsafe_allow_html=True)
 
 
@@ -1813,12 +1865,15 @@ def _account_diag(positions: list[dict], total: float, cash: float,
     (총수익·KOSPI 대비·벤치마크 등이 화면마다 달라지던 문제 해소. bench 는 캐시 래퍼 하나로 통일.)"""
     from datetime import date as _date
     from core.pb import holdings_for_pb, pb_diagnostics
-    sval = float(_journey_get("start_value", uname, is_guest, max(1.0, total * 0.62)))
+    # 벤치마크 '내 포트폴리오 수익률'은 실제 원가(수익률 역산) 기준 — 여정의 초기투자금 설정값
+    # (사용자가 임의 설정/과거 기본값 저장 가능)에 묶이면 손실 종목도 +로 나오는 오류가 났음.
+    cost_basis = _estimate_start_value(positions, total)
+    sval = float(_journey_get("start_value", uname, is_guest, cost_basis))  # 여정 표시·설정용(저장값 우선)
     sd_raw = _journey_get("start_date", uname, is_guest,
                           (_date.today() - timedelta(days=730)).isoformat())
     sd = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
     bench = _get_bench_returns(sd.isoformat())            # 두 화면 동일한 캐시 소스
-    diag = pb_diagnostics(holdings_for_pb(positions), total, cash, sd, sval, bench)
+    diag = pb_diagnostics(holdings_for_pb(positions), total, cash, sd, cost_basis, bench)
     return {"diag": diag, "bench": bench, "start": sd, "start_value": sval}
 
 
@@ -1910,13 +1965,18 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
     for label, val, mine in rows:
         w = abs(val) / max_abs * 100
         sign = "+" if val >= 0 else "−"
-        if mine:
-            # 내 포트폴리오 = 항상 골드(강조). 부호는 +/−로만 표기(손익색은 다른 화면이 담당)
+        # 음수(손실)는 '오른쪽→왼쪽' 채움(margin-left:auto)으로 양수와 반대 방향 → 채워진 막대가
+        # +처럼 보이던 문제 해소. 색도 하락=파랑(한국식)으로.
+        if mine and val < 0:
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN};margin-left:auto"></i>'
+            valspan = f'<span class="bm-val mine" style="color:{DOWN}">−{abs(val):.1f}%</span>'
+        elif mine:
+            # 내 포트폴리오(이익·강조) = 골드
             bar = f'<i class="bm-mine" style="width:{w:.0f}%"></i>'
-            valspan = f'<span class="bm-val mine">{sign}{abs(val):.1f}%</span>'
+            valspan = f'<span class="bm-val mine">+{val:.1f}%</span>'
         elif val < 0:
-            # 벤치마크 손실: 하락=파랑
-            bar = f'<i style="width:{w:.0f}%;background:{DOWN}"></i>'
+            # 벤치마크 손실: 하락=파랑 + 오른쪽 채움
+            bar = f'<i style="width:{w:.0f}%;background:{DOWN};margin-left:auto"></i>'
             valspan = f'<span class="bm-val" style="color:{DOWN}">−{abs(val):.1f}%</span>'
         else:
             bar = f'<i class="bm-other" style="width:{w:.0f}%"></i>'
@@ -1930,6 +1990,58 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
         + bars
         + '<div class="bm-cap">벤치마크 대비 초과분은 레버리지·집중의 베타 증폭일 수 있습니다. 샤프지수로 알파를 검증하세요.</div></div>'
     )
+
+
+def _delete_holding(holdings: list[dict], index: int) -> list[dict]:
+    """holdings 에서 index 항목을 뺀 새 리스트 반환. 범위 밖이면 원본 복사본 그대로(원본 비변형)."""
+    if index < 0 or index >= len(holdings):
+        return list(holdings)
+    return [h for i, h in enumerate(holdings) if i != index]
+
+
+def _persist_holdings(holdings: list[dict]) -> None:
+    """세션 + 계정 저장소에 보유를 반영. 로그인 유저만 영속화(스크린샷 적용 경로와 동일 패턴)."""
+    st.session_state["brokerage_holdings"] = holdings
+    _uname = st.session_state.get("username")
+    if st.session_state.get("auth_role") == "user" and _uname:
+        from core.accounts import get_portfolios, save_portfolio
+        _ex = get_portfolios(_uname)
+        _pf_name = _ex[0]["name"] if _ex else "내 포트폴리오"
+        save_portfolio(_uname, holdings, name=_pf_name,
+                       cash=st.session_state.get("brokerage_cash_balance", 0.0))
+
+
+def _render_holdings_editor() -> None:
+    """편집 모드 — 원본 brokerage_holdings 를 순서대로 보여주고 행별 삭제(2단계 확인)."""
+    holdings = st.session_state.get("brokerage_holdings") or []
+    if not holdings:
+        st.info("보유 종목이 없습니다.")
+        return
+    _last_note = " · 마지막 한 종목을 지우면 온보딩 화면으로 돌아갑니다." if len(holdings) == 1 else ""
+    st.caption(f"삭제할 종목의 🗑 버튼을 누르세요.{_last_note}")
+
+    pending = st.session_state.get("_pending_delete_holding")
+    for i, h in enumerate(holdings):
+        name = h.get("name", "—")
+        amt = _cur(float(h.get("평가금액") or h.get("eval_amount") or 0), "KRW")
+        c_info, c_act = st.columns([4, 2])
+        with c_info:
+            st.markdown(f"**{name}**  ·  {amt}")
+        with c_act:
+            if pending == i:
+                cc1, cc2 = st.columns(2)
+                if cc1.button("삭제 확정", key=f"del_confirm_{i}", type="primary",
+                              use_container_width=True):
+                    _persist_holdings(_delete_holding(holdings, i))
+                    st.session_state.pop("_pending_delete_holding", None)
+                    st.rerun()
+                if cc2.button("취소", key=f"del_cancel_{i}", use_container_width=True):
+                    st.session_state.pop("_pending_delete_holding", None)
+                    st.rerun()
+            else:
+                if st.button("🗑 삭제", key=f"del_{i}", use_container_width=True):
+                    st.session_state["_pending_delete_holding"] = i
+                    st.rerun()
 
 
 def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
@@ -2008,15 +2120,19 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
 
     if pf == "holdings":
         st.markdown(_back, unsafe_allow_html=True)
-        sort_key = st.radio(
-            "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
-            index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
-        ) or "비중순"
-        sorted_positions = _sort_positions(positions, target_prices, sort_key)
-        st.markdown(
-            _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
-            unsafe_allow_html=True,
-        )
+        edit_mode = st.toggle("편집 — 종목 삭제", key="holdings_edit_mode")
+        if edit_mode:
+            _render_holdings_editor()
+        else:
+            sort_key = st.radio(
+                "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
+                index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
+            ) or "비중순"
+            sorted_positions = _sort_positions(positions, target_prices, sort_key)
+            st.markdown(
+                _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
+                unsafe_allow_html=True,
+            )
     elif pf == "detail":
         st.markdown(_back, unsafe_allow_html=True)
         st.markdown(_portfolio_diagnosis_html(sorted_by_weight, categories, summary), unsafe_allow_html=True)
@@ -2403,10 +2519,12 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
   <div class="scr-step"><span class="scr-step-n">3</span><div><b>자동 인식</b><em>종목·평가금액 추출</em></div></div>
 </div>""", unsafe_allow_html=True)
 
+    # 업로더는 위젯 key 를 바꿔야 비워진다 → nonce 카운터를 붙여 적용/취소 후 리셋(재분석 방지).
+    nonce_key = f"_scr_nonce_{key}"
     uploaded = st.file_uploader(
         "보유 종목 화면 스크린샷",
         type=["png", "jpg", "jpeg"],
-        key=key,
+        key=f"{key}_{st.session_state.get(nonce_key, 0)}",
         label_visibility="collapsed",
     )
     st.markdown(
@@ -2429,8 +2547,12 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
                 st.session_state[cache_key] = {"holdings": holdings, "cash_balance": 0.0}
             except Exception as e:
                 import logging
+                from core.vision_parser import VisionBusyError
                 logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
-                st.error("이미지를 분석하지 못했습니다. 잠시 후 다시 시도하거나 더 선명한 스크린샷을 사용해 주세요.")
+                if isinstance(e, VisionBusyError):
+                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
                 return
 
     result = st.session_state[cache_key]
@@ -2466,11 +2588,21 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
             st.session_state["brokerage_cash_balance"] = cash
             st.session_state["brokerage_debug"] = result.get("_debug", {})
             st.session_state["brokerage_provider"] = "screenshot"
+            # 로그인 유저는 계정 저장소에도 영속화 — 안 하면 하드 nav(?_user=) 후
+            # app.py 세션 복원이 옛 보유로 되돌려 "업데이트가 안 되는" 것처럼 보임(login.py 저장 경로와 동일).
+            _uname = st.session_state.get("username")
+            if st.session_state.get("auth_role") == "user" and _uname:
+                from core.accounts import get_portfolios, save_portfolio
+                _existing = get_portfolios(_uname)
+                _pf_name = _existing[0]["name"] if _existing else "내 포트폴리오"
+                save_portfolio(_uname, holdings, name=_pf_name, cash=cash)
             st.session_state.pop(cache_key, None)
+            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
             st.rerun()
     with col_cancel:
         if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
             st.session_state.pop(cache_key, None)
+            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
             st.rerun()
 
 
@@ -2495,19 +2627,8 @@ def render():
     mark_active_nav("/portfolio")
     st.markdown(_PORT_CSS, unsafe_allow_html=True)
 
-    # 텔레그램 위험 알림 연결 진입점(로그인 유저). 연결 전엔 안내, 연결 후엔 상태 표시.
-    _tg_user = st.session_state.get("username")
-    if _tg_user:
-        from core.accounts import get_setting as _get_setting
-        _tg_suf = "?_user=" + _tg_user  # 세션 보존 하드 nav(코드베이스 공통 패턴)
-        _tg_label = ("🔔 텔레그램 알림: 연결됨"
-                     if _get_setting(_tg_user, "telegram_chat_id")
-                     else "🔔 텔레그램 위험 알림 연결하기")
-        st.markdown(
-            f'<a href="/telegram{_tg_suf}" target="_self" '
-            f'style="font-size:0.85rem;color:#9AA4B2;text-decoration:none">{_tg_label} ›</a>',
-            unsafe_allow_html=True,
-        )
+    # 텔레그램 위험 알림 연결은 리스크 페이지(risk_signals._telegram_settings)에 전체 UI 가 있어
+    # 여기 상단 중복 바로가기는 제거(본문/위험 내용 우선).
 
     brokerage_holdings = st.session_state.get("brokerage_holdings")
     if not brokerage_holdings:   # None(미연결) 또는 [](0종목) → 첫 사용 온보딩(B1, 토큰 체크보다 우선)
@@ -2538,7 +2659,7 @@ def render():
         _fx = _usdkrw(data) or _FX_FALLBACK
         def _to_krw(h: dict, field: str) -> float:
             val = float(h.get(field) or 0)
-            if val and h.get("asset_class") == "us_stock":
+            if val and _holding_currency(h, str(h.get("ticker") or "")) == "USD":  # 단일 출처
                 val *= _fx
             return val
         live_holdings_total = sum(_to_krw(h, "평가금액") for h in brokerage_holdings)
@@ -2570,10 +2691,19 @@ def render():
         },
     )
 
-    # 스크린샷 업로더 — 요약 뷰에서 헤더+드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
-    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 메인 CTA로 노출.)
+    # 스크린샷 업로더 — 요약 뷰에서 드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
+    # 기존 사용자에겐 온보딩 3단계 가이드 대신 간결한 섹션 타이틀만(맥락 제공·중복 제거).
+    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 3단계 가이드로 노출.)
     if brokerage_connected and st.query_params.get("pf", "") == "":
-        _render_screenshot_upload(key="screenshot_update")
+        st.markdown(
+            '<div style="margin:18px 2px 8px;color:#E7E9EE;font-size:14px;font-weight:850;'
+            'font-family:-apple-system,BlinkMacSystemFont,\'Helvetica Neue\',sans-serif;">'
+            '📷 스크린샷으로 보유 갱신'
+            '<span style="display:block;color:#9AA0AD;font-size:12px;font-weight:650;margin-top:2px;">'
+            '새 캡처를 올리면 종목·평가금액을 다시 인식해 교체해요</span></div>',
+            unsafe_allow_html=True,
+        )
+        _render_screenshot_upload(key="screenshot_update", show_header=False)
 
     # 푸터는 전 페이지 동일하게 jj_footer() 1개로 통일(포트폴리오 전용 데이터 캡션 제거).
     st.markdown(jj_footer(), unsafe_allow_html=True)

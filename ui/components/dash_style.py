@@ -7,6 +7,8 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
+from core.brand import APP_NAME, APP_TAGLINE, LOGO_CHAR
+
 # ── Color tokens (Dark Theme) ─────────────────────────────────────────────────
 NAVY     = "#F3F5F8"   # headings (text only — bg uses BASALT)
 CHARCOAL = "#9AA0AD"   # medium text
@@ -584,8 +586,16 @@ hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
     content:"최대 200MB · PNG·JPG·JPEG"; display:block; margin-top:3px;
     font-size:11px; font-weight:600; color:{META};
 }}
-[data-testid="stFileUploaderDropzone"] button {{ font-size:0 !important; }}
-[data-testid="stFileUploaderDropzone"] button::after {{
+/* '파일 선택' 라벨/스타일은 브라우즈 버튼만 — 업로드 후 칩의 삭제(Remove)·추가(Add files)
+   버튼은 제외(그것들까지 '파일 선택'으로 둔갑 방지). 브라우즈 버튼 aria-label 은 빈값. */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) {{
+    font-size:0 !important; display:inline-flex !important;
+    align-items:center !important; justify-content:center !important; min-width:116px !important;
+}}
+/* P0 픽스: 버튼 내용(아이콘 폰트 div + 'Browse files')을 숨겨 ::after 라벨을 정중앙에.
+   아이콘이 svg 가 아니라 Material 폰트 글리프 → 자식 전체. input 보호 + 칩 버튼 제외. */
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"]) > *:not(input) {{ display:none !important; }}
+[data-testid="stFileUploaderDropzone"] button:not([aria-label="Add files"]):not([aria-label^="Remove"])::after {{
     content:"파일 선택"; font-size:13px; font-weight:800;
 }}
 div[data-testid="stCaption"] {{ font-size:12px !important; color:{META} !important; }}
@@ -713,7 +723,7 @@ _MARKET_CSS = f"""<style>
   padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700}}
 .risk-card-badge.high{{background:rgba(242,85,96,0.15);color:#F25560;
   border:1px solid rgba(242,85,96,0.30)}}
-.risk-card-badge.mid{{background:rgba(217,164,65,0.15);color:#D9A441;
+.risk-card-badge.mid{{background:rgba(217,164,65,0.15);color:var(--sv-gold);
   border:1px solid rgba(217,164,65,0.30)}}
 .risk-card-badge.low{{background:rgba(63,178,127,0.15);color:#3FB27F;
   border:1px solid rgba(63,178,127,0.28)}}
@@ -722,7 +732,7 @@ _MARKET_CSS = f"""<style>
 .risk-alert{{border-radius:16px;padding:14px 18px;margin-bottom:12px;
   font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px}}
 .risk-alert.red{{background:rgba(242,85,96,0.10);border:1px solid rgba(242,85,96,0.30);color:#F25560}}
-.risk-alert.amber{{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.32);color:#D9A441}}
+.risk-alert.amber{{background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.32);color:var(--sv-gold)}}
 .risk-hist-card{{background:#16181F;border:1px solid {BORDER};
   border-radius:20px;padding:18px 20px;box-shadow:0 4px 16px rgba(0,0,0,0.25);
   margin-bottom:16px}}
@@ -781,7 +791,7 @@ _JEJU_CSS = f"""<style>
   font-size:11px;font-weight:800;background:rgba(255,255,255,0.06);color:{CHARCOAL};
   margin:3px 4px 0 0;letter-spacing:0.01em;white-space:nowrap}}
 .jj-tag.dark{{background:{ACCENT};color:#0E0F13}}
-.jj-tag.orange{{background:rgba(217,164,65,0.16);color:#D9A441}}
+.jj-tag.orange{{background:rgba(217,164,65,0.16);color:var(--sv-gold)}}
 .jj-tag.green{{background:rgba(242,85,96,0.14);color:#F25560}}
 .jj-tag.red{{background:rgba(77,144,240,0.14);color:#4D90F0}}
 .jj-tag.sea{{background:rgba(159,203,211,0.20);color:#3a5458}}
@@ -915,7 +925,7 @@ def _asset_data_uri(filename: str, mime: str = "image/png") -> str:
 
 def render_shell_header(pages=None):
     logo_src = _asset_data_uri("sim_heart_logo_transparent.png") or _asset_data_uri("sim_heart_logo.png")
-    logo_html = f'<img src="{logo_src}" alt="SIM INVESTMENT 心 로고">' if logo_src else "<span>心</span>"
+    logo_html = f'<img src="{logo_src}" alt="{APP_NAME} {LOGO_CHAR} 로고">' if logo_src else f"<span>{LOGO_CHAR}</span>"
     is_guest = st.session_state.get("auth_role") == "guest"
     _username = st.session_state.get("username", "")
     if is_guest:
@@ -951,11 +961,11 @@ def render_shell_header(pages=None):
         f"""
 <div class="sv-shell">
   <div class="sv-app-header">
-    <a class="sv-brand" href="/" target="_self" aria-label="SIM INVESTMENT 홈">
+    <a class="sv-brand" href="/" target="_self" aria-label="{APP_NAME} 홈">
       <div class="sv-logo">{logo_html}</div>
       <div>
-        <h1>SIM INVESTMENT</h1>
-        <p>진심으로 보는 투자</p>
+        <h1>{APP_NAME}</h1>
+        <p>{APP_TAGLINE}</p>
       </div>
     </a>
     <nav class="sv-nav" aria-label="주요 메뉴">
@@ -1075,8 +1085,10 @@ def period_toggle(key: str, options=("1W", "1M", "3M"), default: str = "3M", ali
 _PERIOD_MAP = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y", "5Y": "5y"}
 _PERIOD_RADIO_CSS = (
     "<style>"
-    # stRadio 컨테이너(풀폭)를 flex-end → 라디오 블록 통째로 페이지 우측에 배치
-    "[data-testid=\"stRadio\"]{display:flex!important;justify-content:flex-end!important}"
+    # 라디오를 감싼 element container 가 내용 너비(≈287px)로 줄어 flex-end 가 밀 공간이 없던 게
+    # '계속 좌측' 원인 → 컨테이너부터 풀폭으로 펴고, stRadio 도 풀폭 flex-end 로 우측 배치.
+    "[data-testid=\"stElementContainer\"]:has(>[data-testid=\"stRadio\"]){width:100%!important}"
+    "[data-testid=\"stRadio\"]{display:flex!important;width:100%!important;justify-content:flex-end!important}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"]{justify-content:flex-end!important;flex-wrap:wrap}"
     # 칩 안 글자 가운데 정렬
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"] label{justify-content:center!important;text-align:center!important}"
@@ -1099,7 +1111,7 @@ _PERIOD_RADIO_CSS_FILL = (
 _PERIOD_RADIO_CSS_CARD = (
     "<style>"
     # 콤팩트 우측 정렬 — 칩 자연 너비 한 줄(카드 한 칸 수준 폭), 줄바꿈 없음.
-    "[data-testid=\"stRadio\"]{display:flex!important;justify-content:flex-end!important}"
+    "[data-testid=\"stRadio\"]{display:flex!important;width:100%!important;justify-content:flex-end!important}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"]{justify-content:flex-end!important;flex-wrap:nowrap!important;gap:5px}"
     "[data-testid=\"stRadio\"] div[role=\"radiogroup\"] label{justify-content:center!important;text-align:center!important;"
     "padding:4px 9px!important}"
@@ -1173,7 +1185,7 @@ def jj_alert_strip(title: str, note: str = "", icon: str = "!") -> str:
     )
 
 
-def jj_footer(text: str = "SIM INVESTMENT · 데이터는 참고용이며 매매 권유가 아닙니다.") -> str:
+def jj_footer(text: str = f"{APP_NAME} · 데이터는 참고용이며 매매 권유가 아닙니다.") -> str:
     return f'<div class="jj-footer">{text}</div>'
 
 
