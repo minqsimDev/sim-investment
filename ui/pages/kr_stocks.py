@@ -435,22 +435,9 @@ def render(embedded: bool = False):
             else:
                 st.info("최근 증권사 리포트를 찾지 못했습니다.")
 
-    def _analyst_gate():
-        # 지연 로딩 — Yahoo .info·네이버 호출이 무거워 펼칠 때만 fetch.
-        if st.session_state.get("show_analyst_kr"):
-            _render_analyst()
-            return
-        st.markdown(mkt_section_header("애널리스트 전망",
-                                       "컨센서스 목표가 — 네이버(코스피·코스닥) + Yahoo"),
-                    unsafe_allow_html=True)
-        if st.button("애널리스트 전망 불러오기", key="load_analyst_kr", use_container_width=True):
-            st.session_state["show_analyst_kr"] = True
-            st.rerun()
-        st.caption("네이버 + Yahoo 컨센서스 · 불러오면 잠시 소요")
-
     # 시장 탭(슬림): 벤치마크 + 종목 테이블 → 애널리스트 전망(맨 끝)으로 마무리. 딥다이브는 숨김.
     if embedded:
-        _analyst_gate()
+        _render_analyst()
         return
 
     # ── 3. 전 종목 수익률 비교 차트 (정규화) ─────────────────────────────────
@@ -569,7 +556,7 @@ def render(embedded: bool = False):
         st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
 
     # 전체 페이지: 딥다이브 뒤 맨 끝에 애널리스트 전망(미국 탭과 동일 위치)
-    _analyst_gate()
+    _render_analyst()
 
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)

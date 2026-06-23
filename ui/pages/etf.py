@@ -15,9 +15,8 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.range_bar import range_bar_html
 from ui.components.color_utils import shade as _shade
-from data.loader import batch_close_history
 
 # 종목 내용(추종 대상)에 맞는 시그니처 색 — 이름/티커 키워드 매칭(구체적 항목 먼저).
 # 앵커 색은 색상환에 고르게 펼쳐 ΔE(지각 거리)≥22를 만족 — 비교 차트에서 서로 또렷이 구별된다.
@@ -68,35 +67,45 @@ _KR_ETF_UNIVERSE = [
 _KR_ETF_GROUPS = ["대표 지수", "섹터·테마", "배당·리츠", "채권·현금", "해외·원자재"]
 
 
-def _etf_history(tickers_key: str, period: str = "6mo") -> dict:
-    """기간 종가 배치 — 공용 batch_close_history 위임."""
-    return batch_close_history(tickers_key, period)
+_PCODE_BARS = {"1mo": 22, "3mo": 64, "6mo": 127}   # 슬라이스용(거래일 기준) · 1y/5y=전체
+
+
+def _slice_period(s, pcode: str):
+    """1년치 종가 시리즈를 비교차트 기간으로 슬라이스(1y/5y는 보유분 전체)."""
+    n = _PCODE_BARS.get(pcode)
+    return s.iloc[-n:] if (n and len(s) > n) else s
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _etf_turnover(tickers_key: str) -> dict:
-    """티커별 거래대금(거래량×종가, 최근 20일 평균) — 규모/유동성 순위 산출용(매일 자동 갱신)."""
+def _etf_bundle(tickers_key: str) -> dict:
+    """ETF 1년치 종가+거래량 1회 배치 → {closes, turnover}.
+
+    히스토리(현재가·1D%·3M·추세·스파크)·52주 레인지·추이 비교·규모(거래대금)를 모두
+    이 한 번의 다운로드에서 파생한다(이전엔 6mo·3mo·1y를 따로 받아 콜드 진입이 길었음)."""
     tickers = [t for t in tickers_key.split(",") if t]
     if not tickers:
-        return {}
+        return {"closes": {}, "turnover": {}}
     try:
         from data.session import cached_download
-        raw = cached_download(tickers, period="3mo", interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}
-        out, multi = {}, len(tickers) > 1
-        for tk in tickers:
-            try:
-                c = (raw["Close"][tk] if multi else raw["Close"]).dropna()
-                v = (raw["Volume"][tk] if multi else raw["Volume"]).dropna()
-                tv = (c * v).dropna()
-                if not tv.empty:
-                    out[tk] = float(tv.tail(20).mean())
-            except Exception:
-                pass
-        return out
+        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
     except Exception:
-        return {}
+        return {"closes": {}, "turnover": {}}
+    if raw is None or getattr(raw, "empty", True):
+        return {"closes": {}, "turnover": {}}
+    closes, turnover, multi = {}, {}, len(tickers) > 1
+    for tk in tickers:
+        try:
+            c = (raw["Close"][tk] if multi else raw["Close"]).dropna()
+            if c.empty:
+                continue
+            closes[tk] = c
+            v = (raw["Volume"][tk] if multi else raw["Volume"]).dropna()
+            tv = (c * v).dropna()
+            if not tv.empty:
+                turnover[tk] = float(tv.tail(20).mean())
+        except Exception:
+            pass
+    return {"closes": closes, "turnover": turnover}
 
 
 def _ind(closes) -> dict:
@@ -156,7 +165,7 @@ def _kr_items(history) -> list[dict]:
     return items
 
 
-def _render_etf_section(items: list[dict], *, price_fmt: str, key: str, chart_cap: int = 8):
+def _render_etf_section(items: list[dict], closes: dict, *, price_fmt: str, key: str, chart_cap: int = 8):
     """원자재·외환과 동일 구성: 스캔 → 게이지바(테마색) → 표로보기 토글 → 가격 추이 비교(상위 N·spline)."""
     import plotly.graph_objects as go
     items = [it for it in items if it.get("price") is not None]
@@ -182,14 +191,14 @@ def _render_etf_section(items: list[dict], *, price_fmt: str, key: str, chart_ca
     if _scan:
         st.markdown(_scan, unsafe_allow_html=True)
 
-    # 52주 게이지 바 — 1회 배치 다운로드
+    # 52주 게이지 바 — 번들(1년 종가)에서 직접 산출(추가 다운로드 없음)
     _rb = []
-    _ranges = fetch_52w_ranges(",".join(it["ticker"] for it in items))
     for it in items:
-        rng = _ranges.get(it["ticker"])
-        if not rng:
+        s = closes.get(it["ticker"])
+        if s is None or getattr(s, "empty", True) or len(s.dropna()) < 2:
             continue
-        lo, hi, cur = rng
+        s = s.dropna()
+        lo, hi, cur = float(s.min()), float(s.max()), float(s.iloc[-1])
         _rb.append({"name": it["name"], "unit": "", "low": lo, "high": hi, "current": cur,
                     "d1": it["d1"], "color": it["color"]})
     if _rb:
@@ -210,10 +219,10 @@ def _render_etf_section(items: list[dict], *, price_fmt: str, key: str, chart_ca
     st.markdown(mkt_section_header("가격 추이 비교", f"규모 상위 {len(_top)}종 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
     _plabel, _pcode = period_radio(f"etf_{key}_period")
-    chist = _etf_history(",".join(it["ticker"] for it in _top), period=_pcode)
     fig, plotted = go.Figure(), 0
     for it in _top:
-        s = chist.get(it["ticker"])
+        s = closes.get(it["ticker"])
+        s = _slice_period(s.dropna(), _pcode) if s is not None and not getattr(s, "empty", True) else None
         if s is None or s.empty or len(s) < 2 or not float(s.iloc[0]):
             continue
         fig.add_trace(go.Scatter(
@@ -261,8 +270,9 @@ def render(embedded: bool = False):
     tks = [r.get("ticker", "") for _, r in bm.iterrows() if r.get("ticker")]
     tks += [tk for _, _, tk in _KR_ETF_UNIVERSE]
     _all_tks = sorted(set(t for t in tks if t))
-    history = _etf_history(",".join(_all_tks))
-    turnover = _etf_turnover(",".join(_all_tks))   # 규모(거래대금) 순위 — 매일 자동 갱신
+    _bundle = _etf_bundle(",".join(_all_tks))      # 1년 종가+거래량 1회 배치(단일 다운로드)
+    history = _bundle["closes"]
+    turnover = _bundle["turnover"]                 # 규모(거래대금) 순위 — 같은 배치에서 파생
 
     def _top_by_size(items: list[dict], n: int = 7) -> list[dict]:
         for it in items:
@@ -274,9 +284,9 @@ def render(embedded: bool = False):
     _side = st.radio("ETF 구분", ["미국 ETF", "한국 ETF"], index=0, horizontal=True,
                      key="etf_side", label_visibility="collapsed")
     if _side == "미국 ETF":
-        _render_etf_section(_top_by_size(_us_items(bm, history)), price_fmt="${:,.2f}", key="us")
+        _render_etf_section(_top_by_size(_us_items(bm, history)), history, price_fmt="${:,.2f}", key="us")
     else:
-        _render_etf_section(_top_by_size(_kr_items(history)), price_fmt="{:,.0f}", key="kr")
+        _render_etf_section(_top_by_size(_kr_items(history)), history, price_fmt="{:,.0f}", key="kr")
 
     st.caption("ETF는 타 자산군(지수·원자재·채권)을 추종하는 상품 · 데이터는 실시간이 아닐 수 있습니다 · "
                "내 보유 ETF는 포트폴리오에서 확인하세요")

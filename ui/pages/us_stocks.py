@@ -608,19 +608,12 @@ def render(embedded: bool = False):
                 st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
                 st.caption("우하단: 고수익·저변동성 (우호적) / 좌상단: 저수익·고변동성 (주의)")
 
-    # ── 7. 애널리스트 전망 (네이버 컨센서스 · 지연 로딩) ──
+    # ── 7. 애널리스트 전망 (네이버 컨센서스 · 24h 캐시라 바로 표시) ──
     st.markdown(mkt_section_header("애널리스트 전망", "네이버 금융 컨센서스 목표가"), unsafe_allow_html=True)
-
-    if not st.session_state.get("show_analyst_us"):
-        if st.button("애널리스트 전망 불러오기", key="load_analyst_us", use_container_width=True):
-            st.session_state["show_analyst_us"] = True
-            st.rerun()
-        st.caption("네이버 금융 컨센서스 · 불러오면 잠시 소요")
-    else:
-        _price_of = {tk: (float(s.iloc[-1]) if s is not None and not getattr(s, "empty", True) else None)
-                     for tk, s in history.items()}
-        _rank_of = {r["ticker"]: r.get("mktcap_rank") for _, r in stocks_live.iterrows()}
-        render_analyst_section(_analyst_targets(), _STOCK_KOR, _price_of,
-                               rank_of=_rank_of, price_fmt="${:,.2f}", key="us_analyst")
+    _price_of = {tk: (float(s.iloc[-1]) if s is not None and not getattr(s, "empty", True) else None)
+                 for tk, s in history.items()}
+    _rank_of = {r["ticker"]: r.get("mktcap_rank") for _, r in stocks_live.iterrows()}
+    render_analyst_section(_analyst_targets(), _STOCK_KOR, _price_of,
+                           rank_of=_rank_of, price_fmt="${:,.2f}", key="us_analyst")
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)
