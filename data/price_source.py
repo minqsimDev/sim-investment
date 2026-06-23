@@ -115,7 +115,13 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
                 fallbacks.extend(origs)
                 continue
             price = _to_float(p["lastPrice"])
-            prev = _toss_prev_close(toss_sym) if with_change else None
+            # 전일종가: 배치 응답에 있으면 그대로(종목당 캔들 호출·throttle 제거 → 첫 로딩 단축),
+            # 없을 때만 일봉 캔들로 폴백.
+            prev = None
+            if with_change:
+                prev = _to_float(p.get("prevClose"))
+                if prev is None:
+                    prev = _toss_prev_close(toss_sym)
             for o in origs:
                 results[o] = _quote(price, prev, p.get("currency"), "toss")
 
