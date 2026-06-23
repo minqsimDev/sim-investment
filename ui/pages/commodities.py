@@ -275,7 +275,7 @@ def render(embedded: bool = False):
     # ── Price Chart — 전 원자재 비교(기준=100 정규화) + 기간 라디오 ────────────────
     st.markdown(mkt_section_header("가격 추이 비교", "전 원자재 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
-    _plabel, _pcode = period_radio("comm_period")
+    _plabel, _pcode = period_radio("comm_period", periods=["1M", "3M", "6M", "1Y"])  # 번들=1년
     fig = go.Figure()
     plotted = 0
     for _, r in live["commodities"].iterrows():

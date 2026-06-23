@@ -218,7 +218,7 @@ def _render_etf_section(items: list[dict], closes: dict, *, price_fmt: str, key:
     _top = items[:chart_cap]
     st.markdown(mkt_section_header("가격 추이 비교", f"규모 상위 {len(_top)}종 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
-    _plabel, _pcode = period_radio(f"etf_{key}_period")
+    _plabel, _pcode = period_radio(f"etf_{key}_period", periods=["1M", "3M", "6M", "1Y"])  # 번들=1년
     fig, plotted = go.Figure(), 0
     for it in _top:
         s = closes.get(it["ticker"])

@@ -32,7 +32,7 @@ def _upside_style(v):
     return ""
 
 
-def _rows(targets: pd.DataFrame, name_of: dict, price_of: dict, price_fmt: str):
+def _rows(targets: pd.DataFrame, name_of: dict, price_of: dict):
     """targets + 현재가 → 표시용 row 리스트. (rows, 커버리지 보유여부)."""
     out, has_cov = [], False
     for _, r in targets.iterrows():
@@ -86,7 +86,7 @@ def render_analyst_section(targets: pd.DataFrame, name_of: dict, price_of: dict,
     if targets is None or targets.empty:
         empty_state("애널리스트 컨센서스 준비 중")
         return
-    rows, has_cov = _rows(targets, name_of, price_of, price_fmt)
+    rows, has_cov = _rows(targets, name_of, price_of)
     rank_of = rank_of or {}
 
     def _fmt_px(v):

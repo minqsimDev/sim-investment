@@ -147,7 +147,7 @@ def _fx_price_chart(live: dict, closes: dict) -> None:
     fx_rows = list(live["fx"].iterrows())
     if not fx_rows:
         return
-    _pd_label, _pd_code = period_radio("fx_period_all")
+    _pd_label, _pd_code = period_radio("fx_period_all", periods=["1M", "3M", "6M", "1Y"])  # 번들=1년
     fig = go.Figure()
     plotted = 0
     for _, r in fx_rows:

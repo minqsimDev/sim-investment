@@ -15,7 +15,7 @@ from ui.components.live_refresh import live_refresh
 from data.loader import batch_close_history, series_last_n
 
 
-_PCODE_BARS = {"1mo": 22, "3mo": 64, "6mo": 127}   # 슬라이스용(거래일) · 1y/5y=전체
+_PCODE_BARS = {"1mo": 30, "3mo": 90, "6mo": 180}   # 슬라이스용 · 크립토는 주7일 거래 → 달력일 기준 · 1y=전체
 
 
 def _slice_period(s, pcode: str):
@@ -131,7 +131,7 @@ def render(embedded: bool = False):
     # ── 가격 추이 비교(기준=100 정규화) + 기간 라디오 — 원자재 탭과 동일 양식 ──
     st.markdown(mkt_section_header("가격 추이 비교", "주요 코인 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
-    _clabel, _ccode = period_radio("crypto_period")
+    _clabel, _ccode = period_radio("crypto_period", periods=["1M", "3M", "6M", "1Y"])  # 번들=1년
     import plotly.graph_objects as go
     cfig, cplotted = go.Figure(), 0
     for name, tk in _CRYPTO_UNIVERSE:
