@@ -109,6 +109,13 @@ def _analyst_targets() -> pd.DataFrame:
     return fetch_naver_targets(list(_STOCK_KOR.keys()))
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _us_news_cached(ticker: str) -> list:
+    """미국 종목 관련 뉴스(네이버 한국어) — 한국 탭 '증권사 리포트' 자리의 미국판."""
+    from src.analyst_naver import fetch_naver_us_news
+    return fetch_naver_us_news(ticker)
+
+
 def _us_history(tickers_key: str, _bucket: int = 0) -> dict:
     """6개월 종가 배치 — 공용 batch_close_history 위임(단일 캐시)."""
     return batch_close_history(tickers_key, "6mo", _bucket)
@@ -615,5 +622,17 @@ def render(embedded: bool = False):
     _rank_of = {r["ticker"]: r.get("mktcap_rank") for _, r in stocks_live.iterrows()}
     render_analyst_section(_analyst_targets(), _STOCK_KOR, _price_of,
                            rank_of=_rank_of, price_fmt="${:,.2f}", key="us_analyst")
+
+    # 관련 뉴스 — 네이버(한국어). 한국 탭의 '증권사 리포트' 자리에 대응(미국은 리포트 미제공).
+    with st.expander("관련 뉴스 — 네이버 (종목 선택)"):
+        _nopts = {f"{_STOCK_KOR.get(tk, tk)}  ({tk})": tk for tk in _STOCK_KOR}
+        _nsel = st.selectbox("종목", list(_nopts.keys()), key="us_news_sel", label_visibility="collapsed")
+        _news = _us_news_cached(_nopts[_nsel])
+        if _news:
+            st.dataframe(pd.DataFrame(_news), use_container_width=True, hide_index=True,
+                         column_config={"링크": st.column_config.LinkColumn("링크", display_text="열기")})
+            st.caption("출처: 네이버 금융 — 해외 종목 뉴스(한국어)")
+        else:
+            st.info("관련 뉴스를 찾지 못했습니다.")
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)

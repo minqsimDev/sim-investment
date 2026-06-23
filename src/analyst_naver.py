@@ -137,6 +137,47 @@ def fetch_naver_targets(tickers: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=_COLS)
 
 
+_US_NEWS = "https://api.stock.naver.com/news/worldStock/{rc}"
+
+
+def _fmt_news_dt(dt) -> str:
+    """'20260623100000' → '2026-06-23'. 파싱 실패 시 '—'."""
+    s = str(dt or "")
+    if len(s) >= 8 and s[:8].isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return "—"
+
+
+def _news_item(it: dict) -> dict | None:
+    """네이버 해외종목 뉴스 한 건 → {뉴스, 언론사, 날짜, 링크}. 제목 없으면 None."""
+    tit = (it or {}).get("tit")
+    if not tit:
+        return None
+    oid, aid = it.get("oid"), it.get("aid")
+    link = f"https://n.news.naver.com/mnews/article/{oid}/{aid}" if oid and aid else None
+    return {"뉴스": tit, "언론사": it.get("ohnm") or "—", "날짜": _fmt_news_dt(it.get("dt")), "링크": link}
+
+
+def fetch_naver_us_news(symbol: str, limit: int = 8) -> list[dict]:
+    """미국 종목 관련 뉴스(네이버 한국어). 증권사 리포트(한국 전용) 대신 미국 탭에서 쓴다."""
+    rc = _resolve_us_reuters(_code(symbol))
+    if not rc:
+        return []
+    try:
+        j = requests.get(_US_NEWS.format(rc=rc), params={"pageSize": limit, "page": 1},
+                         headers=_H, timeout=_TIMEOUT).json()
+    except Exception:
+        return []
+    out = []
+    for it in (j or []):
+        n = _news_item(it)
+        if n:
+            out.append(n)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def fetch_naver_reports(ticker: str, limit: int = 8) -> list[dict]:
     """한국 종목 최근 증권사 리포트(증권사·제목·날짜). 목표가는 리스트에 없어 컨센서스로 대체."""
     from bs4 import BeautifulSoup
