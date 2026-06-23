@@ -41,15 +41,41 @@ def _seconds_until_next() -> float:
     return (nxt - now).total_seconds()
 
 
+_SNAPSHOT_SEC = max(60, int(os.getenv("SNAPSHOT_INTERVAL_SEC", "600")))   # 장중 시세 스냅샷 주기
+
+
+def _markets_open() -> bool:
+    try:
+        from core.market_hours import any_open
+        return any_open(["US", "KR"])
+    except Exception:
+        return False
+
+
+def _snapshot() -> None:
+    """장중 시세 스냅샷 — fetch_all 호출로 quotes 테이블을 따뜻하게 유지(소스 장애 복원력)."""
+    try:
+        from data.fetcher import fetch_all
+        fetch_all()
+        _log("장중 시세 스냅샷 갱신(quotes)")
+    except Exception as e:
+        _log(f"스냅샷 예외: {e}")
+
+
 def main() -> None:
-    _log(f"스케줄러 기동 — 매일 KST {_HOUR:02d}:00 실행")
+    _log(f"스케줄러 기동 — 일배치 KST {_HOUR:02d}:00 · 장중 스냅샷 {_SNAPSHOT_SEC}s")
+    last_full = None  # 일배치 중복 방지(날짜)
     if os.getenv("BATCH_RUN_ON_START", "1").strip().lower() in ("1", "true", "yes", "on"):
         _run()
+        last_full = datetime.now(_KST).date()
     while True:
-        wait = _seconds_until_next()
-        _log(f"다음 실행까지 {wait / 3600:.1f}h 대기")
-        time.sleep(wait)
-        _run()
+        time.sleep(_SNAPSHOT_SEC)
+        now = datetime.now(_KST)
+        if now.hour == _HOUR and last_full != now.date():
+            _run()                 # 매일 1회 풀 배치(지표·리스크·컨센서스)
+            last_full = now.date()
+        elif _markets_open():
+            _snapshot()            # 장중 시세 스냅샷(quotes 갱신)
 
 
 if __name__ == "__main__":
