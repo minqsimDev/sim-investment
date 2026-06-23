@@ -10,14 +10,23 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.range_bar import range_bar_html
 from ui.components.live_refresh import live_refresh
 from data.loader import batch_close_history, series_last_n
 
 
-def _crypto_history(tickers_key: str, _bucket: int = 0) -> dict:
-    """6개월 일봉 종가 — 공용 batch_close_history 위임."""
-    return batch_close_history(tickers_key, "6mo", _bucket)
+_PCODE_BARS = {"1mo": 30, "3mo": 90, "6mo": 180}   # 슬라이스용 · 크립토는 주7일 거래 → 달력일 기준 · 1y=전체
+
+
+def _slice_period(s, pcode: str):
+    n = _PCODE_BARS.get(pcode)
+    return s.iloc[-n:] if (n and len(s) > n) else s
+
+
+def _crypto_bundle(tickers_key: str, _bucket: int = 0) -> dict:
+    """1년치 일봉 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주를 모두 여기서 파생
+    (이전엔 6mo 히스토리·1y 52주·기간 비교를 따로 받았음)."""
+    return batch_close_history(tickers_key, "1y", _bucket)
 
 
 def _ind(closes) -> dict:
@@ -62,11 +71,6 @@ _CRYPTO_COLOR = {
 }
 
 
-def _crypto_hist_period(tickers_key: str, period: str, _bucket: int = 0) -> dict:
-    """비교 차트용 — 선택 기간 일봉 종가. 공용 batch_close_history 위임."""
-    return batch_close_history(tickers_key, period, _bucket)
-
-
 def render(embedded: bool = False):
     if not embedded:
         inject_css()
@@ -77,7 +81,7 @@ def render(embedded: bool = False):
     bucket = live_refresh(["CRYPTO"]) if not embedded else 0
     ph = show_skeleton()
     tickers = [tk for _, tk in _CRYPTO_UNIVERSE]
-    history = _crypto_history(",".join(sorted(tickers)), _bucket=bucket)
+    history = _crypto_bundle(",".join(sorted(tickers)), _bucket=bucket)   # 1년 1회 배치(추이·52주 공통)
     ph.empty()
 
     def _series_3m(tk):
@@ -109,12 +113,12 @@ def render(embedded: bool = False):
     # ── 주요 코인 — 52주 레인지 게이지 바(코인별 시그니처색, 표 대신) ──
     st.markdown(mkt_section_header("주요 코인", "시총 상위 6종 · 52주 범위 내 현재 위치"), unsafe_allow_html=True)
     _rb_items = []
-    _ranges = fetch_52w_ranges(",".join(tk for _, tk in _CRYPTO_UNIVERSE))
     for name, tk in _CRYPTO_UNIVERSE:
-        rng = _ranges.get(tk)
-        if not rng:
+        s = history.get(tk)
+        if s is None or getattr(s, "empty", True) or len(s.dropna()) < 2:
             continue
-        lo, hi, cur = rng
+        s = s.dropna()
+        lo, hi, cur = float(s.min()), float(s.max()), float(s.iloc[-1])
         _r = next((x for x in rows if x["코인"] == name), {})
         _rb_items.append({"name": name, "unit": "USD", "low": lo, "high": hi, "current": cur,
                           "d1": _r.get("1D %"), "color": _CRYPTO_COLOR.get(tk, "#9AA0AD")})
@@ -127,12 +131,12 @@ def render(embedded: bool = False):
     # ── 가격 추이 비교(기준=100 정규화) + 기간 라디오 — 원자재 탭과 동일 양식 ──
     st.markdown(mkt_section_header("가격 추이 비교", "주요 코인 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
-    _clabel, _ccode = period_radio("crypto_period")
-    chist = _crypto_hist_period(",".join(sorted(tickers)), _ccode, _bucket=bucket)
+    _clabel, _ccode = period_radio("crypto_period", periods=["1M", "3M", "6M", "1Y"])  # 번들=1년
     import plotly.graph_objects as go
     cfig, cplotted = go.Figure(), 0
     for name, tk in _CRYPTO_UNIVERSE:
-        s = chist.get(tk)
+        s = history.get(tk)
+        s = _slice_period(s.dropna(), _ccode) if s is not None and not getattr(s, "empty", True) else None
         if s is None or s.empty or len(s) < 2 or not float(s.iloc[0]):
             continue
         cfig.add_trace(go.Scatter(

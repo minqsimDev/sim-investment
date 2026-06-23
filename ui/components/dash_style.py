@@ -1119,12 +1119,14 @@ _PERIOD_RADIO_CSS_CARD = (
 )
 
 
-def period_radio(key: str, default: str = "3M", align: str = "right") -> tuple[str, str]:
+def period_radio(key: str, default: str = "3M", align: str = "right",
+                 periods: list[str] | None = None) -> tuple[str, str]:
     """가격 추이 비교 공통 기간 선택. 반환 (라벨, yfinance 기간 코드). 옵션 1M/3M/6M/1Y/5Y.
-    align: 'right'(기본·우측), 'fill'(풀폭 동일너비), 'card'(콤팩트 우측·한 줄)."""
+    align: 'right'(기본·우측), 'fill'(풀폭 동일너비), 'card'(콤팩트 우측·한 줄).
+    periods: 노출할 기간 라벨 제한(예: 1년 번들 페이지는 ["1M","3M","6M","1Y"]로 5Y 숨김)."""
     _css = {"fill": _PERIOD_RADIO_CSS_FILL, "card": _PERIOD_RADIO_CSS_CARD}.get(align, _PERIOD_RADIO_CSS)
     st.markdown(_css, unsafe_allow_html=True)
-    labels = list(_PERIOD_MAP.keys())
+    labels = [p for p in _PERIOD_MAP if p in periods] if periods else list(_PERIOD_MAP.keys())
     idx = labels.index(default) if default in labels else 1
     sel = st.radio("기간", labels, index=idx, horizontal=True,
                    key=key, label_visibility="collapsed")

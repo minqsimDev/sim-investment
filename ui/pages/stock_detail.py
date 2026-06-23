@@ -354,21 +354,24 @@ def _render_analyst(ticker: str, info: dict) -> None:
     if info["category"] not in ("미국주식", "국내주식"):
         return
     try:
-        from src.analyst import fetch_analyst_targets
-        df = fetch_analyst_targets([ticker])
+        from src.analyst_naver import fetch_naver_targets
+        df = fetch_naver_targets([ticker])
         if df is None or df.empty:
             return
         r = df.iloc[0]
-        tgt = r.get("target_mean") or r.get("목표가")
-        up = r.get("upside_pct") or r.get("상승여력%")
-        if tgt is None:
+        tgt = r.get("목표가_평균")
+        if tgt is None or pd.isna(tgt):
             return
+        px = info.get("price")
+        up = round((float(tgt) / px - 1) * 100, 1) if px else None
+        date = r.get("기준일") or "—"
         ucls = "up" if (up or 0) >= 0 else "down"
         st.markdown(
             '<div class="sd-card"><div class="t">애널리스트 목표가</div><div class="sd-hold">'
             f'<div><div class="k">평균 목표가</div><div class="v">{currency(tgt, info["currency"])}</div></div>'
             + (f'<div><div class="k">상승여력</div><div class="v {ucls}">{("+" if (up or 0)>=0 else "")}{up:.1f}%</div></div>' if isinstance(up, (int, float)) else "")
-            + '</div><div style="color:#7E8694;font-size:10.5px;font-weight:700;margin-top:8px">출처 Yahoo Finance 컨센서스 · 참고용</div></div>',
+            + '</div><div style="color:#7E8694;font-size:10.5px;font-weight:700;margin-top:8px">'
+            f'출처 네이버 금융 컨센서스 · 기준일 {date} · 참고용</div></div>',
             unsafe_allow_html=True)
     except Exception:
         return

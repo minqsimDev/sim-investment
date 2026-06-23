@@ -12,9 +12,10 @@ import math
 import plotly.graph_objects as go
 
 
-def analyst_scatter_fig(points: list[dict], *, label_top: int = 5, assumed_width: int = 700):
-    """points: [{name, x(상승여력%), y(애널수), ticker, rank(시총순위·작을수록 큼), hover}, ...]
-    상승여력·커버리지가 모두 있는 점만 넘긴다. 반환: go.Figure (점 없으면 None)."""
+def analyst_scatter_fig(points: list[dict], *, label_top: int = 5, assumed_width: int = 700,
+                        y_title: str = "투자의견 (1 매도 ~ 5 매수)"):
+    """points: [{name, x(상승여력%), y, ticker, rank(시총순위·작을수록 큼), hover}, ...]
+    x·y 가 모두 있는 점만 넘긴다. y_title 로 Y축 라벨 지정. 반환: go.Figure (점 없으면 None)."""
     pts = [p for p in points if p.get("x") is not None and p.get("y") is not None]
     if not pts:
         return None
@@ -122,7 +123,7 @@ def analyst_scatter_fig(points: list[dict], *, label_top: int = 5, assumed_width
         xaxis=dict(title=dict(text="상승여력 % (목표가 평균 대비)", font=dict(size=10)),
                    range=[_xmin, _xmax], showgrid=True, gridcolor="#262A33",
                    zeroline=False, ticksuffix="%", tickfont=dict(size=9, color="#7E8694")),
-        yaxis=dict(title=dict(text="애널리스트 수(커버리지)", font=dict(size=10)),
+        yaxis=dict(title=dict(text=y_title, font=dict(size=10)),
                    range=[_ymin, _ymax], showgrid=True, gridcolor="#262A33",
                    tickfont=dict(size=9, color="#7E8694")),
         showlegend=False,
