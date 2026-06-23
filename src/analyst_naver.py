@@ -137,6 +137,40 @@ def fetch_naver_targets(tickers: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=_COLS)
 
 
+def consensus_notes(tickers: list[str]) -> dict[str, str]:
+    """종목별 네이버 컨센서스 → '팩트 노트' 문자열. {ticker: note}.
+
+    하드코딩/작문 해설을 대체한다 — 전부 네이버 집계값(투자의견·목표가·커버리지·기준일).
+    목표가 컨센서스가 없으면(원자재·환율·크립토 등 비주식) 키 자체를 넣지 않아,
+    호출부가 중립 폴백을 쓰게 한다."""
+    df = fetch_naver_targets(tickers)
+    out: dict[str, str] = {}
+    if df is None or df.empty:
+        return out
+    for _, r in df.iterrows():
+        tk = r.get("ticker")
+        tgt = r.get("목표가_평균")
+        if tk is None or tgt is None or (isinstance(tgt, float) and pd.isna(tgt)):
+            continue
+        is_kr = str(tk).upper().endswith((".KS", ".KQ"))
+        parts = []
+        op = r.get("투자의견")
+        if op and op != "—":
+            parts.append(f"투자의견 {op}")
+        parts.append(f"목표가 평균 {tgt:,.0f}원" if is_kr else f"목표가 평균 ${tgt:,.2f}")
+        cov = r.get("커버리지")
+        if cov is not None and not (isinstance(cov, float) and pd.isna(cov)):
+            try:
+                parts.append(f"커버리지 {int(cov)}곳")
+            except (TypeError, ValueError):
+                pass
+        date = r.get("기준일")
+        if date:
+            parts.append(f"기준일 {date}")
+        out[str(tk)] = " · ".join(parts)
+    return out
+
+
 _US_NEWS = "https://api.stock.naver.com/news/worldStock/{rc}"
 
 
