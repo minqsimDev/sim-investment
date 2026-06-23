@@ -115,6 +115,22 @@ def _us_news_cached(ticker: str) -> list:
     return fetch_naver_us_news(ticker)
 
 
+@st.fragment
+def _us_news_drilldown() -> None:
+    """관련 뉴스 드릴다운 — 종목 selectbox 변경 시 이 fragment만 리런(스크롤 점프·창 닫힘 방지).
+    가장 최신 날짜의 뉴스만 노출."""
+    from src.analyst_naver import latest_date_only
+    _nopts = {f"{_STOCK_KOR.get(tk, tk)}  ({tk})": tk for tk in _STOCK_KOR}
+    _nsel = st.selectbox("종목", list(_nopts.keys()), key="us_news_sel", label_visibility="collapsed")
+    _news = latest_date_only(_us_news_cached(_nopts[_nsel]))
+    if _news:
+        st.dataframe(pd.DataFrame(_news), use_container_width=True, hide_index=True,
+                     column_config={"링크": st.column_config.LinkColumn("링크", display_text="열기")})
+        st.caption(f"출처: 네이버 금융 — 해외 종목 뉴스(한국어) · 최신일 {_news[0].get('날짜', '')}")
+    else:
+        st.info("관련 뉴스를 찾지 못했습니다.")
+
+
 def _us_history(tickers_key: str, _bucket: int = 0) -> dict:
     """6개월 종가 배치 — 공용 batch_close_history 위임(단일 캐시)."""
     return batch_close_history(tickers_key, "6mo", _bucket)
@@ -623,15 +639,8 @@ def render(embedded: bool = False):
                            rank_of=_rank_of, price_fmt="${:,.2f}", key="us_analyst")
 
     # 관련 뉴스 — 네이버(한국어). 한국 탭의 '증권사 리포트' 자리에 대응(미국은 리포트 미제공).
+    # fragment 로 감싸 종목 변경 시 이 블록만 리런 → expander 가 닫히거나 페이지가 위로 점프하지 않음.
     with st.expander("관련 뉴스 — 네이버 (종목 선택)"):
-        _nopts = {f"{_STOCK_KOR.get(tk, tk)}  ({tk})": tk for tk in _STOCK_KOR}
-        _nsel = st.selectbox("종목", list(_nopts.keys()), key="us_news_sel", label_visibility="collapsed")
-        _news = _us_news_cached(_nopts[_nsel])
-        if _news:
-            st.dataframe(pd.DataFrame(_news), use_container_width=True, hide_index=True,
-                         column_config={"링크": st.column_config.LinkColumn("링크", display_text="열기")})
-            st.caption("출처: 네이버 금융 — 해외 종목 뉴스(한국어)")
-        else:
-            st.info("관련 뉴스를 찾지 못했습니다.")
+        _us_news_drilldown()
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)

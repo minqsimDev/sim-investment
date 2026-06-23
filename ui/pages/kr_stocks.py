@@ -143,6 +143,21 @@ def _naver_reports_cached(ticker: str) -> list:
     return fetch_naver_reports(ticker)
 
 
+@st.fragment
+def _kr_reports_drilldown(opts: dict) -> None:
+    """증권사 리포트 드릴다운 — 종목 selectbox 변경 시 이 fragment만 리런(스크롤 점프·창 닫힘 방지).
+    가장 최신 날짜의 리포트만 노출."""
+    from src.analyst_naver import latest_date_only
+    _sel = st.selectbox("종목", list(opts.keys()), key="kr_naver_reports_sel",
+                        label_visibility="collapsed")
+    _reps = latest_date_only(_naver_reports_cached(opts[_sel]))
+    if _reps:
+        st.dataframe(pd.DataFrame(_reps), use_container_width=True, hide_index=True)
+        st.caption(f"출처: 네이버 금융 리서치 · 최신일 {_reps[0].get('날짜', '')} 리포트")
+    else:
+        st.info("최근 증권사 리포트를 찾지 못했습니다.")
+
+
 def render(embedded: bool = False):
     if not embedded:
         inject_css()
@@ -419,16 +434,10 @@ def render(embedded: bool = False):
                                rank_of=_rk_of, price_fmt="{:,.0f}원", key="kr_analyst")
 
         # 네이버 증권사별 최근 리포트 드릴다운 (전문 애널리스트 리서치)
+        # fragment 로 감싸 종목 변경 시 이 블록만 리런 → expander 가 닫히거나 페이지가 위로 점프하지 않음.
         with st.expander("증권사 리포트 — 네이버 (종목 선택)"):
-            _opts = {f"{r['_name']}  ({r['_ticker'].replace('.KS', '')})": r["_ticker"] for r in all_rows}
-            _sel = st.selectbox("종목", list(_opts.keys()), key="kr_naver_reports_sel",
-                                label_visibility="collapsed")
-            _reps = _naver_reports_cached(_opts[_sel])
-            if _reps:
-                st.dataframe(pd.DataFrame(_reps), use_container_width=True, hide_index=True)
-                st.caption("출처: 네이버 금융 리서치 · 증권사별 최근 리포트(제목·날짜)")
-            else:
-                st.info("최근 증권사 리포트를 찾지 못했습니다.")
+            _kr_reports_drilldown({f"{r['_name']}  ({r['_ticker'].replace('.KS', '')})": r["_ticker"]
+                                   for r in all_rows})
 
     # 시장 탭(슬림): 벤치마크 + 종목 테이블 → 애널리스트 전망(맨 끝)으로 마무리. 딥다이브는 숨김.
     if embedded:
