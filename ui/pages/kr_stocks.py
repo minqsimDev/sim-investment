@@ -22,7 +22,7 @@ from ui.components.slim_table import slim_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.color_utils import hex_to_lab as _hex2lab, delta_e as _de, shade as _shade
 from ui.components.cap_treemap import cap_treemap
-from ui.components.analyst_scatter import analyst_scatter_fig
+from ui.components.analyst_table import render_analyst_table
 from ui.components.live_refresh import live_refresh
 
 _SECTOR_ORDER = ["반도체", "전자", "이차전지", "바이오", "자동차", "인터넷",
@@ -134,18 +134,11 @@ def _bench_prices() -> dict:
 # _compute_live_ind 는 data.loader.compute_live_indicators 별칭(상단 import)
 
 
-@st.cache_data(ttl=86400, show_spinner=False)   # 목표가는 일 단위 안정 → 24h(느린 .info 빈도↓)
-def _kr_analyst_targets(tickers_key: str) -> pd.DataFrame:
-    """Yahoo Finance 컨센서스 목표가 — 한국(.KS) 종목. 미국 탭과 동일 소스."""
-    from src.analyst import fetch_analyst_targets
-    return fetch_analyst_targets([t for t in tickers_key.split(",") if t])
-
-
-@st.cache_data(ttl=86400, show_spinner=False)   # 컨센서스는 일 단위 안정 → 24h
-def _naver_consensus_cached(tickers_key: str) -> pd.DataFrame:
-    """네이버 금융 컨센서스 — 코스피·코스닥 광범위(Yahoo 빈값 보강)."""
-    from src.analyst_naver import fetch_naver_consensus
-    return fetch_naver_consensus([t for t in tickers_key.split(",") if t])
+@st.cache_data(ttl=86400, show_spinner=False)   # 목표가·컨센서스는 일 단위 안정 → 24h
+def _naver_targets_cached(tickers_key: str) -> pd.DataFrame:
+    """네이버 금융 컨센서스(목표가·투자의견·기준일·리포트수) — 미국 탭과 단일 소스."""
+    from src.analyst_naver import fetch_naver_targets
+    return fetch_naver_targets([t for t in tickers_key.split(",") if t])
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -413,7 +406,7 @@ def render(embedded: bool = False):
     # 함수로 정의해 '맨 끝'에 렌더한다: 임베디드는 딥다이브 생략 직후, 전체 페이지는 딥다이브 뒤.
     def _render_analyst():
         st.markdown(mkt_section_header("애널리스트 전망",
-                                       "컨센서스 목표가 — 네이버(코스피·코스닥) + Yahoo"),
+                                       "네이버 금융 컨센서스 목표가 — 코스피·코스닥"),
                     unsafe_allow_html=True)
 
         def _an_num(v):
@@ -423,63 +416,10 @@ def render(embedded: bool = False):
             except (TypeError, ValueError):
                 return None
 
-        _key = ",".join(sorted(all_tickers))
-        _yh = _kr_analyst_targets(_key)
-        _nv = _naver_consensus_cached(_key)
-        _yh_of = {r["ticker"]: r for _, r in _yh.iterrows()} if (_yh is not None and not _yh.empty) else {}
-        _nv_of = {r["ticker"]: r for _, r in _nv.iterrows()} if (_nv is not None and not _nv.empty) else {}
+        _targets = _naver_targets_cached(",".join(sorted(all_tickers)))
         _nm_of = {r["_ticker"]: r["_name"] for r in all_rows}
-        _rk_of = {r["_ticker"]: r["순위"] for r in all_rows}
-        _px_of = {r["_ticker"]: r.get("현재가 (원)") for r in all_rows}
-
-        points = []
-        for tk in all_tickers:
-            px = _an_num(_px_of.get(tk))
-            nv = _nv_of.get(tk)
-            yh = _yh_of.get(tk)
-            # 목표가: 네이버 우선(커버리지 넓음) → 없으면 Yahoo
-            tgt = _an_num(nv["목표가_평균"]) if nv is not None else None
-            src = "네이버"
-            if tgt is None and yh is not None:
-                tgt = _an_num(yh.get("목표가_평균")); src = "Yahoo"
-            if px is None or tgt is None:
-                continue
-            up = round((tgt / px - 1) * 100, 1)
-            # 커버리지(Y): Yahoo 애널리스트수 우선 → 없으면 네이버 최근 리포트 증권사 수
-            na = _an_num(yh.get("애널리스트수")) if yh is not None else None
-            if na is None and nv is not None:
-                na = _an_num(nv.get("리포트수"))
-            if na is None:
-                continue
-            opinion = "—"
-            if nv is not None and nv.get("투자의견") not in (None, "—"):
-                opinion = nv["투자의견"]
-            elif yh is not None:
-                opinion = yh.get("투자의견") or "—"
-            if up < 0 and opinion != "—":
-                opinion = f"{opinion} · 목표가 하회"
-            nm = _nm_of.get(tk, tk.replace(".KS", ""))
-            points.append({
-                "name": nm, "x": up, "y": na, "ticker": tk,
-                "rank": _an_num(_rk_of.get(tk)),
-                "hover": (f"{nm}<br>현재가 {px:,.0f}원 · 목표가 {tgt:,.0f}원"
-                          f"<br>상승여력 {up:+.1f}% · 커버리지 {int(na)} · {opinion} · {src}"),
-            })
-
-        fig_kr = analyst_scatter_fig(points)
-        if fig_kr is not None:
-            def _desktop_sc():
-                st.plotly_chart(fig_kr, use_container_width=True, config={"displayModeBar": False},
-                                key="kr_analyst_sc")
-                st.caption("점 크기 = 시가총액 · 우측·상단 = 목표가 여력 크고 커버리지 많음(기회) · 라벨은 시총 상위 5개(리더선), 나머지는 hover")
-            # 모바일: 산점도는 라벨이 안 읽혀 상승여력 상위/하위 리스트로 대체
-            _mob_pts = pd.DataFrame([{"종목": p["name"], "상승여력": f'{p["x"]:+.1f}%'} for p in points])
-            L.only_desktop(_desktop_sc)
-            L.only_mobile(lambda: L.top_movers_list(_mob_pts, name_col="종목", change_col="상승여력"))
-            st.caption(data_source_note("네이버 금융 컨센서스 + Yahoo Finance", cached="1시간",
-                                        extra="현재가는 실시간"))
-        else:
-            empty_state("애널리스트 컨센서스 준비 중")
+        _px_of = {r["_ticker"]: _an_num(r.get("현재가 (원)")) for r in all_rows}
+        render_analyst_table(_targets, _nm_of, _px_of, price_fmt="{:,.0f}원")
 
         # 네이버 증권사별 최근 리포트 드릴다운 (전문 애널리스트 리서치)
         with st.expander("증권사 리포트 — 네이버 (종목 선택)"):

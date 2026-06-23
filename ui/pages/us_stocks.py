@@ -11,9 +11,7 @@ import layout as L  # 모바일 분기(표→카드)
 from data.loader import (load_market_data, batch_close_history, series_last_n,
                           compute_live_indicators as _compute_live_ind)
 from src.database import load_latest_indicator_summary, DEFAULT_DB
-from src.analyst import fetch_analyst_targets
-from ui.components.analyst_fmp import render_fmp_drilldown
-from ui.components.analyst_scatter import analyst_scatter_fig
+from ui.components.analyst_table import render_analyst_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.color_utils import hex_to_lab as _hex2lab, delta_e as _de, shade as _shade
 from ui.components.dash_style import (
@@ -105,9 +103,10 @@ def _build_us_sig(order: list[str], thresh: float = 16.0) -> dict:
 _US_SIG = _build_us_sig([u[0] for u in _US_UNIVERSE])
 
 
-@st.cache_data(ttl=86400, show_spinner=False)   # 목표가는 일 단위로 안정 → 24h 캐시(느린 .info 빈도↓)
+@st.cache_data(ttl=86400, show_spinner=False)   # 목표가는 일 단위 안정 → 24h
 def _analyst_targets() -> pd.DataFrame:
-    return fetch_analyst_targets(list(_STOCK_KOR.keys()))
+    from src.analyst_naver import fetch_naver_targets   # 네이버 단일 소스(기준일 포함)
+    return fetch_naver_targets(list(_STOCK_KOR.keys()))
 
 
 def _us_history(tickers_key: str, _bucket: int = 0) -> dict:
@@ -609,119 +608,17 @@ def render(embedded: bool = False):
                 st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
                 st.caption("우하단: 고수익·저변동성 (우호적) / 좌상단: 저수익·고변동성 (주의)")
 
-    # ── 7. 애널리스트 전망 (지연 로딩 — Yahoo .info 가 무거워 펼칠 때만 fetch) ──
-    st.markdown(mkt_section_header("애널리스트 전망", "Yahoo Finance 컨센서스 목표가"), unsafe_allow_html=True)
+    # ── 7. 애널리스트 전망 (네이버 컨센서스 · 지연 로딩) ──
+    st.markdown(mkt_section_header("애널리스트 전망", "네이버 금융 컨센서스 목표가"), unsafe_allow_html=True)
 
-    _analyst_loaded = st.session_state.get("show_analyst_us", False)
-    if not _analyst_loaded:
+    if not st.session_state.get("show_analyst_us"):
         if st.button("애널리스트 전망 불러오기", key="load_analyst_us", use_container_width=True):
             st.session_state["show_analyst_us"] = True
             st.rerun()
-        st.caption("Yahoo Finance 컨센서스 목표가 · 불러오면 ~2초 소요")
-    analyst_df = _analyst_targets() if _analyst_loaded else pd.DataFrame()
-    if not analyst_df.empty:
-        _REC_COLOR = {
-            "강력매수": "color:#F25560;font-weight:700",
-            "매수":     "color:#F25560;font-weight:600",
-            "보유":     "color:#7E8694",
-            "시장하회": "color:#4D90F0;font-weight:600",
-            "매도":     "color:#4D90F0;font-weight:700",
-            "강력매도": "color:#4D90F0;font-weight:700",
-        }
-
-        def _upside_style(v):
-            if not isinstance(v, (int, float)) or pd.isna(v): return ""
-            if v >= 10:  return "background-color:rgba(242,85,96,0.13);color:#F25560;font-weight:600"
-            if v <= -5:  return "background-color:rgba(77,144,240,0.13);color:#4D90F0;font-weight:600"
-            return ""
-
-        rows_a = []
-        for _, r in analyst_df.iterrows():
-            tk = r["ticker"]
-            opinion = r.get("투자의견") or "—"
-            _up = r.get("상승여력%")
-            # 현재가가 목표가 평균을 웃돌면(상승여력<0) 매수의견과 충돌처럼 보임 → '목표가 하회' 명시
-            if isinstance(_up, (int, float)) and not pd.isna(_up) and _up < 0 and opinion != "—":
-                opinion = f"{opinion} · 목표가 하회"
-            rows_a.append({
-                "종목":        f"{_STOCK_KOR.get(tk, tk)}  ({tk})",
-                "현재가":      r.get("현재가"),
-                "목표가(평균)": r.get("목표가_평균"),
-                "목표가(최고)": r.get("목표가_최고"),
-                "목표가(최저)": r.get("목표가_최저"),
-                "상승여력%":   r.get("상승여력%"),
-                "투자의견":    opinion,
-                "애널리스트수": r.get("애널리스트수"),
-                "_tk":         tk,
-            })
-
-        # ── STEP 3: 애널리스트 산점도 (기회 발굴) ──────────────────────────────
-        def _num(v):
-            try:
-                f = float(v)
-                return None if pd.isna(f) else f
-            except (TypeError, ValueError):
-                return None
-        _sc = []
-        for r in rows_a:
-            up, na = _num(r.get("상승여력%")), _num(r.get("애널리스트수"))
-            if up is not None and na is not None:
-                _sc.append({**r, "_up": up, "_na": na})
-        if _sc:
-            import math
-            def _fmt_usd(v):
-                v = _num(v)
-                return f"${v:,.2f}" if v is not None else "—"
-            # 점 크기 = 시총 랭크. 라벨 충돌 회피·리더선은 analyst_scatter_fig가 처리(미국·한국 공용).
-            _rank_map = {r["ticker"]: r.get("mktcap_rank") for _, r in stocks_live.iterrows()}
-            def _rank(tk):
-                v = _num(_rank_map.get(tk)); return v if v and v > 0 else 99.0
-            points = []
-            for r in _sc:
-                nm = r["종목"].split("  ")[0]
-                points.append({
-                    "name": nm, "x": r["_up"], "y": r["_na"], "ticker": r["_tk"],
-                    "rank": _rank(r["_tk"]),
-                    "hover": (f"{nm}<br>현재가 {_fmt_usd(r['현재가'])} · 목표가 {_fmt_usd(r['목표가(평균)'])}"
-                              f"<br>상승여력 {r['_up']:+.1f}% · 커버리지 {int(r['_na'])}명 · {r['투자의견']}"),
-                })
-            fig_sc = analyst_scatter_fig(points)
-            if fig_sc is not None:
-                def _desktop_sc():
-                    st.plotly_chart(fig_sc, use_container_width=True, config={"displayModeBar": False},
-                                    key="us_analyst_sc")
-                    st.caption("점 크기 = 시가총액 · 우측·상단 = 목표가 여력 크고 커버리지 많음(기회) · 라벨은 시총 상위 5개(리더선), 나머지는 hover")
-                # 모바일: 산점도는 라벨이 안 읽혀 상승여력 상위/하위 리스트로 대체
-                _mob_pts = pd.DataFrame([{"종목": p["name"], "상승여력": f'{p["x"]:+.1f}%'} for p in points])
-                L.only_desktop(_desktop_sc)
-                L.only_mobile(lambda: L.top_movers_list(_mob_pts, name_col="종목", change_col="상승여력"))
-
-        if st.toggle("표로 보기", key="us_analyst_tbl", value=False):
-            atbl = pd.DataFrame(rows_a).drop(columns=["_tk"], errors="ignore")
-            price_cols = ["현재가", "목표가(평균)", "목표가(최고)", "목표가(최저)"]
-            for c in price_cols + ["상승여력%", "애널리스트수"]:
-                atbl[c] = pd.to_numeric(atbl[c], errors="coerce")
-
-            afmt = {c: "${:,.2f}" for c in price_cols}
-            afmt["상승여력%"]   = "{:+.1f}%"
-            afmt["애널리스트수"] = "{:.0f}명"
-            def _rec_color(v):
-                base = str(v).split(" · ")[0]  # '목표가 하회' 접미사 제거 후 색 매핑
-                return _REC_COLOR.get(base, "")
-            styled_a = (
-                atbl.style
-                .map(_upside_style, subset=["상승여력%"])
-                .map(_rec_color, subset=["투자의견"])
-                .format(afmt, na_rep="—")
-            )
-            st.dataframe(styled_a, use_container_width=True, hide_index=True)
-            st.caption(data_source_note("Yahoo Finance 컨센서스", cached="1시간",
-                                        extra="상승여력 음수 = 현재가가 목표가 평균 상회"))
-    elif _analyst_loaded:
-        empty_state("애널리스트 데이터 준비 중")
-
-    # ── FMP 개별 애널리스트 드릴다운 (전망 불러왔을 때만) ──────────────────────
-    if _analyst_loaded:
-        render_fmp_drilldown(list(_STOCK_KOR.keys()), _STOCK_KOR)
+        st.caption("네이버 금융 컨센서스 · 불러오면 잠시 소요")
+    else:
+        _price_of = {tk: (float(s.iloc[-1]) if s is not None and not getattr(s, "empty", True) else None)
+                     for tk, s in history.items()}
+        render_analyst_table(_analyst_targets(), _STOCK_KOR, _price_of, price_fmt="${:,.2f}")
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)
