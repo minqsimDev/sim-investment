@@ -7,6 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    image: sim-investment:latest   # batch 사이드카가 재사용(중복 빌드 방지)
     restart: unless-stopped
     env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS 키
     environment:
@@ -16,6 +17,22 @@ services:
       - ./appdata:/app/data    # market_data.db 등(영속)
     expose:
       - "8520"                # 외부 비공개 — Caddy만 접근
+
+  # 데이터 배치 작성기 — 매일 KST 06시 main.py 실행해 market_data.db 갱신.
+  # app 과 동일 이미지·볼륨·.env 공유(같은 DB 파일에 씀). Caddy 미노출.
+  batch:
+    image: sim-investment:latest   # app 이 빌드한 이미지 재사용
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - HOME=/data
+      - BATCH_HOUR=6                # KST 실행 시각(미국 장마감 후)
+    volumes:
+      - ./state:/data
+      - ./appdata:/app/data        # app 과 동일 market_data.db 영속 볼륨
+    command: ["python", "deploy/batch_scheduler.py"]
+    depends_on:
+      - app                        # app 빌드 후 그 이미지 재사용
 
   caddy:
     image: caddy:2
