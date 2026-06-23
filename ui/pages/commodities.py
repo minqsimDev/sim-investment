@@ -9,8 +9,6 @@ import yfinance as yf
 import layout as L  # 모바일 분기(산점도→리스트)
 from data.loader import load_market_data
 from src.database import load_latest_indicator_summary, DEFAULT_DB
-from src.analyst import fetch_analyst_targets
-from ui.components.analyst_fmp import render_fmp_drilldown
 from ui.components.dash_style import (
     data_source_note,
     empty_state,
@@ -19,25 +17,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.analyst_scatter import analyst_scatter_fig
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
-
-_COMM_STOCK_KOR = {
-    "GOLD": "배릭골드",
-    "NEM":  "뉴몬트",
-    "FCX":  "프리포트맥모란",
-    "XOM":  "엑슨모빌",
-    "CVX":  "쉐브론",
-    "COP":  "코노코필립스",
-}
-_COMM_STOCK_GROUP = {
-    "GOLD": "귀금속",
-    "NEM":  "귀금속",
-    "FCX":  "산업금속",
-    "XOM":  "에너지",
-    "CVX":  "에너지",
-    "COP":  "에너지",
-}
 
 # (한글명, 단위, 그룹, 티커)
 _META = {
@@ -58,11 +38,6 @@ _COMM_COLOR = {
     "natural_gas": ("#5A8FB0", "rgba(90,143,176,0.12)"),   # 천연가스 블루
 }
 _COMM_COLOR_DEFAULT = ("#D9A441", "rgba(217,164,65,0.08)")
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _analyst_targets() -> pd.DataFrame:
-    return fetch_analyst_targets(list(_COMM_STOCK_KOR.keys()))
 
 
 @st.cache_data(ttl=900, show_spinner=False)
