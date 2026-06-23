@@ -105,7 +105,7 @@ def _build_us_sig(order: list[str], thresh: float = 16.0) -> dict:
 _US_SIG = _build_us_sig([u[0] for u in _US_UNIVERSE])
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)   # 목표가는 일 단위로 안정 → 24h 캐시(느린 .info 빈도↓)
 def _analyst_targets() -> pd.DataFrame:
     return fetch_analyst_targets(list(_STOCK_KOR.keys()))
 
@@ -609,10 +609,16 @@ def render(embedded: bool = False):
                 st.plotly_chart(fig_b, use_container_width=True, config={"displayModeBar": False})
                 st.caption("우하단: 고수익·저변동성 (우호적) / 좌상단: 저수익·고변동성 (주의)")
 
-    # ── 7. 애널리스트 전망 ────────────────────────────────────────────────────
+    # ── 7. 애널리스트 전망 (지연 로딩 — Yahoo .info 가 무거워 펼칠 때만 fetch) ──
     st.markdown(mkt_section_header("애널리스트 전망", "Yahoo Finance 컨센서스 목표가"), unsafe_allow_html=True)
 
-    analyst_df = _analyst_targets()
+    _analyst_loaded = st.session_state.get("show_analyst_us", False)
+    if not _analyst_loaded:
+        if st.button("애널리스트 전망 불러오기", key="load_analyst_us", use_container_width=True):
+            st.session_state["show_analyst_us"] = True
+            st.rerun()
+        st.caption("Yahoo Finance 컨센서스 목표가 · 불러오면 ~2초 소요")
+    analyst_df = _analyst_targets() if _analyst_loaded else pd.DataFrame()
     if not analyst_df.empty:
         _REC_COLOR = {
             "강력매수": "color:#F25560;font-weight:700",
@@ -711,10 +717,11 @@ def render(embedded: bool = False):
             st.dataframe(styled_a, use_container_width=True, hide_index=True)
             st.caption(data_source_note("Yahoo Finance 컨센서스", cached="1시간",
                                         extra="상승여력 음수 = 현재가가 목표가 평균 상회"))
-    else:
+    elif _analyst_loaded:
         empty_state("애널리스트 데이터 준비 중")
 
-    # ── FMP 개별 애널리스트 드릴다운 ─────────────────────────────────────────
-    render_fmp_drilldown(list(_STOCK_KOR.keys()), _STOCK_KOR)
+    # ── FMP 개별 애널리스트 드릴다운 (전망 불러왔을 때만) ──────────────────────
+    if _analyst_loaded:
+        render_fmp_drilldown(list(_STOCK_KOR.keys()), _STOCK_KOR)
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)

@@ -11,7 +11,7 @@ from src.analyst import fetch_fmp_target_trends_bulk, fmp_available
 from ui.components.dash_style import show_skeleton, empty_state, data_source_note
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)   # 목표가 추이는 일 단위 안정 → 24h 캐시
 def _fmp_trends_cached(tickers_key: str) -> dict:
     tickers = tickers_key.split(",")
     return fetch_fmp_target_trends_bulk(tickers)
