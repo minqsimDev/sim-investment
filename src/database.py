@@ -105,6 +105,19 @@ CREATE TABLE IF NOT EXISTS news (
     impact_level   TEXT,
     created_at     TEXT DEFAULT (datetime('now'))
 );
+
+-- 네이버 애널리스트 컨센서스(배치 적재). 비공식 API 가용성 리스크를 last-known-good 캐시로 흡수.
+CREATE TABLE IF NOT EXISTS consensus (
+    run_date      TEXT NOT NULL,
+    ticker        TEXT NOT NULL,
+    target_mean   REAL,
+    opinion       TEXT,
+    opinion_score REAL,
+    base_date     TEXT,
+    coverage      REAL,
+    created_at    TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (run_date, ticker)
+);
 """
 
 
@@ -199,6 +212,48 @@ def save_macro(df: pd.DataFrame, db_path: str = DEFAULT_DB) -> int:
     with _conn(db_path) as conn:
         conn.executemany(sql, rows)
     return len(rows)
+
+
+def save_consensus(df: pd.DataFrame, db_path: str = DEFAULT_DB) -> int:
+    """네이버 컨센서스(fetch_naver_targets 결과) 저장. 목표가 있는 행만 적재(나머진 라이브 폴백 대상)."""
+    if df is None or df.empty:
+        return 0
+    run_date = str(_date.today())
+    sql = ("INSERT OR REPLACE INTO consensus "
+           "(run_date, ticker, target_mean, opinion, opinion_score, base_date, coverage) "
+           "VALUES (?,?,?,?,?,?,?)")
+    rows = []
+    for _, r in df.iterrows():
+        tm = _f(r.get("목표가_평균"))
+        if tm is None:
+            continue
+        rows.append((run_date, str(r.get("ticker", "")), tm,
+                     str(r.get("투자의견") or ""), _f(r.get("의견점수")),
+                     str(r.get("기준일") or ""), _f(r.get("커버리지"))))
+    if not rows:
+        return 0
+    with _conn(db_path) as conn:
+        conn.executemany(sql, rows)
+    return len(rows)
+
+
+def load_latest_consensus(db_path: str = DEFAULT_DB) -> pd.DataFrame:
+    """최신 run_date 컨센서스 → fetch_naver_targets 동일 컬럼(ticker·목표가_평균·투자의견·의견점수·기준일·커버리지)."""
+    try:
+        with _conn(db_path) as conn:
+            df = pd.read_sql_query(
+                "SELECT ticker, target_mean, opinion, opinion_score, base_date, coverage "
+                "FROM consensus WHERE run_date=(SELECT MAX(run_date) FROM consensus)",
+                conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+    if df.empty:
+        return df
+    return df.rename(columns={
+        "target_mean": "목표가_평균", "opinion": "투자의견", "opinion_score": "의견점수",
+        "base_date": "기준일", "coverage": "커버리지",
+    })
 
 
 def load_latest_indicator_summary(db_path: str = DEFAULT_DB) -> pd.DataFrame:

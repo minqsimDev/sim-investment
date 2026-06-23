@@ -348,8 +348,8 @@ def _render_analyst(ticker: str, info: dict) -> None:
     if info["category"] not in ("미국주식", "국내주식"):
         return
     try:
-        from src.analyst_naver import fetch_naver_targets
-        df = fetch_naver_targets([ticker])
+        from data.loader import load_consensus_targets   # DB(배치) 우선 + 라이브 폴백
+        df = load_consensus_targets([ticker])
         if df is None or df.empty:
             return
         r = df.iloc[0]
