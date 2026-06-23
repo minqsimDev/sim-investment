@@ -4,10 +4,9 @@ FX & Rates — currency pairs, yield curve, inflation, labor.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import yfinance as yf
 
 import layout as L  # 모바일 분기(표→카드)
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_close_history
 from src.database import load_latest_indicator_summary, DEFAULT_DB
 from ui.components.dash_style import (
     period_radio,
@@ -68,30 +67,9 @@ def _slice_period(s, pcode: str):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _fx_bundle(tickers_key: str) -> dict:
-    """통화쌍 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주를 모두 여기서 파생
-    (이전엔 통화쌍마다 3mo 차트 + 1y 52주를 따로 받아 콜드 진입이 길었음)."""
-    tickers = [t for t in tickers_key.split(",") if t]
-    if not tickers:
-        return {}
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
-    except Exception:
-        return {}
-    if raw is None or getattr(raw, "empty", True):
-        return {}
-    out, multi = {}, len(tickers) > 1
-    for tk in tickers:
-        try:
-            c = raw["Close"][tk] if multi else raw["Close"]
-            if hasattr(c, "columns"):
-                c = c.iloc[:, 0]
-            c = c.dropna()
-            if not c.empty:
-                out[tk] = c
-        except Exception:
-            pass
-    return out
+    """통화쌍 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주 공통.
+    종가 히스토리는 공용 batch_close_history(→price_source) 단일 진입점 경유(SSOT)."""
+    return batch_close_history(tickers_key, "1y")
 
 
 def _fx_spark(closes: dict, tk: str, pcode: str = "3mo") -> list:
@@ -110,25 +88,17 @@ _FX_DUAL_TICKERS = ["USDKRW=X", "DX-Y.NYB", "QQQ", "^TNX", "GC=F"]
 @st.cache_data(ttl=900, show_spinner=False)
 def _fx_dual_bundle() -> dict:
     """상관관계 차트용 5개 티커(USDKRW·DXY·QQQ·10Y·Gold) 3개월 종가 1회 배치 → {ticker: df(Date,Close)}.
-    이전엔 _dual_hist 4회가 종목당 따로 받아 ^TNX·DXY·GC=F 가 중복 다운로드됐음(8건→1건)."""
-    try:
-        from data.session import cached_download
-        raw = cached_download(_FX_DUAL_TICKERS, period="3mo", interval="1d",
-                              progress=False, auto_adjust=True)
-    except Exception:
-        return {}
-    if raw is None or getattr(raw, "empty", True):
-        return {}
+    종가 히스토리는 공용 batch_close_history(→price_source) 단일 진입점 경유(SSOT)."""
+    hist = batch_close_history(",".join(_FX_DUAL_TICKERS), "3mo")
     out = {}
-    for tk in _FX_DUAL_TICKERS:
+    for tk, c in hist.items():
         try:
-            c = raw["Close"][tk]
-            if hasattr(c, "columns"):
-                c = c.iloc[:, 0]
-            df = c.dropna().reset_index()
+            c = c.dropna()
+            if c.empty:
+                continue
+            df = c.reset_index()
             df.columns = ["Date", "Close"]
-            if not df.empty:
-                out[tk] = df
+            out[tk] = df
         except Exception:
             pass
     return out
