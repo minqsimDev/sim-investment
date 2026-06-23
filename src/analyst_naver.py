@@ -26,7 +26,7 @@ _KR_INTEGRATION = "https://m.stock.naver.com/api/stock/{code}/integration"
 _US_INTEGRATION = "https://api.stock.naver.com/stock/{rc}/integration"
 _AC_URL = "https://ac.stock.naver.com/ac"
 
-_COLS = ["ticker", "목표가_평균", "투자의견", "기준일", "커버리지"]
+_COLS = ["ticker", "목표가_평균", "투자의견", "의견점수", "기준일", "커버리지"]
 _reuters_cache: dict[str, str | None] = {}   # 심볼 → reutersCode(또는 None) 프로세스 캐시
 
 
@@ -66,6 +66,7 @@ def _parse_consensus(ci: dict) -> dict:
     return {
         "목표가_평균": _num(ci.get("priceTargetMean")),
         "투자의견":   _opinion_label(ci.get("recommMean")),
+        "의견점수":   _num(ci.get("recommMean")),   # 산점도 Y축(1~5, 높을수록 매수)
         "기준일":     ci.get("createDate"),
     }
 

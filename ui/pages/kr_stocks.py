@@ -22,7 +22,7 @@ from ui.components.slim_table import slim_table
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.color_utils import hex_to_lab as _hex2lab, delta_e as _de, shade as _shade
 from ui.components.cap_treemap import cap_treemap
-from ui.components.analyst_table import render_analyst_table
+from ui.components.analyst_table import render_analyst_section
 from ui.components.live_refresh import live_refresh
 
 _SECTOR_ORDER = ["반도체", "전자", "이차전지", "바이오", "자동차", "인터넷",
@@ -419,7 +419,9 @@ def render(embedded: bool = False):
         _targets = _naver_targets_cached(",".join(sorted(all_tickers)))
         _nm_of = {r["_ticker"]: r["_name"] for r in all_rows}
         _px_of = {r["_ticker"]: _an_num(r.get("현재가 (원)")) for r in all_rows}
-        render_analyst_table(_targets, _nm_of, _px_of, price_fmt="{:,.0f}원")
+        _rk_of = {r["_ticker"]: r.get("순위") for r in all_rows}
+        render_analyst_section(_targets, _nm_of, _px_of,
+                               rank_of=_rk_of, price_fmt="{:,.0f}원", key="kr_analyst")
 
         # 네이버 증권사별 최근 리포트 드릴다운 (전문 애널리스트 리서치)
         with st.expander("증권사 리포트 — 네이버 (종목 선택)"):

@@ -32,6 +32,7 @@ def test_parse_consensus_extracts_common_fields():
     out = _parse_consensus(ci)
     assert out["목표가_평균"] == 461250.0
     assert out["투자의견"] == "매수"
+    assert out["의견점수"] == 4.04        # 산점도 Y축용 raw recommMean(1~5)
     assert out["기준일"] == "2026-06-22"
 
 
@@ -39,4 +40,5 @@ def test_parse_consensus_empty():
     out = _parse_consensus({})
     assert out["목표가_평균"] is None
     assert out["투자의견"] == "—"
+    assert out["의견점수"] is None
     assert out["기준일"] is None

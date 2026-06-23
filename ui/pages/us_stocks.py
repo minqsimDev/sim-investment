@@ -11,7 +11,7 @@ import layout as L  # 모바일 분기(표→카드)
 from data.loader import (load_market_data, batch_close_history, series_last_n,
                           compute_live_indicators as _compute_live_ind)
 from src.database import load_latest_indicator_summary, DEFAULT_DB
-from ui.components.analyst_table import render_analyst_table
+from ui.components.analyst_table import render_analyst_section
 from ui.components.range_bar import fetch_52w_ranges, range_bar_html
 from ui.components.color_utils import hex_to_lab as _hex2lab, delta_e as _de, shade as _shade
 from ui.components.dash_style import (
@@ -619,6 +619,8 @@ def render(embedded: bool = False):
     else:
         _price_of = {tk: (float(s.iloc[-1]) if s is not None and not getattr(s, "empty", True) else None)
                      for tk, s in history.items()}
-        render_analyst_table(_analyst_targets(), _STOCK_KOR, _price_of, price_fmt="${:,.2f}")
+        _rank_of = {r["ticker"]: r.get("mktcap_rank") for _, r in stocks_live.iterrows()}
+        render_analyst_section(_analyst_targets(), _STOCK_KOR, _price_of,
+                               rank_of=_rank_of, price_fmt="${:,.2f}", key="us_analyst")
     if not embedded:
         st.markdown(jj_footer(), unsafe_allow_html=True)
