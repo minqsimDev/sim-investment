@@ -213,6 +213,16 @@ def _news_item(it: dict) -> dict | None:
     return {"뉴스": tit, "언론사": it.get("ohnm") or "—", "날짜": _fmt_news_dt(it.get("dt")), "링크": link}
 
 
+def latest_date_only(items: list[dict], date_key: str = "날짜") -> list[dict]:
+    """가장 최신 날짜의 항목만 남긴다(뉴스·리포트 공통). 날짜 미상('—'/빈값)이면 원본 유지.
+    날짜 포맷은 ISO(YYYY-MM-DD)·네이버 리포트(YY.MM.DD) 모두 사전식 정렬이 곧 시간순."""
+    dates = [it.get(date_key) for it in items if it.get(date_key) and it.get(date_key) != "—"]
+    if not dates:
+        return items
+    top = max(dates)
+    return [it for it in items if it.get(date_key) == top]
+
+
 def fetch_naver_us_news(symbol: str, limit: int = 8) -> list[dict]:
     """미국 종목 관련 뉴스(네이버 한국어). 증권사 리포트(한국 전용) 대신 미국 탭에서 쓴다."""
     rc = _resolve_us_reuters(_code(symbol))
