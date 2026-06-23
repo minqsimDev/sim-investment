@@ -29,9 +29,10 @@ def _fetch_target_prices() -> dict[str, float]:
 
 @st.cache_data(ttl=86400, show_spinner=False)   # 컨센서스는 일 단위 안정 → 24h
 def _consensus_notes(tickers_key: str) -> dict:
-    """종목별 네이버 컨센서스 팩트 노트 {ticker: note}. 주식만 값이 있다(하드코딩 해설 대체)."""
-    from src.analyst_naver import consensus_notes
-    return consensus_notes([t for t in tickers_key.split(",") if t])
+    """종목별 컨센서스 팩트 노트 {ticker: note}. DB(배치) 우선 + 라이브 폴백(하드코딩 해설 대체)."""
+    from data.loader import load_consensus_targets
+    from src.analyst_naver import consensus_notes_from_df
+    return consensus_notes_from_df(load_consensus_targets([t for t in tickers_key.split(",") if t]))
 
 
 _COMM_KOR = {

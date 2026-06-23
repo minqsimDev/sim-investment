@@ -131,9 +131,9 @@ def _bench_prices() -> dict:
 
 @st.cache_data(ttl=86400, show_spinner=False)   # 목표가·컨센서스는 일 단위 안정 → 24h
 def _naver_targets_cached(tickers_key: str) -> pd.DataFrame:
-    """네이버 금융 컨센서스(목표가·투자의견·기준일·리포트수) — 미국 탭과 단일 소스."""
-    from src.analyst_naver import fetch_naver_targets
-    return fetch_naver_targets([t for t in tickers_key.split(",") if t])
+    """애널리스트 컨센서스 — DB(배치) 우선 + 라이브 폴백. 미국 탭과 단일 소스."""
+    from data.loader import load_consensus_targets
+    return load_consensus_targets([t for t in tickers_key.split(",") if t])
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

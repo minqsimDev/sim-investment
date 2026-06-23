@@ -104,8 +104,8 @@ _US_SIG = _build_us_sig([u[0] for u in _US_UNIVERSE])
 
 @st.cache_data(ttl=86400, show_spinner=False)   # 목표가는 일 단위 안정 → 24h
 def _analyst_targets() -> pd.DataFrame:
-    from src.analyst_naver import fetch_naver_targets   # 네이버 단일 소스(기준일 포함)
-    return fetch_naver_targets(list(_STOCK_KOR.keys()))
+    from data.loader import load_consensus_targets   # DB(배치) 우선 + 라이브 폴백
+    return load_consensus_targets(list(_STOCK_KOR.keys()))
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

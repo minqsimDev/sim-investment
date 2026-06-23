@@ -123,5 +123,29 @@ def load_target_prices() -> dict[str, float]:
     return out
 
 
+def load_consensus_targets(tickers: list[str]):
+    """애널리스트 컨센서스 — DB(배치 적재) 우선 + DB에 없는 종목만 라이브 네이버 폴백.
+    네이버 비공식 API 가용성 리스크를 DB(last-known-good)로 흡수. fetch_naver_targets 드롭인 반환형."""
+    import pandas as pd
+    from src.analyst_naver import fetch_naver_targets, _COLS
+    from src.database import load_latest_consensus, DEFAULT_DB
+
+    tickers = [t for t in tickers if t]
+    by_tk: dict = {}
+    try:
+        db = load_latest_consensus(DEFAULT_DB)
+        if db is not None and not db.empty:
+            by_tk = {r["ticker"]: r.to_dict() for _, r in db.iterrows()}
+    except Exception:
+        by_tk = {}
+    missing = [t for t in tickers if t not in by_tk]
+    if missing:
+        live = fetch_naver_targets(missing)   # DB에 없는 것만 라이브
+        for _, r in live.iterrows():
+            by_tk[r["ticker"]] = r.to_dict()
+    rows = [by_tk[t] for t in tickers if t in by_tk]
+    return pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
+
+
 def clear_market_cache() -> None:
     load_market_data.clear()

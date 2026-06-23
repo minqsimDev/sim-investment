@@ -18,8 +18,24 @@ from src.indicators import build_summary
 from src.risk import compute_regime_signals
 from src.database import (
     DEFAULT_DB, init_db,
-    save_prices, save_indicator_summary, save_risk_signals, save_macro,
+    save_prices, save_indicator_summary, save_risk_signals, save_macro, save_consensus,
 )
+
+
+def _consensus_universe() -> list[str]:
+    """배치 적재할 컨센서스 종목(US+KR 유니버스). UI 상수에서 모으되 실패해도 배치는 계속."""
+    tickers: list[str] = []
+    try:
+        from ui.pages.us_stocks import _STOCK_KOR
+        tickers += list(_STOCK_KOR.keys())
+    except Exception as e:
+        print(f"  ⚠  US 유니버스 로드 실패: {e}", file=sys.stderr)
+    try:
+        from ui.pages.kr_stocks import _KR_UNIVERSE, _KR_NEW_LISTINGS
+        tickers += [u[0] for u in _KR_UNIVERSE + _KR_NEW_LISTINGS]
+    except Exception as e:
+        print(f"  ⚠  KR 유니버스 로드 실패: {e}", file=sys.stderr)
+    return list(dict.fromkeys(t for t in tickers if t))
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", 200)
@@ -72,6 +88,17 @@ def main():
     if live is not None and live.get("macro") is not None and not live["macro"].empty:
         n = save_macro(live["macro"], DEFAULT_DB)
         print(f"  Macro indicators saved: {n} rows")
+
+    # ── 네이버 애널리스트 컨센서스 적재(US+KR 유니버스) ──────────────────────────
+    try:
+        from src.analyst_naver import fetch_naver_targets
+        universe = _consensus_universe()
+        if universe:
+            cdf = fetch_naver_targets(universe)
+            n = save_consensus(cdf, DEFAULT_DB)
+            print(f"  Consensus saved: {n}/{len(universe)} tickers (목표가 보유분)")
+    except Exception as e:
+        print(f"  ⚠  Consensus fetch/save failed: {e}", file=sys.stderr)
 
     # ── Print summary ─────────────────────────────────────────────────────────
     if summary.empty:
