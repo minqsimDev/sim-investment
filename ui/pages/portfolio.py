@@ -2576,51 +2576,42 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     if cache_key not in st.session_state:
         from core.vision_parser import VisionBusyError
         import logging
-        _log = logging.getLogger("siminvest")
-        per_file, merged, busy = [], [], False
-        with st.spinner(f"이미지 {len(uploaded)}장 분석 중... (약 장당 10~20초)"):
-            for u in uploaded:
-                try:
-                    raw = parse_portfolio_image(u.read(), u.type or "image/jpeg")
-                    hs = _filter_valid_holdings(raw)
-                    merged.extend(hs)
-                    per_file.append((u.name, len(hs)))
-                except Exception as e:
-                    _log.warning("screenshot parse failed (%s): %s", u.name, e)
-                    if isinstance(e, VisionBusyError):
-                        busy = True
-                    per_file.append((u.name, None))   # 인식 실패
-        deduped = _merge_holdings(merged)
-        st.session_state[cache_key] = {
-            "holdings": deduped, "cash_balance": 0.0, "per_file": per_file,
-            "busy": busy, "raw_count": len(merged),
-        }
+        _n_img = len(uploaded)
+        with st.spinner(f"이미지 {_n_img}장 분석 중... (약 10~20초)"):
+            try:
+                # 여러 장을 단일 API 호출로 한 번에 분석(합산) — 빠르고, 모델이 교차 인식.
+                _imgs = [(u.read(), u.type or "image/jpeg") for u in uploaded]
+                raw = parse_portfolio_image(_imgs[0][0], _imgs[0][1], extra_images=_imgs[1:])
+                merged = _filter_valid_holdings(raw)
+                deduped = _merge_holdings(merged)
+                st.session_state[cache_key] = {
+                    "holdings": deduped, "cash_balance": 0.0, "n_img": _n_img,
+                    "raw_count": len(merged),
+                }
+            except Exception as e:
+                logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)
+                if isinstance(e, VisionBusyError):
+                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
+                return
 
     result = st.session_state[cache_key]
     holdings = result["holdings"]
     cash = result["cash_balance"]
 
-    # 장별 인식 결과 + 지연/실패 안내
-    for _name, _n in result.get("per_file", []):
-        if _n is None:
-            st.caption(f"⚠ {_name} — 인식 실패")
-        else:
-            st.caption(f"✓ {_name} — {_n}개 종목")
-    if result.get("busy"):
-        st.warning("일부 이미지는 AI 분석 요청이 몰려 지연됐어요. 잠시 후 다시 올리면 더 인식될 수 있어요.")
-
     if not holdings:
         st.warning("종목을 인식하지 못했습니다. 더 선명한 스크린샷을 사용해 보세요.")
         return
 
-    # 한번에 분석한 결과 요약 — 총 종목·총 평가금액(+ 여러 장 병합·중복 제거 안내)
+    # 한번에 분석한 결과 요약 — 총 종목·총 평가금액(+ 여러 장 통합·중복 제거 안내)
     def _amt(h):
         try:
             return float(h.get("평가금액") or h.get("eval_amount") or 0)
         except (TypeError, ValueError):
             return 0.0
     _total = sum(_amt(h) for h in holdings)
-    _n_img = len(result.get("per_file", [])) or 1
+    _n_img = int(result.get("n_img", 1))
     _dups = max(0, int(result.get("raw_count", len(holdings))) - len(holdings))
     _summary = f"**{len(holdings)}개 종목** · 합계 평가금액 **{_cur(_total, 'KRW')}**"
     if _n_img > 1:

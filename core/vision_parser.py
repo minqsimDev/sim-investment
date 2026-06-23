@@ -95,11 +95,21 @@ def parse_portfolio_image(
         parts.append(types.Part.from_bytes(data=extra_bytes, mime_type=extra_mt))
     parts.append(_PROMPT)
 
+    # 속도·정확성 설정:
+    # - thinking_budget=0: 2.5-flash 기본 'thinking' 비활성 → 표 추출은 추론 부담이 작아 대폭 단축
+    # - temperature=0: 결정적 출력(같은 화면 → 같은 결과)
+    # - response_mime_type=json: 순수 JSON 강제 → 마크다운/설명 혼입에 의한 파싱 오류 제거
+    cfg = types.GenerateContentConfig(
+        temperature=0,
+        response_mime_type="application/json",
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+    )
+
     # 일시적 과부하(503/429 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
     resp = None
     for _attempt in range(3):
         try:
-            resp = client.models.generate_content(model=_MODEL, contents=parts)
+            resp = client.models.generate_content(model=_MODEL, contents=parts, config=cfg)
             break
         except Exception as e:  # noqa: BLE001 — 일시적/영구 구분만 하고 재던짐
             if _is_transient(e):
@@ -108,8 +118,10 @@ def parse_portfolio_image(
                     continue
                 raise VisionBusyError(str(e)) from e
             raise
-    text = resp.text.strip()
-    text = re.sub(r"^```[a-z]*\n?", "", text)
+    text = (resp.text or "").strip()
+    text = re.sub(r"^```[a-z]*\n?", "", text)   # json 모드에선 보통 불필요하나 방어적으로 유지
     text = re.sub(r"\n?```$", "", text)
     holdings = json.loads(text.strip())
+    if not isinstance(holdings, list):           # 드물게 {"holdings": [...]} 형태 방어
+        holdings = holdings.get("holdings") or holdings.get("items") or []
     return _normalize(holdings)
