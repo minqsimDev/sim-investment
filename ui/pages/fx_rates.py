@@ -18,7 +18,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.range_bar import range_bar_html
 
 _PAIR_LABELS = {
     "usd_krw": "USD/KRW",
@@ -58,49 +58,90 @@ _MAC_META = {
 }
 
 
+_FXP_BARS = {"1mo": 22, "3mo": 64, "6mo": 127}   # 슬라이스용(거래일) · 1y/5y=전체
+
+
+def _slice_period(s, pcode: str):
+    n = _FXP_BARS.get(pcode)
+    return s.iloc[-n:] if (n and len(s) > n) else s
+
+
 @st.cache_data(ttl=900, show_spinner=False)
-def _fx_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
+def _fx_bundle(tickers_key: str) -> dict:
+    """통화쌍 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주를 모두 여기서 파생
+    (이전엔 통화쌍마다 3mo 차트 + 1y 52주를 따로 받아 콜드 진입이 길었음)."""
+    tickers = [t for t in tickers_key.split(",") if t]
+    if not tickers:
+        return {}
     try:
         from data.session import cached_download
-        raw = cached_download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return pd.DataFrame()
-        closes = raw["Close"]
-        if hasattr(closes, "columns"):
-            closes = closes.iloc[:, 0]
-        df = closes.reset_index()
-        df.columns = ["Date", "Close"]
-        return df.dropna()
+        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
     except Exception:
-        return pd.DataFrame()
+        return {}
+    if raw is None or getattr(raw, "empty", True):
+        return {}
+    out, multi = {}, len(tickers) > 1
+    for tk in tickers:
+        try:
+            c = raw["Close"][tk] if multi else raw["Close"]
+            if hasattr(c, "columns"):
+                c = c.iloc[:, 0]
+            c = c.dropna()
+            if not c.empty:
+                out[tk] = c
+        except Exception:
+            pass
+    return out
+
+
+def _fx_spark(closes: dict, tk: str, pcode: str = "3mo") -> list:
+    s = closes.get(tk)
+    if s is None or getattr(s, "empty", True):
+        return []
+    return [float(v) for v in _slice_period(s.dropna(), pcode).tolist()]
 
 
 _TREND_MAP = {"bullish": "상승", "bearish": "하락", "neutral": "중립"}
 
 
+_FX_DUAL_TICKERS = ["USDKRW=X", "DX-Y.NYB", "QQQ", "^TNX", "GC=F"]
+
+
 @st.cache_data(ttl=900, show_spinner=False)
-def _dual_hist(t1: str, t2: str) -> tuple:
-    def _dl(t):
+def _fx_dual_bundle() -> dict:
+    """상관관계 차트용 5개 티커(USDKRW·DXY·QQQ·10Y·Gold) 3개월 종가 1회 배치 → {ticker: df(Date,Close)}.
+    이전엔 _dual_hist 4회가 종목당 따로 받아 ^TNX·DXY·GC=F 가 중복 다운로드됐음(8건→1건)."""
+    try:
+        from data.session import cached_download
+        raw = cached_download(_FX_DUAL_TICKERS, period="3mo", interval="1d",
+                              progress=False, auto_adjust=True)
+    except Exception:
+        return {}
+    if raw is None or getattr(raw, "empty", True):
+        return {}
+    out = {}
+    for tk in _FX_DUAL_TICKERS:
         try:
-            from data.session import cached_download
-            raw = cached_download(t, period="3mo", interval="1d",
-                                  progress=False, auto_adjust=True)
-            if raw.empty:
-                return pd.DataFrame()
-            c = raw["Close"] if "Close" in raw.columns else raw.iloc[:, 0]
+            c = raw["Close"][tk]
             if hasattr(c, "columns"):
                 c = c.iloc[:, 0]
-            df = c.reset_index()
+            df = c.dropna().reset_index()
             df.columns = ["Date", "Close"]
-            return df.dropna()
+            if not df.empty:
+                out[tk] = df
         except Exception:
-            return pd.DataFrame()
-    return _dl(t1), _dl(t2)
+            pass
+    return out
 
 
-def _fx_price_chart(live: dict) -> None:
+def _dual(b: dict, t1: str, t2: str) -> tuple:
+    return b.get(t1, pd.DataFrame()), b.get(t2, pd.DataFrame())
+
+
+def _fx_price_chart(live: dict, closes: dict) -> None:
     """가격 추이 비교 — 전 통화쌍을 기준일=100 정규화로 한 차트에 합쳐 비교(통화쌍 고유색·spline).
-    스케일이 다른 쌍(USD/KRW~1380, JPY/KRW~9, DXY~104)을 % 변화로 한눈에 비교. 기간 토글 1개로 전체 적용."""
+    스케일이 다른 쌍(USD/KRW~1380, JPY/KRW~9, DXY~104)을 % 변화로 한눈에 비교. 기간 토글 1개로 전체 적용.
+    종가는 번들(1년)에서 슬라이스 — 추가 다운로드 없음."""
     st.markdown(mkt_section_header("가격 추이 비교", "전 통화쌍 · 기준일=100 정규화로 한눈에 비교"),
                 unsafe_allow_html=True)
     fx_rows = list(live["fx"].iterrows())
@@ -112,12 +153,15 @@ def _fx_price_chart(live: dict) -> None:
     for _, r in fx_rows:
         pair, ticker = r["pair"], r["ticker"]
         label = _PAIR_LABELS.get(pair, pair.upper())
-        _h = _fx_chart(ticker, period=_pd_code)
-        if _h.empty or len(_h) < 2 or not _h["Close"].iloc[0]:
+        s = closes.get(ticker)
+        if s is None or getattr(s, "empty", True):
+            continue
+        s = _slice_period(s.dropna(), _pd_code)
+        if len(s) < 2 or not float(s.iloc[0]):
             continue
         color = _FX_COLOR.get(pair, _FX_COLOR_DEFAULT)
         fig.add_trace(go.Scatter(
-            x=_h["Date"], y=_h["Close"] / _h["Close"].iloc[0] * 100, mode="lines", name=label,
+            x=s.index, y=s.values / float(s.iloc[0]) * 100, mode="lines", name=label,
             line=dict(color=color, width=2, shape="spline", smoothing=0.6),
             hovertemplate=f"{label}: %{{y:.1f}}<extra></extra>",
         ))
@@ -151,10 +195,8 @@ def render(embedded: bool = False, section: str = "all"):
     ph = show_skeleton()
     live   = load_market_data()
     db_df  = load_latest_indicator_summary(DEFAULT_DB)
-    _dual_hist("USDKRW=X", "DX-Y.NYB")
-    _dual_hist("QQQ", "^TNX")
-    _dual_hist("GC=F", "^TNX")
-    _dual_hist("GC=F", "DX-Y.NYB")
+    _fx_tickers = [r["ticker"] for _, r in live.get("fx", pd.DataFrame()).iterrows() if r.get("ticker")]
+    _fxb = _fx_bundle(",".join(_fx_tickers))   # 통화쌍 1년 종가 1회 배치(스캔·추이·52주 공통)
     ph.empty()
 
     # ── Stats chips ───────────────────────────────────────────────────────────
@@ -207,21 +249,21 @@ def render(embedded: bool = False, section: str = "all"):
         "name": r["통화쌍"],
         "d1": r["1D %"],
         "ma20": None,  # FX는 MA20 이격 미제공 → 과열 카드 생략
-        "series": [float(v) for v in _fx_chart(r["_tk"])["Close"].tolist()] if not _fx_chart(r["_tk"]).empty else [],
+        "series": _fx_spark(_fxb, r["_tk"]),
         "color": _FX_COLOR.get(r["_pair"], _FX_COLOR_DEFAULT),  # 통화쌍 고유색(꺾은선)
     } for r in rows]
     _scan = scan_layer_html(scan_items, spark_label="3개월 추이")
     if _scan:
         st.markdown(_scan, unsafe_allow_html=True)
 
-    # 52주 레인지 바 — 원자재 탭과 동일(막대=저~고 · 점=현재 · 라벨=범위 내 위치)
+    # 52주 레인지 바 — 번들(1년 종가)에서 직접 산출(추가 다운로드 없음)
     _rb_items = []
-    _ranges = fetch_52w_ranges(",".join(r["_tk"] for r in rows))
     for r in rows:
-        rng = _ranges.get(r["_tk"])
-        if not rng:
+        s = _fxb.get(r["_tk"])
+        if s is None or getattr(s, "empty", True) or len(s.dropna()) < 2:
             continue
-        lo, hi, cur = rng
+        s = s.dropna()
+        lo, hi, cur = float(s.min()), float(s.max()), float(s.iloc[-1])
         _rb_items.append({"name": r["통화쌍"], "unit": r.get("이름", ""),
                           "low": lo, "high": hi, "current": cur, "d1": r.get("1D %"),
                           "color": _FX_COLOR.get(r["_pair"], _FX_COLOR_DEFAULT)})  # 통화쌍 시그니처색
@@ -242,11 +284,12 @@ def render(embedded: bool = False, section: str = "all"):
         st.caption(data_source_note("로컬 DB", updated=str(run_date), extra="기술지표 1W/1M/3M·추세"))
 
     # 가격 추이 + 기간 토글(#11) — 임베디드(시장 외환 탭) 포함 항상. 상관관계 차트만 비임베디드.
-    _fx_price_chart(live)
+    _fx_price_chart(live, _fxb)
 
     if not embedded:
         # ── 2b. Dual-axis Correlation Charts ─────────────────────────────────────
         st.markdown(mkt_section_header("상관관계 차트", "주요 자산 간 동조/역행 관계"), unsafe_allow_html=True)
+        _db = _fx_dual_bundle()   # 상관차트 5개 티커 1회 배치(비임베디드에서만 — 외환 탭선 안 받음)
 
         def _dual_fig(h1, h2, name1, name2, color1, color2, fmt1=",.2f", fmt2=",.2f"):
             if h1.empty or h2.empty:
@@ -280,13 +323,13 @@ def render(embedded: bool = False, section: str = "all"):
 
         dc1, dc2 = st.columns(2)
         with dc1:
-            h_krw, h_dxy = _dual_hist("USDKRW=X", "DX-Y.NYB")
+            h_krw, h_dxy = _dual(_db, "USDKRW=X", "DX-Y.NYB")
             fig = _dual_fig(h_krw, h_dxy, "USD/KRW", "DXY", "#D9A441", "#5f7f86")
             if fig:
                 st.caption("USD/KRW vs DXY — 달러 강세와 원화 약세 연동")
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         with dc2:
-            h_qqq, h_10y = _dual_hist("QQQ", "^TNX")
+            h_qqq, h_10y = _dual(_db, "QQQ", "^TNX")
             fig = _dual_fig(h_qqq, h_10y, "QQQ", "US 10Y", "#D9A441", "#F25560", ",.2f", ".2f")
             if fig:
                 st.caption("QQQ vs US 10Y — 금리와 기술주 역행 관계")
@@ -294,13 +337,13 @@ def render(embedded: bool = False, section: str = "all"):
 
         dc3, dc4 = st.columns(2)
         with dc3:
-            h_gld, h_10y2 = _dual_hist("GC=F", "^TNX")
+            h_gld, h_10y2 = _dual(_db, "GC=F", "^TNX")
             fig = _dual_fig(h_gld, h_10y2, "Gold", "US 10Y", "#b8924a", "#F25560", ",.2f", ".2f")
             if fig:
                 st.caption("Gold vs US 10Y — 실질금리와 금 역행 관계")
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         with dc4:
-            h_gld2, h_dxy2 = _dual_hist("GC=F", "DX-Y.NYB")
+            h_gld2, h_dxy2 = _dual(_db, "GC=F", "DX-Y.NYB")
             fig = _dual_fig(h_gld2, h_dxy2, "Gold", "DXY", "#b8924a", "#5f7f86", ",.2f", ".2f")
             if fig:
                 st.caption("Gold vs DXY — 달러와 금 역행 관계")
