@@ -4,7 +4,6 @@ Korean Stocks — 코스피 시총 TOP 20 (시장 조망).
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import yfinance as yf
 
 import layout as L  # 모바일 분기(표→카드)
 

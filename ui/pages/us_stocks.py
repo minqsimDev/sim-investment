@@ -4,7 +4,6 @@ US Stocks — live prices + DB technical indicators, grouped by sector.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import yfinance as yf
 
 import layout as L  # 모바일 분기(표→카드)
 

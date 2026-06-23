@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data
 from core.journey import pct_weight  # 비중(%) 정수 기본 포맷(전 화면 공통)

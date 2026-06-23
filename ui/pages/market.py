@@ -8,7 +8,6 @@ import json
 
 import pandas as pd
 import streamlit as st
-import yfinance as yf
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data

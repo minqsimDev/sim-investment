@@ -4,10 +4,9 @@ Commodities — live prices + DB technical indicators.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import yfinance as yf
 
 import layout as L  # 모바일 분기(산점도→리스트)
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_close_history
 from src.database import load_latest_indicator_summary, DEFAULT_DB
 from ui.components.dash_style import (
     data_source_note,
@@ -50,30 +49,9 @@ def _slice_period(s, pcode: str):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _comm_bundle(tickers_key: str) -> dict:
-    """원자재 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주 공통
-    (이전엔 원자재마다 _chart 를 따로 받아 콜드 진입이 길었음)."""
-    tickers = [t for t in tickers_key.split(",") if t]
-    if not tickers:
-        return {}
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
-    except Exception:
-        return {}
-    if raw is None or getattr(raw, "empty", True):
-        return {}
-    out, multi = {}, len(tickers) > 1
-    for tk in tickers:
-        try:
-            c = raw["Close"][tk] if multi else raw["Close"]
-            if hasattr(c, "columns"):
-                c = c.iloc[:, 0]
-            c = c.dropna()
-            if not c.empty:
-                out[tk] = c
-        except Exception:
-            pass
-    return out
+    """원자재 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주 공통.
+    종가 히스토리는 공용 batch_close_history(→price_source) 단일 진입점 경유(SSOT)."""
+    return batch_close_history(tickers_key, "1y")
 
 
 def _comm_spark(closes: dict, tk: str, pcode: str = "3mo") -> list:
