@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_history
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton, mkt_stats_chips,
@@ -378,33 +378,23 @@ summary.neu-bg{background:rgba(255,255,255,0.04);border-color:rgba(38,42,51,0.7)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _instrument_data(pool_version: str = _POOL_VERSION) -> tuple[dict[str, list[float]], dict[str, dict]]:
-    """Single yf.download for all pool tickers — returns (sparklines, quotes). 1h shared cache."""
+    """풀 전 티커 1년 히스토리 1회 배치 → (스파크라인, 시세). price_source 단일 진입점(batch_history) 경유."""
     key_to_ticker: dict[str, str] = {}
     for pool in _CAT_POOLS.values():
         for key, _, src in pool:
             key_to_ticker[key] = _spark_ticker_for(key, src)
     tickers = list(dict.fromkeys(key_to_ticker.values()))
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return {}, {}
-        closes: pd.DataFrame
-        if isinstance(raw.columns, pd.MultiIndex) and "Close" in raw.columns.get_level_values(0):
-            closes = raw["Close"]
-        elif not isinstance(raw.columns, pd.MultiIndex) and "Close" in raw.columns:
-            closes = raw[["Close"]].rename(columns={"Close": tickers[0]}) if len(tickers) == 1 else raw
-        else:
-            closes = raw
-    except Exception:
+    hist = batch_history(",".join(tickers), "1y")
+    if not hist:
         return {}, {}
 
     sparks: dict[str, list[float]] = {}
     quotes: dict[str, dict] = {}
-    multi = isinstance(closes, pd.DataFrame)
-
     for key, tk in key_to_ticker.items():
-        series = closes[tk].dropna() if (multi and tk in closes.columns) else pd.Series(dtype=float)
+        df = hist.get(tk)
+        if df is None:
+            continue
+        series = df["Close"].dropna()
         if len(series) < 2:
             continue
         weekly = series.resample("W").last().dropna()
