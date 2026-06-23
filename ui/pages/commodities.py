@@ -17,7 +17,7 @@ from ui.components.dash_style import (
 )
 from ui.components.scan_layer import scan_layer_html
 from ui.components.slim_table import slim_table
-from ui.components.range_bar import fetch_52w_ranges, range_bar_html
+from ui.components.range_bar import range_bar_html
 
 # (한글명, 단위, 그룹, 티커)
 _META = {
@@ -40,21 +40,57 @@ _COMM_COLOR = {
 _COMM_COLOR_DEFAULT = ("#D9A441", "rgba(217,164,65,0.08)")
 
 
+_PCODE_BARS = {"1mo": 22, "3mo": 64, "6mo": 127}   # 슬라이스용(거래일) · 1y/5y=전체
+
+
+def _slice_period(s, pcode: str):
+    n = _PCODE_BARS.get(pcode)
+    return s.iloc[-n:] if (n and len(s) > n) else s
+
+
 @st.cache_data(ttl=900, show_spinner=False)
-def _chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
+def _comm_bundle(tickers_key: str) -> dict:
+    """원자재 1년치 종가 1회 배치 → {ticker: Close Series}. 스캔·추이·52주 공통
+    (이전엔 원자재마다 _chart 를 따로 받아 콜드 진입이 길었음)."""
+    tickers = [t for t in tickers_key.split(",") if t]
+    if not tickers:
+        return {}
     try:
         from data.session import cached_download
-        raw = cached_download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return pd.DataFrame()
-        closes = raw["Close"]
-        if hasattr(closes, "columns"):
-            closes = closes.iloc[:, 0]
-        df = closes.reset_index()
-        df.columns = ["Date", "Close"]
-        return df.dropna()
+        raw = cached_download(tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
     except Exception:
+        return {}
+    if raw is None or getattr(raw, "empty", True):
+        return {}
+    out, multi = {}, len(tickers) > 1
+    for tk in tickers:
+        try:
+            c = raw["Close"][tk] if multi else raw["Close"]
+            if hasattr(c, "columns"):
+                c = c.iloc[:, 0]
+            c = c.dropna()
+            if not c.empty:
+                out[tk] = c
+        except Exception:
+            pass
+    return out
+
+
+def _comm_spark(closes: dict, tk: str, pcode: str = "3mo") -> list:
+    s = closes.get(tk)
+    if s is None or getattr(s, "empty", True):
+        return []
+    return [float(v) for v in _slice_period(s.dropna(), pcode).tolist()]
+
+
+def _cb_df(closes: dict, tk: str, pcode: str = "3mo") -> pd.DataFrame:
+    """번들 종가 → df(Date, Close) (비율 차트 merge 용)."""
+    s = closes.get(tk)
+    if s is None or getattr(s, "empty", True):
         return pd.DataFrame()
+    df = _slice_period(s.dropna(), pcode).reset_index()
+    df.columns = ["Date", "Close"]
+    return df
 
 
 
@@ -68,8 +104,8 @@ def render(embedded: bool = False):
     ph = show_skeleton()
     live = load_market_data()
     load_latest_indicator_summary(DEFAULT_DB)
-    if not live["commodities"].empty:
-        _chart(live["commodities"].iloc[0]["ticker"])
+    _comm_tickers = [r["ticker"] for _, r in live.get("commodities", pd.DataFrame()).iterrows() if r.get("ticker")]
+    _cb = _comm_bundle(",".join(_comm_tickers))   # 원자재 1년 종가 1회 배치(스캔·추이·52주 공통)
     ph.empty()
 
     # ── Stats chips ───────────────────────────────────────────────────────────
@@ -148,17 +184,11 @@ def render(embedded: bool = False):
         })
 
     # ── 0. 30초 스캔 레이어 — 리더/러거드/과열 + breadth (표 위) ─────────────────
-    def _series(ticker: str) -> list[float]:
-        h = _chart(ticker)
-        if h is None or h.empty:
-            return []
-        return [float(v) for v in h["Close"].tolist()]
-
     scan_items = [{
         "name": r["원자재"],
         "d1": r["1D %"],
         "ma20": r["MA20 이격%"],
-        "series": _series(r["_ticker"]),
+        "series": _comm_spark(_cb, r["_ticker"]),
         "color": _COMM_COLOR.get(r["_key"], _COMM_COLOR_DEFAULT)[0],  # 원자재 시그니처색(꺾은선)
     } for r in all_rows]
     _scan = scan_layer_html(scan_items)
@@ -200,12 +230,12 @@ def render(embedded: bool = False):
     if embedded:
         # 레인지 불릿 바(52주 범위 내 위치) + 표로 보기 토글 → 슬림표
         _bullet_items = []
-        _ranges = fetch_52w_ranges(",".join(r["_ticker"] for r in all_rows))
         for r in all_rows:
-            rng = _ranges.get(r["_ticker"])
-            if not rng:
+            s = _cb.get(r["_ticker"])
+            if s is None or getattr(s, "empty", True) or len(s.dropna()) < 2:
                 continue
-            lo, hi, cur = rng
+            s = s.dropna()
+            lo, hi, cur = float(s.min()), float(s.max()), float(s.iloc[-1])
             _bullet_items.append({
                 "name": r["원자재"], "unit": r.get("단위", ""),
                 "low": lo, "high": hi, "current": cur,
@@ -251,12 +281,15 @@ def render(embedded: bool = False):
     for _, r in live["commodities"].iterrows():
         key, tk = r["name"], r["ticker"]
         kor, _u, _g = _META.get(key, (key.title(), "", ""))
-        h = _chart(tk, period=_pcode)
-        if h.empty or len(h) < 2 or not h["Close"].iloc[0]:
+        s = _cb.get(tk)
+        if s is None or getattr(s, "empty", True):
+            continue
+        s = _slice_period(s.dropna(), _pcode)
+        if len(s) < 2 or not float(s.iloc[0]):
             continue
         line_c, _f = _COMM_COLOR.get(key, _COMM_COLOR_DEFAULT)   # ④ 종목별 고유색
         fig.add_trace(go.Scatter(
-            x=h["Date"], y=h["Close"] / h["Close"].iloc[0] * 100, mode="lines", name=kor,
+            x=s.index, y=s.values / float(s.iloc[0]) * 100, mode="lines", name=kor,
             line=dict(color=line_c, width=2, shape="spline", smoothing=0.6),  # 부드러운 곡선
             hovertemplate=f"{kor}: %{{y:.1f}}<extra></extra>",
         ))
@@ -280,9 +313,9 @@ def render(embedded: bool = False):
     # ── Ratio Charts (심화 지표 — 기본 접힘) ──────────────────────────────────
     with st.expander("귀금속 비율 차트 — 심화 지표(상대강도·경기국면)", expanded=False):
         st.caption("가격이 아니라 '시장 심리·경기 국면'을 읽는 매크로 게이지입니다. 금속 미보유여도 위험선호·성장 기대를 가늠하는 데 씁니다.")
-        gld_h = _chart("GC=F")
-        slv_h = _chart("SI=F")
-        cop_h = _chart("HG=F")
+        gld_h = _cb_df(_cb, "GC=F")
+        slv_h = _cb_df(_cb, "SI=F")
+        cop_h = _cb_df(_cb, "HG=F")
 
         if not gld_h.empty and not slv_h.empty:
             r_col1, r_col2 = st.columns(2)
