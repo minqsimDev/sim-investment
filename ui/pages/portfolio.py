@@ -1709,7 +1709,10 @@ def _estimate_start_value(positions: list[dict] | None, total: float) -> float:
     return cost if (ok and cost > 0) else max(1.0, total * 0.62)
 
 
-@st.fragment
+# NOTE: @st.fragment 제거 — 로그인 경로는 상위 _render_asset_section(fragment) 안에서 호출돼
+# fragment 중첩이 됐고, 그 탓에 st.rerun(scope="fragment")가 "can only be specified from
+# within a fragment"로 깨졌다. 외부 _render_asset_section 의 fragment scope 를 쓰면 정상.
+# (게스트 경로는 positions=None 이라 scope="fragment" 분기에 도달하지 않음.)
 def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                           positions: list[dict] | None = None, fx: float | None = None) -> None:
     """자산 여정 — fragment 라서 설정 변경 시 이 블록만 갱신(전체 리로드 X).
@@ -2479,6 +2482,29 @@ def _render_onboarding() -> None:
     st.markdown(jj_footer(), unsafe_allow_html=True)
 
 
+def _merge_holdings(holdings: list[dict]) -> list[dict]:
+    """여러 스크린샷에서 모은 보유를 (종목명, 코드) 기준으로 병합 — 겹친 캡처 중복 제거.
+    같은 종목이 여러 장에 걸치면 평가금액이 큰(=더 완전한) 항목을 남긴다. 입력 순서 보존."""
+    def _amt(h: dict) -> float:
+        try:
+            return float(h.get("평가금액") or h.get("eval_amount") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    best: dict = {}
+    order: list = []
+    for h in holdings:
+        k = (str(h.get("name", "")).strip(), str(h.get("ticker", "")).strip())
+        if k == ("", ""):
+            continue
+        if k not in best:
+            best[k] = h
+            order.append(k)
+        elif _amt(h) > _amt(best[k]):
+            best[k] = h
+    return [best[k] for k in order]
+
+
 def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool = True) -> None:
     from core.vision_parser import parse_portfolio_image
     from ui.pages.login import _filter_valid_holdings
@@ -2519,51 +2545,82 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     uploaded = st.file_uploader(
         "보유 종목 화면 스크린샷",
         type=["png", "jpg", "jpeg"],
+        accept_multiple_files=True,   # 여러 장(스크롤 캡처·계좌 분할 등) 한 번에 분석
         key=f"{key}_{st.session_state.get(nonce_key, 0)}",
         label_visibility="collapsed",
     )
     st.markdown(
-        '<div class="scr-priv"><span>🔒 이미지는 <b>저장하지 않아요</b> · 1회 분석 후 '
+        '<div class="scr-priv"><span>🔒 이미지는 <b>저장하지 않아요</b> · 여러 장을 한 번에 분석 후 '
         '보유 정보만 내 계정에 로컬 저장 · 거래 기능 없음</span></div>',
         unsafe_allow_html=True,
     )
 
-    if uploaded is None:
+    if not uploaded:   # None 또는 빈 리스트
         return
 
-    cache_key = f"_screenshot_parsed_{uploaded.name}_{uploaded.size}"
+    # 파일 집합(이름·크기) 기준 캐시 키 — 같은 집합이면 재분석 안 함
+    sig = "|".join(f"{u.name}:{u.size}" for u in uploaded)
+    cache_key = f"_screenshot_parsed_{key}_{abs(hash(sig))}"
     if cache_key not in st.session_state:
-        with st.spinner("이미지 분석 중... (약 10~20초)"):
-            try:
-                image_bytes = uploaded.read()
-                mime = uploaded.type or "image/jpeg"
-                raw_holdings = parse_portfolio_image(image_bytes, mime)
-                holdings = _filter_valid_holdings(raw_holdings)
-                st.session_state[cache_key] = {"holdings": holdings, "cash_balance": 0.0}
-            except Exception as e:
-                import logging
-                from core.vision_parser import VisionBusyError
-                logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)  # 원시 에러는 로그로만
-                if isinstance(e, VisionBusyError):
-                    st.warning("지금 AI 분석 요청이 몰려 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
-                else:
-                    st.error("이미지를 분석하지 못했어요. 더 선명한 스크린샷으로 다시 시도해 주세요.")
-                return
+        from core.vision_parser import VisionBusyError
+        import logging
+        _log = logging.getLogger("siminvest")
+        per_file, merged, busy = [], [], False
+        with st.spinner(f"이미지 {len(uploaded)}장 분석 중... (약 장당 10~20초)"):
+            for u in uploaded:
+                try:
+                    raw = parse_portfolio_image(u.read(), u.type or "image/jpeg")
+                    hs = _filter_valid_holdings(raw)
+                    merged.extend(hs)
+                    per_file.append((u.name, len(hs)))
+                except Exception as e:
+                    _log.warning("screenshot parse failed (%s): %s", u.name, e)
+                    if isinstance(e, VisionBusyError):
+                        busy = True
+                    per_file.append((u.name, None))   # 인식 실패
+        deduped = _merge_holdings(merged)
+        st.session_state[cache_key] = {
+            "holdings": deduped, "cash_balance": 0.0, "per_file": per_file,
+            "busy": busy, "raw_count": len(merged),
+        }
 
     result = st.session_state[cache_key]
     holdings = result["holdings"]
     cash = result["cash_balance"]
 
+    # 장별 인식 결과 + 지연/실패 안내
+    for _name, _n in result.get("per_file", []):
+        if _n is None:
+            st.caption(f"⚠ {_name} — 인식 실패")
+        else:
+            st.caption(f"✓ {_name} — {_n}개 종목")
+    if result.get("busy"):
+        st.warning("일부 이미지는 AI 분석 요청이 몰려 지연됐어요. 잠시 후 다시 올리면 더 인식될 수 있어요.")
+
     if not holdings:
         st.warning("종목을 인식하지 못했습니다. 더 선명한 스크린샷을 사용해 보세요.")
         return
 
-    st.markdown(f"**{len(holdings)}개 종목 인식됨**")
+    # 한번에 분석한 결과 요약 — 총 종목·총 평가금액(+ 여러 장 병합·중복 제거 안내)
+    def _amt(h):
+        try:
+            return float(h.get("평가금액") or h.get("eval_amount") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    _total = sum(_amt(h) for h in holdings)
+    _n_img = len(result.get("per_file", [])) or 1
+    _dups = max(0, int(result.get("raw_count", len(holdings))) - len(holdings))
+    _summary = f"**{len(holdings)}개 종목** · 합계 평가금액 **{_cur(_total, 'KRW')}**"
+    if _n_img > 1:
+        _summary += f" · 이미지 {_n_img}장 통합"
+    if _dups:
+        _summary += f" · 중복 {_dups}건 병합"
+    st.markdown(_summary)
     preview_rows = [
         {
             "종목명": h.get("name", ""),
             "코드": h.get("ticker", ""),
-            "평가금액": _cur(float(h.get('평가금액') or h.get('eval_amount') or 0), "KRW"),
+            "평가금액": _cur(_amt(h), "KRW"),
             "수익률": f"{float(h.get('수익률') or h.get('profit_loss_pct') or 0):+.2f}%",
         }
         for h in holdings
