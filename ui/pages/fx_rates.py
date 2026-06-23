@@ -348,29 +348,12 @@ _BND_CSS = """<style>
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _bond_etf_quotes() -> dict:
-    """채권 ETF 현재가·1D% — 벤치마크 config에 없어도 직접 조회(5종 모두 표시)."""
-    from data.session import cached_download
-    tickers = list(_BOND_ETFS.keys())
+    """채권 ETF 현재가·1D% — 시세 SSOT(price_source.fetch_prices_bulk) 경유(5종 모두 표시)."""
+    from data.price_source import fetch_prices_bulk
     out: dict[str, tuple] = {}
-    try:
-        raw = cached_download(tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
-        if raw is None or raw.empty:
-            return out
-        close = raw["Close"]
-        multi = len(tickers) > 1
-        for tk in tickers:
-            try:
-                s = (close[tk] if multi else close).dropna()
-                if s.empty:
-                    continue
-                price = float(s.iloc[-1])
-                chg = (round((float(s.iloc[-1]) / float(s.iloc[-2]) - 1) * 100, 2)
-                       if len(s) >= 2 and s.iloc[-2] else None)
-                out[tk] = (price, chg)
-            except Exception:
-                pass
-    except Exception:
-        return {}
+    for tk, q in fetch_prices_bulk(list(_BOND_ETFS.keys())).items():
+        if q and q.get("price") is not None:
+            out[tk] = (float(q["price"]), q.get("change_pct"))
     return out
 
 

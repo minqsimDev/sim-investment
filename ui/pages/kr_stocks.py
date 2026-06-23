@@ -105,29 +105,13 @@ def _kr_history(tickers_key: str, _bucket: int = 0) -> dict:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _bench_prices() -> dict:
-    tickers = list(_KOSPI_BENCH.keys())
-    try:
-        from data.session import cached_download
-        raw = cached_download(tickers, period="5d", interval="1d", progress=False, auto_adjust=True, ttl=300)
-        if raw.empty:
-            return {}
-        results = {}
-        for tk in tickers:
-            try:
-                closes = raw["Close"][tk].dropna() if len(tickers) > 1 else raw["Close"].dropna()
-                if closes.empty:
-                    continue
-                price = float(closes.iloc[-1])
-                prev  = float(closes.iloc[-2]) if len(closes) >= 2 else None
-                results[tk] = {
-                    "price":      round(price, 2),
-                    "change_pct": round((price - prev) / prev * 100, 2) if prev else None,
-                }
-            except Exception:
-                pass
-        return results
-    except Exception:
-        return {}
+    """지수(KOSPI 등) 현재가·1D% — 시세 SSOT(price_source.fetch_prices_bulk) 경유."""
+    from data.price_source import fetch_prices_bulk
+    out = {}
+    for tk, q in fetch_prices_bulk(list(_KOSPI_BENCH.keys())).items():
+        if q and q.get("price") is not None:
+            out[tk] = {"price": round(float(q["price"]), 2), "change_pct": q.get("change_pct")}
+    return out
 
 
 # _compute_live_ind 는 data.loader.compute_live_indicators 별칭(상단 import)

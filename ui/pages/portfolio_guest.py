@@ -42,29 +42,13 @@ from core.pb import GUEST_SAMPLE as _GUEST_PORTFOLIO
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_guest_quotes(tickers: tuple[str, ...]) -> dict:
-    import math
-    try:
-        from data.session import cached_download
-        raw = cached_download(list(tickers), period="5d", interval="1d", progress=False, auto_adjust=True, ttl=300)
-        if raw.empty:
-            return {}
-        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
-        multi = len(set(tickers)) > 1
-        result = {}
-        for tk in tickers:
-            try:
-                s = (closes[tk] if multi and tk in closes.columns else closes).dropna()
-                if len(s) < 2:
-                    continue
-                prev, curr = float(s.iloc[-2]), float(s.iloc[-1])
-                if math.isnan(prev) or math.isnan(curr) or prev == 0:
-                    continue
-                result[tk] = {"price": curr, "chg": (curr - prev) / prev * 100}
-            except Exception:
-                pass
-        return result
-    except Exception:
-        return {}
+    """게스트 샘플 보유 현재가·1D% — 시세 SSOT(price_source.fetch_prices_bulk) 경유."""
+    from data.price_source import fetch_prices_bulk
+    result = {}
+    for tk, q in fetch_prices_bulk(list(tickers)).items():
+        if q and q.get("price") is not None and q.get("change_pct") is not None:
+            result[tk] = {"price": float(q["price"]), "chg": float(q["change_pct"])}
+    return result
 
 
 def _guest_price_text(ticker: str, price: float | None) -> str:

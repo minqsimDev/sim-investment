@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_close_history
 from core.journey import pct_weight  # 비중(%) 정수 기본 포맷(전 화면 공통)
 from ui.components.dash_style import (
     inject_css, jj_footer, mark_active_nav, show_skeleton, color_change,
@@ -406,25 +406,22 @@ def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _position_sparklines(tickers: tuple[str, ...]) -> dict[str, list[float]]:
+    """보유 종목 1년 스파크라인(주간) — 공용 batch_close_history(→price_source) 경유.
+    일봉을 주간 마지막값으로 리샘플(이전 1wk 직접 다운로드 대체)."""
     tickers = tuple(t for t in tickers if t and t not in {"CASH", "KRW", "USD"})
     if not tickers:
         return {}
-    try:
-        from data.session import cached_download
-        raw = cached_download(list(dict.fromkeys(tickers)), period="1y", interval="1wk", progress=False, auto_adjust=True, ttl=3600)
-        if raw.empty:
-            return {}
-        closes = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
-        multi = len(set(tickers)) > 1
-        out: dict[str, list[float]] = {}
-        for ticker in tickers:
-            s = closes[ticker].dropna() if multi and ticker in closes.columns else closes.dropna()
-            if len(s) >= 2:
-                base = float(s.iloc[0]) or 1
-                out[ticker] = [(float(v) / base - 1) * 100 for v in s]
-        return out
-    except Exception:
-        return {}
+    hist = batch_close_history(",".join(dict.fromkeys(tickers)), "1y")
+    out: dict[str, list[float]] = {}
+    for ticker in tickers:
+        s = hist.get(ticker)
+        if s is None or getattr(s, "empty", True):
+            continue
+        s = s.dropna().resample("W").last().dropna()
+        if len(s) >= 2:
+            base = float(s.iloc[0]) or 1
+            out[ticker] = [(float(v) / base - 1) * 100 for v in s]
+    return out
 
 
 def _sparkline_svg(values: list[float]) -> str:

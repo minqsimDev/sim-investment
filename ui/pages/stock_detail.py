@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 import layout as L
-from data.loader import load_market_data
+from data.loader import load_market_data, batch_close_history
 from src.database import load_latest_indicator_summary, DEFAULT_DB
 from ui.components.dash_style import inject_css, mark_active_nav, empty_state, jj_footer
 from siminvest_theme import UP, DOWN, GOLD
@@ -104,19 +104,13 @@ def _resolve(symbol: str, data: dict) -> dict | None:
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _chart(ticker: str, period: str = "6mo") -> pd.DataFrame:
-    try:
-        from data.session import cached_download
-        raw = cached_download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-        if raw.empty:
-            return pd.DataFrame()
-        c = raw["Close"]
-        if hasattr(c, "columns"):
-            c = c.iloc[:, 0]
-        df = c.reset_index()
-        df.columns = ["Date", "Close"]
-        return df.dropna()
-    except Exception:
+    """종가 히스토리 → df(Date, Close). 공용 batch_close_history(→price_source) 경유."""
+    s = batch_close_history(ticker, period).get(ticker)
+    if s is None or getattr(s, "empty", True):
         return pd.DataFrame()
+    df = s.dropna().reset_index()
+    df.columns = ["Date", "Close"]
+    return df
 
 
 def _my_holding(ticker: str, data: dict) -> dict | None:
