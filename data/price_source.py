@@ -4,13 +4,20 @@
 토스/yfinance 로 라우팅한다. 반환 형태는 기존 YFinanceProvider.fetch_prices_bulk
 와 동일(+currency/source) 이라 fetcher.py 에서 그대로 교체 가능.
 
-라우팅(2장 검증 결과 기준):
+라우팅(2장 검증 결과 기준, USE_TOSS=True 일 때):
   국내·미국 주식/ETF, USD/KRW   → 토스 (실패 시 yfinance 폴백)
   원자재 선물·비USD환율·지수·크립토 → yfinance (토스 미지원)
+
+**소스 단일 스위치(SSOT)**: `USE_TOSS` 하나로 전체 라우팅을 정한다. 기본 False —
+이 앱은 매매가 아닌 모니터링용이라 국내 현재가 실시간성 가치가 낮고, 토스는 IP
+허용목록·레이트리밋(3/s)·전일종가/배치캔들 부재로 첫 로딩 병목을 만든다. False 면
+전부 yfinance 벌크(빠름·단일소스·IP/레이트리밋 무관). 토스 코드·라우팅은 보존 —
+AWS 고정 IP 환경 등에서 켜고 싶으면 환경변수 USE_TOSS=1 로 즉시 복귀.
 
 폴백 발생은 로그로 남겨 커버리지를 추적한다(지시서 3장).
 """
 import logging
+import os
 import time
 from datetime import date
 
@@ -18,6 +25,9 @@ from data.providers.toss_provider import TossClient
 from data.providers.yfinance_provider import YFinanceProvider
 
 log = logging.getLogger(__name__)
+
+# 소스 단일 스위치. 기본 꺼짐(yfinance 단일). env USE_TOSS=1/true/yes 로 토스 라우팅 복귀.
+USE_TOSS = os.getenv("USE_TOSS", "0").strip().lower() in ("1", "true", "yes", "on")
 
 _yf = YFinanceProvider()
 _toss: TossClient | None = None
@@ -35,6 +45,8 @@ def _toss_client() -> TossClient:
 # ── 라우팅 분류 ────────────────────────────────────────────────────────────
 def _classify(ticker: str) -> tuple[str, object]:
     """('toss_price', toss_sym) | ('toss_fx', (base,quote)) | ('yfinance', ticker)"""
+    if not USE_TOSS:
+        return ("yfinance", ticker)                 # 단일 소스 모드 — 전부 yfinance
     if ticker.endswith(".KS"):
         return ("toss_price", ticker[:-3])          # 005930.KS -> 005930
     if ticker == "USDKRW=X":
