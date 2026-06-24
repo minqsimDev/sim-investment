@@ -45,34 +45,6 @@ def inject_css():
         _CSS_INJECTED = True
 
 
-def excel_table(
-    df: pd.DataFrame,
-    rename: dict = {},
-    pct_cols: list = [],
-    price_cols: list = [],
-    ctr_cols: list = [],
-) -> str:
-    df = df.copy().rename(columns=rename)
-    pct_cols  = {rename.get(c, c) for c in pct_cols}
-    price_cols = {rename.get(c, c) for c in price_cols}
-    ctr_cols  = {rename.get(c, c) for c in ctr_cols}
-
-    parts = ['<div class="exc-wrap"><table class="exc"><thead><tr>']
-    for col in df.columns:
-        parts.append(f'<th>{col}</th>')
-    parts.append('</tr></thead><tbody>')
-
-    for _, row in df.iterrows():
-        parts.append('<tr>')
-        for col in df.columns:
-            val = row[col]
-            parts.append(_cell(col, val, pct_cols, price_cols, ctr_cols))
-        parts.append('</tr>')
-
-    parts.append('</tbody></table></div>')
-    return ''.join(parts)
-
-
 def _cell(col, val, pct_cols, price_cols, ctr_cols) -> str:
     if val == "N/A" or (isinstance(val, float) and pd.isna(val)):
         return '<td class="na">N/A</td>'

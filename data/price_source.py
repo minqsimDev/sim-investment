@@ -162,11 +162,6 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
     return results
 
 
-def get_quote(ticker: str, with_change: bool = True) -> dict | None:
-    """단건 조회 편의 함수(지시서 3장 인터페이스)."""
-    return fetch_prices_bulk([ticker], with_change=with_change).get(ticker)
-
-
 # ── 종가 히스토리(일봉) ─────────────────────────────────────────────────────
 # 토스 covered 종목은 일봉 캔들로, 나머지(선물·지수·비USD환율·크립토)는 yfinance.
 _PERIOD_BARS = {"5d": 7, "1mo": 25, "3mo": 68, "6mo": 135, "1y": 260,

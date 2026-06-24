@@ -982,22 +982,6 @@ def render_shell_header(pages=None):
     )
 
 
-def metric_strip(items: list[dict]) -> str:
-    cells = []
-    for it in items:
-        val, delta, pos = it.get("value", "N/A"), it.get("delta"), it.get("positive")
-        if delta is None:
-            dhtml = '<div class="md mna">—</div>'
-        elif pos is True:
-            dhtml = f'<div class="md mp">▲ {delta}</div>'
-        elif pos is False:
-            dhtml = f'<div class="md mn">▼ {delta}</div>'
-        else:
-            dhtml = f'<div class="md mna">{delta}</div>'
-        cells.append(f'<div class="mc"><div class="ml">{it["label"]}</div><div class="mv">{val}</div>{dhtml}</div>')
-    return '<div class="ms">' + "".join(cells) + "</div>"
-
-
 def empty_state(msg: str, sub: str = "데이터가 연결되면 표시됩니다") -> None:
     """빈 상태 공용 컴포넌트 — 미연결·로딩 실패 등을 중립 '준비 중'으로 통일.
 
@@ -1061,26 +1045,6 @@ def glossary_expander(*keys: str) -> None:
 _PERIOD_DAYS = {"1W": 7, "1M": 30, "3M": 92, "6M": 183, "1Y": 366}
 
 
-def period_toggle(key: str, options=("1W", "1M", "3M"), default: str = "3M", align: str = "right"):
-    """차트 기간 토글(공통). (선택 라벨, 일수) 반환.
-
-    데이터가 이미 받아온 기간을 '슬라이스'하는 용도 — 옵션은 받아온 범위 안에서만 제공할 것.
-    스타일·라벨은 가격 추이 비교(period_radio)와 통일: 가운데 칩, 1W/1M/3M/6M.
-    align='left'면 차트 위 컨트롤로 좌측 배치(종목상세), 기본 'right'.
-    """
-    _just = "flex-end" if align == "right" else "flex-start"
-    st.markdown(
-        f'<style>[data-testid="stRadio"]{{display:flex!important;justify-content:{_just}!important}}'
-        f'[data-testid="stRadio"] div[role="radiogroup"]{{justify-content:{_just}!important;flex-wrap:wrap}}'
-        f'[data-testid="stRadio"] div[role="radiogroup"] label{{justify-content:center!important;text-align:center!important}}</style>',
-        unsafe_allow_html=True)
-    opts = list(options)
-    idx = opts.index(default) if default in opts else len(opts) - 1
-    sel = st.radio("기간", opts, index=idx, horizontal=True,
-                   key=key, label_visibility="collapsed")
-    return sel, _PERIOD_DAYS.get(sel, 92)
-
-
 # 가격 추이 비교 공통 기간 선택 — 원자재·크립토·외환 통일(라벨·세트·우측정렬)
 _PERIOD_MAP = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y", "5Y": "5y"}
 _PERIOD_RADIO_CSS = (
@@ -1133,11 +1097,6 @@ def period_radio(key: str, default: str = "3M", align: str = "right",
     return sel, _PERIOD_MAP[sel]
 
 
-def section_header(title: str, sub: str = "") -> str:
-    s = f'<span class="sh-s">{sub}</span>' if sub else ""
-    return f'<div class="sh"><span class="sh-t">{title}</span>{s}</div>'
-
-
 def mkt_page_header(icon: str, title: str, subtitle: str = "") -> str:
     sub = f'<div class="mkt-phdr-sub">{subtitle}</div>' if subtitle else ""
     return (
@@ -1167,26 +1126,6 @@ def mkt_stats_chips(items: list[dict]) -> str:
 
 # ── Jeju primitives — shared builders ──────────────────────────────────────────
 
-def jj_eyebrow(text: str) -> str:
-    return f'<span class="jj-eyebrow">{text}</span>'
-
-
-def jj_tag(text: str, tone: str = "") -> str:
-    """tone ∈ '', 'dark', 'orange', 'green', 'red', 'sea'"""
-    cls = f"jj-tag {tone}".strip()
-    return f'<span class="{cls}">{text}</span>'
-
-
-def jj_alert_strip(title: str, note: str = "", icon: str = "!") -> str:
-    note_html = f"<small>{note}</small>" if note else ""
-    return (
-        f'<div class="jj-alert">'
-        f'<div class="jj-alert-icon">{icon}</div>'
-        f'<div><b>{title}</b>{note_html}</div>'
-        f'</div>'
-    )
-
-
 def jj_footer(text: str = f"{APP_NAME} · 데이터는 참고용이며 매매 권유가 아닙니다.") -> str:
     return f'<div class="jj-footer">{text}</div>'
 
@@ -1213,26 +1152,6 @@ def bar_color(v: float) -> str:
     return "#F25560" if v >= 0 else "#4D90F0"
 
 
-def jj_risk_donut(score: int, label: str, tone: str = "warn") -> str:
-    """
-    Jeju-style conic donut for a 0-100 risk score.
-    tone ∈ 'good' (green), 'warn' (tangerine), 'risk' (camellia)
-    """
-    score = max(0, min(100, int(score)))
-    color = {
-        "good": POS,
-        "warn": ACCENT2,
-        "risk": NEG,
-    }.get(tone, ACCENT2)
-    bg = f"conic-gradient({color} 0 {score}%,#dce7e3 {score}% 100%)"
-    return (
-        f'<div class="jj-risk-score" style="background:{bg}">'
-        f'<div><strong>{score}</strong>'
-        f'<span style="color:{color}">{label}</span></div>'
-        f'</div>'
-    )
-
-
 def jj_action_item(label: str, desc: str, tone: str = "warn") -> str:
     """tone ∈ 'up', 'down', 'warn', 'flat'"""
     return (
@@ -1243,25 +1162,7 @@ def jj_action_item(label: str, desc: str, tone: str = "warn") -> str:
     )
 
 
-def jj_action_list(items: list[dict]) -> str:
-    """items: [{label, desc, tone}]"""
-    inner = "".join(jj_action_item(i["label"], i["desc"], i.get("tone", "warn")) for i in items)
-    return f'<div class="jj-action-list">{inner}</div>'
-
-
 # ── Styling helpers ────────────────────────────────────────────────────────────
-
-def style_returns(df: pd.DataFrame, col: str) -> "pd.io.formats.style.Styler":
-    def _f(v):
-        if not isinstance(v, (int, float)) or pd.isna(v):
-            return ""
-        if v > 0.005:
-            return f"background-color:{POS_BG};color:{POS};font-weight:700"
-        if v < -0.005:
-            return f"background-color:{NEG_BG};color:{NEG};font-weight:700"
-        return ""
-    return df.style.map(_f, subset=[col])
-
 
 def numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     """Convert 'N/A' strings to NaN in numeric columns."""
@@ -1306,14 +1207,3 @@ def show_skeleton():
 
 
 # ── Export helpers ─────────────────────────────────────────────────────────────
-
-def csv_bytes(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8-sig")
-
-
-def excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        for name, df in sheets.items():
-            df.to_excel(w, sheet_name=name[:31], index=False)
-    return buf.getvalue()

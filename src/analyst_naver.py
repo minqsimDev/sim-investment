@@ -137,12 +137,6 @@ def fetch_naver_targets(tickers: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=_COLS)
 
 
-def consensus_notes(tickers: list[str]) -> dict[str, str]:
-    """종목별 네이버 컨센서스 → '팩트 노트' 문자열(라이브). {ticker: note}.
-    DB-우선 경로는 호출부에서 consensus_notes_from_df(load_consensus_targets(...))를 쓴다."""
-    return consensus_notes_from_df(fetch_naver_targets(tickers))
-
-
 def consensus_notes_from_df(df) -> dict[str, str]:
     """컨센서스 DataFrame(fetch_naver_targets/DB 동일 컬럼) → {ticker: 팩트 노트}.
 

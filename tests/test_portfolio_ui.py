@@ -2,7 +2,6 @@ from ui.pages.portfolio import (
     _holdings_panel_html,
     _holdings_table_html,
     _portfolio_today_state,
-    _delete_holding,
     _journey_eta_display,
     _yf_history_symbol,
 )
@@ -59,27 +58,6 @@ def test_holdings_panel_wraps_compact_table():
     assert "핵심 보유종목" in html
     assert "pd-table-card" in html
     assert "hcv-card" not in html
-
-
-def test_delete_holding_removes_index_and_preserves_order():
-    holdings = [
-        {"name": "삼성전자", "ticker": "005930.KS"},
-        {"name": "SK하이닉스", "ticker": "000660.KS"},
-        {"name": "NAVER", "ticker": "035420.KS"},
-    ]
-
-    result = _delete_holding(holdings, 1)
-
-    assert [h["name"] for h in result] == ["삼성전자", "NAVER"]
-    # 원본 리스트는 변형하지 않는다(새 리스트 반환)
-    assert len(holdings) == 3
-
-
-def test_delete_holding_out_of_range_returns_unchanged_copy():
-    holdings = [{"name": "삼성전자", "ticker": "005930.KS"}]
-
-    assert _delete_holding(holdings, 5) == holdings
-    assert _delete_holding(holdings, -1) == holdings
 
 
 def test_journey_eta_unreachable_when_growth_negative():

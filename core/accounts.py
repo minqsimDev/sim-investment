@@ -133,10 +133,6 @@ def save_portfolio(
         _save(data)
 
 
-def has_accounts() -> bool:
-    return bool(_load()["accounts"])
-
-
 # ── 계좌 시계열 스냅샷 (B3) ────────────────────────────────────────────────────
 _SNAP_CAP = 730  # 보관 상한(약 2년치 일별)
 
@@ -160,11 +156,6 @@ def record_snapshot(username: str, snapshot: dict) -> None:
         if len(snaps) > _SNAP_CAP:
             del snaps[: len(snaps) - _SNAP_CAP]
         _save(data)
-
-
-def get_snapshots(username: str) -> list[dict]:
-    """사용자 자산 스냅샷 시계열(날짜 오름차순)."""
-    return _load()["accounts"].get((username or "").strip(), {}).get("snapshots", [])
 
 
 def users_with_telegram() -> list[tuple[str, int]]:

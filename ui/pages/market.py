@@ -14,7 +14,7 @@ from data.loader import load_market_data, batch_history
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton, mkt_stats_chips,
-    mark_active_nav, mkt_page_header, mkt_section_header, jj_tag, jj_footer,
+    mark_active_nav, mkt_page_header, mkt_section_header, jj_footer,
 )
 
 # ── Category candidate pools ──────────────────────────────────────────────────
@@ -792,13 +792,6 @@ def _category_payload(data: dict, sparks: dict[str, list[float]], target_prices:
     return categories
 
 
-def _signed_pct(value: float | None) -> str:
-    if value is None:
-        return "—"
-    sign = "+" if value >= 0 else ""
-    return f"{sign}{value:.2f}%"
-
-
 def _market_summary_html(categories: list[dict]) -> str:
     if not categories:
         return ""
@@ -1109,81 +1102,6 @@ def _category_interaction_script() -> str:
   init();
 })();
 </script>
-"""
-
-
-def _category_component_html(data: dict, sparks: dict[str, list[float]], target_prices: dict[str, float] | None = None) -> str:
-    return f"""
-<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  {_MARKET_LOCAL_CSS}
-  <style>
-    *{{box-sizing:border-box}}
-    html,body{{margin:0;padding:0;background:transparent;color:#E7E9EE;
-      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif}}
-    button{{font-family:inherit}}
-    .mkt-card{{background:rgba(22,24,31,0.78);border:1px solid rgba(38,42,51,0.9);
-      border-radius:22px;padding:18px 20px;box-shadow:0 8px 30px rgba(0,0,0,0.30)}}
-    .mkt-category-root .mkt-cat-grid{{grid-template-columns:repeat(3,minmax(0,1fr))}}
-    @media(max-width:1050px){{.mkt-category-root .mkt-cat-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
-    @media(max-width:720px){{.mkt-category-root .mkt-cat-grid{{grid-template-columns:1fr}}}}
-  </style>
-</head>
-<body>
-  <div class="mkt-card">{_build_category_blocks(data, sparks, target_prices)}</div>
-  {_category_interaction_script()}
-  <script>
-  (function(){{
-    var lastHeight = 0;
-    function sendHeight(){{
-      var root = document.documentElement;
-      var body = document.body;
-      var h = Math.ceil(Math.max(
-        root ? root.scrollHeight : 0,
-        body ? body.scrollHeight : 0,
-        body ? body.offsetHeight : 0
-      ) + 12);
-      if (h < 100) return;
-      if (Math.abs(h - lastHeight) < 4) return;
-      lastHeight = h;
-      window.parent.postMessage({{isStreamlitMessage:true,type:"streamlit:setFrameHeight",height:h}}, "*");
-      window.parent.postMessage({{type:"streamlit:setFrameHeight",height:h}}, "*");
-    }}
-    window.addEventListener("load", function(){{ setTimeout(sendHeight, 50); }});
-    window.addEventListener("resize", function(){{ setTimeout(sendHeight, 100); }});
-    if (window.ResizeObserver) {{
-      new ResizeObserver(function(){{ setTimeout(sendHeight, 50); }}).observe(document.body);
-    }}
-    setTimeout(sendHeight, 80);
-    setTimeout(sendHeight, 400);
-    setTimeout(sendHeight, 900);
-    setTimeout(sendHeight, 2000);
-  }})();
-  window.addEventListener("wheel", function(event){{
-    var handled = false;
-    try {{
-      var parentDoc = window.parent && window.parent.document;
-      var scroller = parentDoc && (
-        parentDoc.querySelector("section.main") ||
-        parentDoc.scrollingElement ||
-        parentDoc.documentElement
-      );
-      if (scroller && typeof event.deltaY === "number") {{
-        scroller.scrollTop += event.deltaY;
-        scroller.scrollLeft += event.deltaX || 0;
-        handled = true;
-      }}
-    }} catch (err) {{
-      handled = false;
-    }}
-    window.parent.postMessage({{type:"siminvest:marketWheel",deltaY:event.deltaY}}, "*");
-    if (handled) event.preventDefault();
-  }}, {{passive:false}});
-  </script>
-</body>
-</html>
 """
 
 

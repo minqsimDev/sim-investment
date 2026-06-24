@@ -14,7 +14,6 @@ from ui.components.dash_style import (
 from ui.components.portfolio_treemap import portfolio_treemap
 from siminvest_theme import DOWN  # 하락=파랑 (벤치마크 막대 음수 처리)
 from format import won, currency as _cur  # 금액 표기 단일 출처
-from ui.components.mountain_scene import render_mountain
 from ui.components.live_refresh import live_refresh, live_badge_html
 from ui.pages.portfolio_guest import _render_guest_portfolio
 from ui.pages.portfolio_format import (_parse_price_num, _krw_short, _num, _price,
@@ -467,49 +466,6 @@ def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
     return positions, meta
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def _position_sparklines(tickers: tuple[str, ...]) -> dict[str, list[float]]:
-    """보유 종목 1년 스파크라인(주간) — 공용 batch_close_history(→price_source) 경유.
-    일봉을 주간 마지막값으로 리샘플(이전 1wk 직접 다운로드 대체)."""
-    tickers = tuple(t for t in tickers if t and t not in {"CASH", "KRW", "USD"})
-    if not tickers:
-        return {}
-    hist = batch_close_history(",".join(dict.fromkeys(tickers)), "1y")
-    out: dict[str, list[float]] = {}
-    for ticker in tickers:
-        s = hist.get(ticker)
-        if s is None or getattr(s, "empty", True):
-            continue
-        s = s.dropna().resample("W").last().dropna()
-        if len(s) >= 2:
-            base = float(s.iloc[0]) or 1
-            out[ticker] = [(float(v) / base - 1) * 100 for v in s]
-    return out
-
-
-def _sparkline_svg(values: list[float]) -> str:
-    if len(values) < 2:
-        return '<div style="color:#7E8694;font-size:10px;font-weight:850;padding-top:8px">차트 데이터 대기</div>'
-    width, height, pad = 160, 34, 2
-    mn, mx = min(values), max(values)
-    span = mx - mn or 0.1
-    terminal = float(values[-1])
-    color = "#F25560" if terminal > 3 else ("#4D90F0" if terminal < -3 else "#9AA0AD")
-    pts = []
-    for i, v in enumerate(values):
-        x = pad + (i / (len(values) - 1)) * (width - 2 * pad)
-        y = (height - pad) - ((v - mn) / span) * (height - 2 * pad)
-        pts.append((x, y))
-    line_d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    area_d = line_d + f" L {width - pad},{height} L {pad},{height} Z"
-    return (
-        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
-        f'<path d="{area_d}" fill="{color}" fill-opacity="0.16"/>'
-        f'<path d="{line_d}" stroke="{color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-        '</svg>'
-    )
-
-
 def _portfolio_summary(positions: list[dict], meta: dict) -> dict:
     if not positions:
         return {
@@ -611,14 +567,6 @@ def _target_upside(position: dict, target_prices: dict[str, float]) -> float | N
     return None
 
 
-def _target_upside_html(position: dict, target_prices: dict[str, float]) -> str:
-    upside = _target_upside(position, target_prices)
-    if upside is None:
-        return '<span class="pd-neu">데이터 없음</span>'
-    cls = _tone(upside)
-    return f'<span class="{cls}">{upside:+.1f}%</span>'
-
-
 def _position_value_pair(position: dict, compact: bool = False) -> tuple[str, str]:
     primary = _money(position.get("market_value"), "KRW", compact=compact)
     currency = position.get("currency", "KRW")
@@ -702,14 +650,6 @@ def _stock_bar_color(pos, idx: int) -> str:
         if pos.get("category") == "크립토" or "crypto" in ac:
             return _COIN_SOLID.get(key.replace("-USD", ""), _CAT_COLOR.get("크립토", "#F0A030"))
     return _STOCK_FALLBACK[min(idx, len(_STOCK_FALLBACK) - 1)]
-
-
-def _conc_color(rank: int, leader_alarm: bool) -> str:
-    """비중 내림차순 rank → 색. 1위는 과집중이면 레드, 아니면 골드. 이후 골드→회색 차등."""
-    if rank == 0:
-        return _CONC_ALARM if leader_alarm else _CONC_RAMP[0]
-    ri = (rank - 1) if leader_alarm else rank   # 레드면 2위가 골드, 골드면 2위가 올리브
-    return _CONC_RAMP[min(ri, len(_CONC_RAMP) - 1)]
 
 
 # 자산군 = 카테고리 상징색. 미국/한국은 국기 색을 '실제 면적 비율'로 가중 혼합한 대표색.
@@ -1178,84 +1118,6 @@ def _rebal_compare_sources_html() -> str:
     )
 
 
-def _portfolio_summary_html(summary: dict) -> str:
-    if not summary["has_data"]:
-        return (
-            '<div class="pd-summary-grid">'
-            + _summary_card("총 평가금액", "API 데이터 없음", "holdings 수량/평가금액 연결 필요")
-            + _summary_card("총 평가손익", "데이터 대기", "실제 보유 원가 기준")
-            + _summary_card("오늘 변동", "데이터 대기", "실제 보유 수량 기준")
-            + _summary_card("최대 비중", "데이터 대기", "보유 포지션 연결 후 계산")
-            + '</div>'
-        )
-    gain_cls = _tone(summary["total_gain_loss"])
-    today_cls = _tone(summary["today_change_amount"])
-    largest = summary["largest_position"]
-    contributor = summary["top_gain_contributor"]
-    gain_pct = summary["total_gain_loss_pct"]
-    today_pct = summary["today_change_pct"]
-    cards = [
-        _summary_card("총 평가금액", _money(summary["total_market_value"], "KRW", compact=True), "실제 holdings 평가 기준"),
-        _summary_card(
-            "총 평가손익",
-            _money(summary["total_gain_loss"], "KRW", signed=True, compact=True),
-            f"평가 수익률 {gain_pct:+.2f}%" if gain_pct is not None else "원가 데이터 대기",
-            gain_cls,
-        ),
-        _summary_card(
-            "오늘 변동",
-            _money(summary["today_change_amount"], "KRW", signed=True, compact=True),
-            f"오늘 변동률 {today_pct:+.2f}%" if today_pct is not None else "전일가 데이터 대기",
-            today_cls,
-        ),
-        _summary_card(
-            "최대 비중 종목",
-            largest["name"] if largest else "데이터 대기",
-            f"{pct_weight(largest.get('weight', 0))}% · {_money(largest.get('market_value'), 'KRW', compact=True)}" if largest else "",
-        ),
-        _summary_card(
-            "최대 손익 기여",
-            contributor["name"] if contributor else "데이터 대기",
-            _money(contributor.get("gain_loss"), "KRW", signed=True, compact=True) if contributor else "손익 데이터 대기",
-            _tone(contributor.get("gain_loss") if contributor else None),
-        ),
-        _summary_card(
-            "현금/예수금",
-            _money(summary.get("cash_balance"), "KRW", compact=True) if summary.get("cash_balance") is not None else "데이터 없음",
-            "API cashBalance 기준",
-        ),
-        _summary_card(
-            "USD/KRW",
-            _cur(summary["fx_usdkrw"], "KRW") if summary.get("fx_usdkrw") else "데이터 대기",
-            "해외자산 원화 환산 기준",
-        ),
-    ]
-    return '<div class="pd-summary-grid">' + "".join(cards) + '</div>'
-
-
-def _allocation_html(categories: list[dict]) -> str:
-    active = [c for c in categories if c["count"] > 0 and c["weight"] > 0]
-    if not active:
-        return '<div class="pd-empty"><b>자산군 비중 데이터 없음</b><p>실제 holdings 데이터가 연결되면 보유 자산군만 표시합니다. 0% 자산군은 기본적으로 숨깁니다.</p></div>'
-    rows = []
-    for cat in active:
-        rows.append(
-            '<div class="pd-alloc-row">'
-            f'<div class="pd-alloc-name">{_escape(cat["name"])}</div>'
-            '<div class="pd-alloc-track">'
-            f'<div class="pd-alloc-fill" style="width:{min(100, max(0, cat["weight"])):.1f}%"></div>'
-            '</div>'
-            f'<div class="pd-alloc-pct">{pct_weight(cat["weight"])}%</div>'
-            '</div>'
-        )
-    return (
-        '<div class="pd-card">'
-        '<div class="pd-section-title"><b>자산군 비중</b><span>실제 보유 자산군만</span></div>'
-        f'<div class="pd-alloc-list">{"".join(rows)}</div>'
-        '</div>'
-    )
-
-
 def _risk_summary_html(positions: list[dict], categories: list[dict]) -> str:
     if not positions:
         return (
@@ -1452,64 +1314,6 @@ def _portfolio_value_series(positions: list[dict], period: str, fx: float, start
     if not frames:
         return None
     return pd.concat(frames, axis=1).sort_index().ffill().sum(axis=1).dropna()
-
-
-def _render_asset_trend(username: str | None, positions: list[dict], fx: float,
-                        start_date=None) -> None:
-    """자산 추이 — 보유 × 기간 가격 이력으로 일별 총 평가액 추세.
-
-    기본은 '전체'(투자 시작일~현재) — 여정의 '지나온 경로'와 직결되는 구간. 1M~1Y는 짧은 범위 확대용.
-    전환(여정↔추이)은 상위 _render_asset_section 의 스트립 토글이 담당(리로드 없는 fragment 부분 리런).
-    """
-    import plotly.graph_objects as go
-    from core.journey import krw_compact
-    _AP = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y"}
-    _start_iso = start_date.isoformat() if hasattr(start_date, "isoformat") else (start_date or None)
-    opts = (["전체"] if _start_iso else []) + list(_AP.keys())
-    period = st.radio("추이 기간", opts, index=0, horizontal=True,
-                      label_visibility="collapsed", key="trend_range")
-    _smooth = 0.6
-    if period == "전체":
-        s = _portfolio_value_series(positions, "", fx, start=_start_iso)
-        range_label = "투자 시작 이후"
-        # 장기 구간은 일봉이 너무 빽빽 → 주봉 다운샘플로 더 매끈하게(스플라인 평활도도 ↑)
-        if s is not None and len(s) > 180:
-            s = s.resample("W").last().dropna()
-            _smooth = 1.0
-    else:
-        s = _portfolio_value_series(positions, _AP.get(period, "3mo"), fx)
-        range_label = period
-    if s is None or len(s) < 2:
-        st.caption("자산 추이 — 보유 종목 가격 이력이 모이면 기간별 총 평가액 추세가 표시됩니다.")
-        return
-    first, last = float(s.iloc[0]), float(s.iloc[-1])
-    chg = (last / first - 1) * 100 if first else 0
-    cls = "up" if chg >= 0 else "down"
-    sign = "+" if chg >= 0 else ""
-    st.markdown(
-        _AT_CSS + f'<div class="at-head"><b>자산 추이</b>'
-        f'<span>{range_label} · {krw_compact(first)} → {krw_compact(last)} '
-        f'<b class="{cls}">{sign}{chg:.1f}%</b></span></div>',
-        unsafe_allow_html=True)
-    # 자연스러운 영역 차트 — 스플라인 곡선 + 골드 그라데이션 채움. 0이 아닌 min 근처로 줌(추세 강조).
-    ymin, ymax = float(s.min()), float(s.max())
-    pad = (ymax - ymin) * 0.14 or max(ymax * 0.02, 1.0)
-    fig = go.Figure(go.Scatter(
-        x=s.index, y=s.values, mode="lines",
-        line=dict(color="#D9A441", width=2, shape="spline", smoothing=_smooth),
-        fill="tozeroy", fillcolor="rgba(217,164,65,0.12)",
-        hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.0f}원<extra></extra>",
-    ))
-    fig.update_layout(
-        height=160, margin=dict(l=0, r=0, t=4, b=0),          # 바그래프 크기로 컴팩트
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, showline=False, zeroline=False, nticks=5,
-                   tickfont=dict(size=9, color="#7E8694")),
-        yaxis=dict(visible=False, range=[ymin - pad, ymax + pad]),  # 축 숨김 → 컴팩트, 추세만
-        showlegend=False, hovermode="x",
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False},
-                    key="asset_trend_chart")
 
 
 def _asset_trend_svg(series) -> str:
@@ -2125,108 +1929,6 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
                                   _usdkrw(data) or _FX_FALLBACK)
 
 
-def _holding_items(
-    us_held: pd.DataFrame,
-    kr_stocks: pd.DataFrame,
-    etfs: pd.DataFrame,
-    commodities: pd.DataFrame,
-    crypto_df: pd.DataFrame,
-) -> list[dict]:
-    items: list[dict] = []
-
-    def _sort_value(row, fallback: int, currency: str) -> float:
-        for col in ("market_value", "holding_value", "position_value", "amount", "value", "평가액", "보유금액"):
-            if col in row and _num(row.get(col)) is not None:
-                return float(_num(row.get(col)) or 0)
-        return max(0, 1000 - fallback)
-
-    def _add(group: str, name: str, code: str, price: str, chg, meta1: str, meta2: str, sort_value: float) -> None:
-        pct_s, pct_cls = _pct(chg)
-        items.append(
-            {
-                "group": group,
-                "name": str(name or ""),
-                "code": str(code or ""),
-                "price": price,
-                "pct": pct_s,
-                "pct_cls": pct_cls,
-                "meta1": str(meta1 or ""),
-                "meta2": str(meta2 or ""),
-                "sort_value": sort_value,
-            }
-        )
-
-    if not us_held.empty:
-        for idx, (_, r) in enumerate(us_held.iterrows()):
-            _add(
-                    "미국주식",
-                    r.get("name", r.get("ticker", "")),
-                    r.get("ticker", ""),
-                    _price(r.get("price"), "USD"),
-                    r.get("change_pct"),
-                    str(r.get("sector", "")).replace("_", " "),
-                    "직접 보유",
-                    _sort_value(r, idx, "USD") + 4000,
-            )
-
-    if not kr_stocks.empty:
-        for idx, (_, r) in enumerate(kr_stocks.iterrows()):
-            role = "직접 보유" if r.get("role") == "actual_holding" else "모니터링"
-            _add(
-                    "국내주식",
-                    r.get("name", r.get("ticker", "")),
-                    r.get("ticker", ""),
-                    _price(r.get("price"), "KRW"),
-                    r.get("change_pct"),
-                    str(r.get("sector", "")).replace("_", " "),
-                    role,
-                    _sort_value(r, idx, "KRW") + 1000,
-            )
-
-    if not etfs.empty:
-        for idx, (_, r) in enumerate(etfs.iterrows()):
-            hedge = "환헤지" if r.get("hedged") is True else "환노출"
-            _add(
-                    "ETF",
-                    r.get("name", r.get("ticker", "")),
-                    r.get("ticker", ""),
-                    _price(r.get("price"), "KRW"),
-                    r.get("change_pct"),
-                    hedge,
-                    f"BM {r.get('benchmark', '-')}",
-                    _sort_value(r, idx, "KRW") + 5000,
-            )
-
-    if not commodities.empty:
-        for idx, (_, r) in enumerate(commodities.iterrows()):
-            key = r.get("name", "")
-            _add(
-                    "원자재",
-                    _COMM_KOR.get(key, str(key).title()),
-                    r.get("ticker", ""),
-                    _price(r.get("price"), "USD"),
-                    r.get("change_pct"),
-                    "실시간 시세",
-                    "시장 노출 관리",
-                    _sort_value(r, idx, "USD") + 2000,
-            )
-
-    if not crypto_df.empty:
-        for idx, (_, r) in enumerate(crypto_df.iterrows()):
-            _add(
-                    "크립토",
-                    r.get("name", r.get("ticker", "")),
-                    r.get("symbol", r.get("ticker", "")),
-                    _price(r.get("price"), "USD"),
-                    r.get("change_pct"),
-                    str(r.get("category", "")).replace("_", " "),
-                    "직접 보유",
-                    _sort_value(r, idx, "USD") + 3000,
-            )
-
-    return sorted(items, key=lambda item: item["sort_value"], reverse=True)
-
-
 def _holding_summary_html(items: list[dict]) -> str:
     if not items:
         return '<div class="hold-empty">등록된 자산이 없습니다.</div>'
@@ -2284,22 +1986,6 @@ def _analyst_issues_html(group_items: list[dict], target_prices: dict[str, float
     )
 
 
-def _holding_rows_html(items: list[dict]) -> str:
-    rows: list[str] = []
-    for idx, item in enumerate(items, 1):
-        rows.append(
-            '<div class="hold-row">'
-            f'<div class="hold-rank">{idx:02d}</div>'
-            f'<div class="hold-main"><b>{_escape(item["name"])}</b><span>{_escape(item["code"])}</span></div>'
-            f'<div class="hold-cat">{_escape(item["group"])}</div>'
-            f'<div class="hold-row-price">{_escape(item["price"])}</div>'
-            f'<div class="hold-row-chg {item["pct_cls"]}">{_escape(item["pct"])}</div>'
-            f'<div class="hold-row-note">{_escape(item["meta2"])}</div>'
-            '</div>'
-        )
-    return '<div class="hold-list">' + "".join(rows) + '</div>'
-
-
 def _holding_cards_html(items: list[dict]) -> str:
     cards: list[str] = []
     for item in items:
@@ -2330,54 +2016,6 @@ def _holding_cards_html(items: list[dict]) -> str:
             '</details>'
         )
     return '<div class="hold-det-stack">' + "".join(cards) + '</div>'
-
-
-def _holding_grouped_html(items: list[dict]) -> str:
-    if not items:
-        return '<div class="hold-empty">등록된 자산이 없습니다.</div>'
-    order = ["미국주식", "국내주식", "ETF", "원자재", "크립토"]
-    groups = {group: [item for item in items if item["group"] == group] for group in order}
-    extra_groups = sorted({item["group"] for item in items} - set(order))
-    html_parts: list[str] = []
-    for group in order + extra_groups:
-        group_items = groups.get(group) if group in groups else [item for item in items if item["group"] == group]
-        if not group_items:
-            continue
-        leaders = " · ".join(_escape(item["name"]) for item in group_items[:3])
-        html_parts.append(
-            '<section class="hold-cat-section">'
-            f'<div class="hold-cat-title"><b>{_escape(group)}</b><span>{len(group_items)}개 · 보유 큰 순</span></div>'
-            f'<div class="hold-cat-summary"><span>상위: {leaders}</span></div>'
-            f'{_holding_cards_html(group_items)}'
-            '</section>'
-        )
-    return "".join(html_parts)
-
-
-def _render_holding_expander(items: list[dict], target_prices: dict[str, float]) -> None:
-    st.markdown(
-        '<div class="port-detail-head"><h3>보유 포트폴리오 상세</h3>'
-        '<span>카테고리별 접기/펼치기</span></div>',
-        unsafe_allow_html=True,
-    )
-    if not items:
-        st.markdown(_holding_summary_html(items), unsafe_allow_html=True)
-        return
-
-    order = ["미국주식", "국내주식", "ETF", "원자재", "크립토"]
-    groups = {group: [item for item in items if item["group"] == group] for group in order}
-    extra_groups = sorted({item["group"] for item in items} - set(order))
-
-    for group in order + extra_groups:
-        group_items = groups.get(group) if group in groups else [item for item in items if item["group"] == group]
-        if not group_items:
-            continue
-        leaders = " · ".join(item["name"] for item in group_items[:3])
-        with st.expander(f"{group} {len(group_items)}개 · 상위 {leaders}", expanded=False):
-            st.markdown(_holding_cards_html(group_items), unsafe_allow_html=True)
-            issues = _analyst_issues_html(group_items, target_prices)
-            if issues:
-                st.markdown(issues, unsafe_allow_html=True)
 
 
 # _ONBOARD_CSS → ui.pages.portfolio_css 로 이동

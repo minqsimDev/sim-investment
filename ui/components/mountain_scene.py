@@ -239,22 +239,3 @@ handle.addEventListener("keydown", e => {{ if (e.key === "Enter" || e.key === " 
 </body>
 </html>"""
 
-
-def render_mountain(
-    progress: float,
-    height: int = 340,
-    current_asset: float | int | None = None,
-    target_asset: float | int | None = None,
-    annual_growth_rate: float = 0.0,
-) -> None:
-    from ui.components.html_embed import embed_html
-
-    embed_html(
-        _build_html(
-            progress=progress,
-            current_asset=current_asset,
-            target_asset=target_asset,
-            annual_growth_rate=annual_growth_rate,
-        ),
-        height=height,
-    )
