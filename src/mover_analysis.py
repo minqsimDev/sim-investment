@@ -125,7 +125,7 @@ def _resolve_flags(ticker: str, asset_cat: str) -> tuple[float, float]:
 # ── Category labels (Korean) ──────────────────────────────────────────────────
 
 _CATEGORY_LABELS = {
-    "my_etf":    "보유 ETF",
+    "my_etf":    "관심 ETF",   # 워치리스트(실제 보유 아님) — '직접 보유'는 세션 실보유로 판정
     "benchmark": "벤치마크",
     "us_stock":  "미국 주식",
     "commodity": "원자재",
