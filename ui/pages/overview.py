@@ -137,10 +137,6 @@ _MY_CSS = """<style>
 .ov-hn-main b{font-size:27px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .ov-hn b{font-size:18px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .ov-hn b.up{color:#F25560}.ov-hn b.down{color:#4D90F0}
-/* 상세 링크 — 리스크 카드 안쪽 하단·우측(골드 강조) */
-.pb-card-link{display:block;text-align:right;margin-top:11px;font-size:12px;font-weight:850;
-  color:#D9A441!important;text-decoration:none}
-.pb-card-link:hover{color:#E7B964!important}
 @media(max-width:760px){.todo-row{grid-template-columns:1fr;gap:3px}.ov-hn-main b{font-size:24px}}
 </style>"""
 
@@ -314,9 +310,10 @@ def render():
     if _diag:
         # 1단 — 한 줄 진단(요약). 풀 카드(지표 그리드·재배분·벤치마크)는 포트폴리오/리스크에서만 — 100% 복제 제거.
         # 상세 링크는 카드 '안쪽 하단·우측'에(밖에 떠다니지 않게). 풀 상세는 포트폴리오 탭.
+        # 다른 더보기 버튼(리스크·시장)과 동일한 골드 알약(테두리)으로 통일 + 우측 정렬
         _detail_link = (
-            f'<a class="pb-card-link" href="/portfolio{_suf}" target="_self">'
-            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a>')
+            f'<div class="ov-cta-r"><a class="ov-risk-link" href="/portfolio{_suf}" target="_self" style="display:inline-flex">'
+            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a></div>')
         st.markdown(_pb_risk_summary_html(_diag, footer=_detail_link), unsafe_allow_html=True)
 
     # 2단 — 오늘 할 일(신호 → 내 노출 → 대응 3줄), 상세는 리스크 탭
