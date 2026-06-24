@@ -1676,9 +1676,10 @@ def _pb_risk_card_html(d: dict) -> str:
     )
 
 
-def _pb_risk_summary_html(d: dict) -> str:
+def _pb_risk_summary_html(d: dict, footer: str = "") -> str:
     """전체현황(다이제스트)용 한 줄 요약 — 헤드라인 + 핵심 한 줄.
     풀 카드(지표 그리드·재배분·벤치마크)는 포트폴리오/리스크에만 두어 100% 복제를 제거한다.
+    footer: 카드 하단에 끼울 HTML(예: 상세 링크) — 비면 미표시.
     """
     from core.journey import pct_weight
     lv = d["level"]
@@ -1698,6 +1699,7 @@ def _pb_risk_summary_html(d: dict) -> str:
         f'<span class="pb-sev">{sev_html}</span>'
         f'<div class="pb-head">{_escape(head)}</div>'
         f'<div class="pb-bench">{_escape(sub)}</div>'
+        f'{footer}'
         '</div>'
     )
 
