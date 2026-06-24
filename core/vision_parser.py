@@ -107,32 +107,30 @@ def _extract_json(text: str) -> list[dict]:
     return holdings
 
 
-def _parse_with_claude(images: list[tuple[bytes, str]]) -> list[dict]:
-    """Claude Sonnet 4.6 비전 — 가장 정확. 이미지 N장을 한 번에 분석."""
+def _build_claude_call(images: list[tuple[bytes, str]]):
+    """Claude Sonnet 4.6 비전 호출 thunk — 클라이언트·base64 인코딩을 미리 1회만 구성."""
     import anthropic
 
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    content: list[dict] = []
-    for img_bytes, mt in images:
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": mt,
-                       "data": base64.standard_b64encode(img_bytes).decode()},
-        })
+    content: list[dict] = [
+        {"type": "image",
+         "source": {"type": "base64", "media_type": mt,
+                    "data": base64.standard_b64encode(b).decode()}}
+        for b, mt in images
+    ]
     content.append({"type": "text", "text": _PROMPT})
 
-    msg = client.messages.create(
-        model=_CLAUDE_MODEL,
-        max_tokens=4096,
-        temperature=0,                            # 결정적 추출
-        messages=[{"role": "user", "content": content}],
-    )
-    text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
-    return _extract_json(text)
+    def _call() -> str:
+        msg = client.messages.create(
+            model=_CLAUDE_MODEL, max_tokens=4096, temperature=0,  # temperature=0=결정적 추출
+            messages=[{"role": "user", "content": content}],
+        )
+        return "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
+    return _call
 
 
-def _parse_with_gemini(images: list[tuple[bytes, str]]) -> list[dict]:
-    """gemini-2.5-flash 폴백(무료 20/일). thinking 기본 ON(정확도 우선)."""
+def _build_gemini_call(images: list[tuple[bytes, str]]):
+    """gemini-2.5-flash 폴백(무료 20/일) 호출 thunk. thinking 기본 ON(정확도 우선)."""
     from google import genai
     from google.genai import types
 
@@ -140,8 +138,10 @@ def _parse_with_gemini(images: list[tuple[bytes, str]]) -> list[dict]:
     parts: list = [types.Part.from_bytes(data=b, mime_type=mt) for b, mt in images]
     parts.append(_PROMPT)
     cfg = types.GenerateContentConfig(temperature=0, response_mime_type="application/json")
-    resp = client.models.generate_content(model=_GEMINI_MODEL, contents=parts, config=cfg)
-    return _extract_json(resp.text)
+
+    def _call() -> str:
+        return client.models.generate_content(model=_GEMINI_MODEL, contents=parts, config=cfg).text
+    return _call
 
 
 def parse_portfolio_image(
@@ -153,16 +153,18 @@ def parse_portfolio_image(
     extra_images: [(bytes, media_type), ...] 추가 이미지 목록.
     Claude 키가 있으면 Claude(주력), 없으면 gemini-2.5-flash(폴백)."""
     images = [(image_bytes, media_type)] + list(extra_images or [])
-    use_claude = _has_claude_key()
-    if not use_claude and not os.getenv("GEMINI_API_KEY"):
+    if _has_claude_key():
+        build = _build_claude_call
+    elif os.getenv("GEMINI_API_KEY"):
+        build = _build_gemini_call
+    else:
         raise EnvironmentError("ANTHROPIC_API_KEY(sk-ant-…) 또는 GEMINI_API_KEY 가 필요합니다.")
 
-    runner = _parse_with_claude if use_claude else _parse_with_gemini
-
+    call = build(images)   # 클라이언트·인코딩은 1회만 — 재시도 시 네트워크 호출만 반복
     # 일시적 과부하(503/429/529 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
     for _attempt in range(3):
         try:
-            return _normalize(runner(images))
+            return _normalize(_extract_json(call()))
         except Exception as e:  # noqa: BLE001 — 일시적/영구 구분만 하고 재던짐
             if _is_transient(e):
                 if _attempt < 2:
