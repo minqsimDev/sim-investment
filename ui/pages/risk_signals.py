@@ -249,6 +249,16 @@ _RISK_LOCAL_CSS = """<style>
 .rsk-snap-stats{font-size:12px;font-weight:750;color:#9AA0AD;margin-left:auto;font-variant-numeric:tabular-nums}
 .rsk-snap-stats .up{color:#F25560}.rsk-snap-stats .down{color:#4D90F0}
 .rsk-snap-ctx{font-size:11.5px;font-weight:700;color:#8A999B;margin-top:10px;padding-top:9px;border-top:1px solid #262A33}
+/* 기본 뷰 상단 — 한눈 종합 점수 배너(상세 게이지는 시장뷰). 위험=주황·주의=골드·안정=회색 */
+.rsk-scorebar{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:13px 16px;margin:0 0 12px;
+  border:1px solid #262A33;border-left:4px solid #6B7280;border-radius:14px;background:#16181F}
+.rsk-scorebar.risk{border-left-color:#E8883A}.rsk-scorebar.warn{border-left-color:#D9A441}.rsk-scorebar.good{border-left-color:#9AA0AD}
+.rsk-sb-k{font-size:11px;font-weight:850;letter-spacing:.05em;text-transform:uppercase;color:#7E8694}
+.rsk-sb-num{font-size:26px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+.rsk-sb-num small{font-size:13px;font-weight:800;color:#7E8694}
+.rsk-sb-lbl{font-size:13px;font-weight:900}
+.rsk-scorebar.risk .rsk-sb-lbl{color:#E8883A}.rsk-scorebar.warn .rsk-sb-lbl{color:#D9A441}.rsk-scorebar.good .rsk-sb-lbl{color:#9AA0AD}
+.rsk-sb-mode{font-size:12px;font-weight:750;color:#9AA0AD;margin-left:auto}
 </style>"""
 
 
@@ -396,6 +406,19 @@ def _headline_action_card_html(score: int, tone_label: str, actions: list[str],
         f'<div class="rsk-headline-body">{body}</div>'
         f'<div class="rsk-headline-cap">종합 <b>{score}/100 {_escape(tone_label)}</b>'
         f'{(" · 내 계좌(" + holdings_cap + ")에 직접 적용") if holdings_cap else ""}</div>'
+        '</div>'
+    )
+
+
+def _risk_score_banner_html(score: int, tone: str, tone_label: str, summary_short: str) -> str:
+    """기본 뷰(내 포트폴리오 리스크) 상단 — 한눈에 종합 점수·구간·대응모드.
+    상세 게이지·신호 매트릭스는 아래 '시장 리스크 함께 보기'에. 액션은 체크리스트가 담당(중복 회피)."""
+    return (
+        f'<div class="rsk-scorebar {tone}">'
+        '<span class="rsk-sb-k">종합 리스크</span>'
+        f'<span class="rsk-sb-num">{score}<small>/100</small></span>'
+        f'<span class="rsk-sb-lbl">{_escape(tone_label)}</span>'
+        f'<span class="rsk-sb-mode">대응 — {_escape(summary_short)}</span>'
         '</div>'
     )
 
@@ -903,6 +926,8 @@ def render():
             )
 
     if view == "내 포트폴리오 리스크":
+        # 한눈 종합 점수 배너 — 핵심 답(위험도)을 펼침 안에 숨기지 않고 상단 노출
+        st.markdown(_risk_score_banner_html(score, tone, tone_label, summary_short), unsafe_allow_html=True)
         st.markdown(_my_portfolio_risk_html(holdings, _is_guest), unsafe_allow_html=True)
         st.markdown(_scenario_card_html(holdings, _impact_total), unsafe_allow_html=True)  # A2 시나리오
         _render_action_checklist(_today_actions(score), _is_guest)  # B4 액션 체크/메모

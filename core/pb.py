@@ -82,7 +82,9 @@ def holdings_for_pb(positions: list[dict]) -> list[dict]:
             "weight": (p.get("weight", 0) or 0) / 100.0,  # 0~100 → 0~1
             "sector": sector,
             "beta": beta,
-            "currency": (p.get("currency") or "KRW").upper(),
+            # 리스크용 표시통화 — 미국주식은 USD(달러 노출). 저장 currency 가 불량(구 파싱 'KRW')일 수
+            # 있어 asset_class 기준 판정. 평가액 환산통화와 별개(여기선 USD 노출·FX 리스크 계산용).
+            "currency": "USD" if asset_class == "미국주식" else (p.get("currency") or "KRW").upper(),
             "asset_class": asset_class,
         })
     return out
