@@ -222,7 +222,7 @@ def _risk_todo_html(holdings: list[dict], signals: list[dict], risk_href: str, t
         f'<div class="todo-card"><div class="todo-title">오늘 할 일 — 신호 → 내 노출 → 대응</div>'
         f'{body}'
         f'<div class="ov-cta-r"><a class="ov-risk-link" href="{risk_href}" target="_self" style="display:inline-flex">'
-        f'리스크 신호·대응 자세히 &rarr;</a></div></div>'
+        f'리스크 — 신호 · 내 노출 · 대응 &rarr;</a></div></div>'
     )
 
 def _market_digest_html(direction: str, note: str, market_href: str) -> str:
@@ -231,7 +231,7 @@ def _market_digest_html(direction: str, note: str, market_href: str) -> str:
         f'<div class="digest-card"><div class="digest-k">시장 다이제스트</div>'
         f'<div class="digest-line">{direction} — {note}</div>'
         f'<div class="ov-cta-r"><a class="ov-risk-link" href="{market_href}" target="_self" style="display:inline-flex">'
-        f'시장 스캔 더 보기 — 지수 · 환율 · 변동성 &rarr;</a></div></div>'
+        f'시장 — 지수 · 환율 · 변동성 &rarr;</a></div></div>'
     )
 
 # ── Main render ────────────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ def render():
     st.markdown(
         '<div class="ov-hero"><div class="ov-hero-head">'
         '<span class="ov-hero-label">전체 현황</span>'
-        "<span class=\"ov-hero-sub\">내 포트폴리오 · 리스크 · 오늘 할 일 — 시장 상세는 '시장' 탭</span>"
+        '<span class="ov-hero-sub">내 포트폴리오 · 리스크 · 오늘 할 일</span>'
         f'</div><div class="ov-hero-nums">{_nums}</div></div>',
         unsafe_allow_html=True,
     )
@@ -313,7 +313,7 @@ def render():
         # 다른 더보기 버튼(리스크·시장)과 동일한 골드 알약(테두리)으로 통일 + 우측 정렬
         _detail_link = (
             f'<div class="ov-cta-r"><a class="ov-risk-link" href="/portfolio{_suf}" target="_self" style="display:inline-flex">'
-            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a></div>')
+            '내 포트폴리오 — 벤치마크 · 보유 · 리밸런싱 &rarr;</a></div>')
         st.markdown(_pb_risk_summary_html(_diag, footer=_detail_link), unsafe_allow_html=True)
 
     # 2단 — 오늘 할 일(신호 → 내 노출 → 대응 3줄), 상세는 리스크 탭
