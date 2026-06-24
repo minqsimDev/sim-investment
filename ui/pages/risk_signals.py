@@ -213,11 +213,10 @@ _RISK_LOCAL_CSS = """<style>
   text-transform:uppercase;margin:2px 0 0}
 .rsk-gauge-interp{display:flex;justify-content:center;gap:9px;align-items:center;margin-top:2px}
 .rsk-gauge-interp .lbl{font-size:10px;font-weight:800;color:#7E8694;text-transform:uppercase;letter-spacing:.06em}
-.rsk-gauge-bridge{margin-top:9px;font-size:11px;font-weight:700;color:#8A8F9B;line-height:1.5;text-align:center;
+.rsk-gauge-bridge{margin-top:9px;font-size:12px;font-weight:720;color:#9AA0AD;line-height:1.55;text-align:center;
   padding-top:9px;border-top:1px solid #262A33}
 /* 5. 매트릭스 3열 */
-.rsk-m3-more{font-size:10px;font-weight:800;color:#7E8694;background:rgba(100,107,121,0.14);
-  border-radius:6px;padding:1px 6px}
+.rsk-m3-more{flex-basis:100%;font-size:10.5px;font-weight:750;color:#7E8694;margin-top:1px;line-height:1.4}
 .rsk-m3-head,.rsk-m3-row{display:grid;grid-template-columns:minmax(150px,1.05fr) minmax(150px,1.15fr) minmax(150px,1.25fr);
   gap:12px;align-items:center}
 .rsk-m3-head{min-height:34px;background:rgba(14,15,19,0.7);color:#7E8694;font-size:10px;font-weight:900;
@@ -228,8 +227,10 @@ _RISK_LOCAL_CSS = """<style>
 .rsk-m3-action{min-width:0;color:#C9A24E;font-size:11.5px;font-weight:650;line-height:1.4}
 .rsk-m3-action::before{content:"▸";color:#D9A441;font-weight:800;margin-right:5px}
 @media(max-width:760px){
-  .rsk-m3-head{display:none}
-  .rsk-m3-row{grid-template-columns:1fr;gap:6px;align-items:start}
+  .rsk-m3-head{display:none}   /* 헤더 숨김 → 셀별 인라인 라벨로 어느 값인지 표시 */
+  .rsk-m3-row{grid-template-columns:1fr;gap:5px;align-items:start}
+  .rsk-m3-expo::before{content:"내 노출 · ";color:#7E8694;font-weight:850}
+  .rsk-m3-action::before{content:"대응 · ▸ "}
 }
 /* 내 보유·오늘 스냅샷 — 현황(중립). 시선이 '오늘의 대응'(골드)으로 흐르게 좌측바 무채색 */
 .rsk-snap{background:#16181F;border:1px solid #262A33;border-left:3px solid #3A3F48;
@@ -505,12 +506,14 @@ def _signal_matrix3_html(signals: list[dict], exposure_map: dict, dim_map: dict)
             lead = members[0]
             col = lead.get("col", "na")
             lv_kor = _LEVEL_KOR.get(str(lead.get("lv", "N/A")).upper(), str(lead.get("lv", "N/A")))
-            names = [_SIG_KOR.get(m.get("signal"), m.get("signal", "")) for m in members]
+            names = list(dict.fromkeys(  # 같은 신호명 중복 제거(인라인 표기 시 '달러강세·달러강세' 방지)
+                _SIG_KOR.get(m.get("signal"), m.get("signal", "")) for m in members))
             others = names[1:]
             # 같은 노출에 묶인 다른 신호를 풀어 표기 + 툴팁으로 신호명 명시
+            # 같은 노출에 묶인 다른 신호명을 인라인으로 노출(이전엔 '+N' hover라 모바일/터치에서 안 보임)
             name_html = _escape(names[0]) + (
-                f' <span class="rsk-m3-more" title="같은 노출에 묶인 신호: {_escape(" · ".join(others))}">'
-                f'관련 신호 +{len(others)}</span>' if others else "")
+                f'<span class="rsk-m3-more">관련 {_escape(" · ".join(others))}</span>'
+                if others else "")
             expo = exposure_map.get(names[0], "직접 연결 낮음")
             action = _action_for_signal(lead.get("signal", ""), col)
         else:
@@ -894,10 +897,11 @@ def render():
                 _net = n_high - n_low
                 _sign = "+" if _net > 0 else ""
                 _net_word = "위험 우위" if _net > 0 else ("완충 우위" if _net < 0 else "균형")
+                # 평이한 문장 — 부호 정수(-2) 같은 용어는 점수 산식에만 두고, 여기선 '왜 게이지가 그런가'만 설명
                 _bridge = (
-                    f"방향성은 {_sign}{_net}({_net_word})이나, 보유 집중으로 게이지는 {score}({tone_label})입니다."
+                    f"시장 신호는 {_net_word}지만, 내 보유가 한 종목에 쏠려 종합 위험은 {tone_label}입니다."
                     if tone != "good" else
-                    f"방향성 {_sign}{_net}({_net_word}) · 보유 집중도 제한적 — 게이지 {score}({tone_label})."
+                    f"시장 신호는 {_net_word}이고 보유 집중도 제한적 — 종합 위험은 {tone_label}입니다."
                 )
                 st.markdown(f'<div class="rsk-gauge-bridge">{_escape(_bridge)}</div>',
                             unsafe_allow_html=True)
