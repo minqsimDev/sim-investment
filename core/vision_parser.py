@@ -3,16 +3,17 @@ Gemini Vision으로 포트폴리오 스크린샷에서 보유 종목 파싱.
 반환값은 portfolio.py의 _first() 헬퍼가 수락하는 영문 필드 + 한국어 필드 양쪽 포함.
 
 소스: Gemini API(`GEMINI_API_KEY`, 무료 티어). 테스트 단계 무료 사용.
-모델: gemini-2.5-flash-lite — 이 키 기준 무료 한도 가용(2.0-flash=0, 2.5-flash=20/일 대비 헤드룸 큼).
-업로드는 이미지 N장을 단일 호출(extra_images)로 처리해 요청 수를 1로 줄인다.
-정확도가 부족하면 _MODEL 을 "gemini-2.5-flash"(20/일) 또는 Anthropic Claude(히스토리에 Sonnet 4.6)로 교체.
+모델: gemini-2.5-flash(무료 20/일) — flash-lite가 크립토·USD 소수점 인식이 약해 정확도 우선으로 상향.
+thinking 기본 ON(미설정) 유지 — 표/한글 인식 정확도↑(대신 ~10초대로 느려짐). 업로드는 이미지
+N장을 단일 호출(extra_images)로 처리해 요청 수를 1로 줄여 20/일이 거의 안 닳음.
+여전히 부족하면 Anthropic Claude(히스토리에 Sonnet 4.6 버전)로 교체.
 """
 import json
 import os
 import re
 import time
 
-_MODEL = "gemini-2.5-flash-lite"
+_MODEL = "gemini-2.5-flash"
 
 
 class VisionBusyError(RuntimeError):
@@ -107,7 +108,8 @@ def parse_portfolio_image(
         parts.append(types.Part.from_bytes(data=extra_bytes, mime_type=extra_mt))
     parts.append(_PROMPT)
 
-    # temperature=0(결정적) + json 강제(파싱 오류 제거). flash-lite 는 기본 thinking 최소라 미설정으로 충분.
+    # temperature=0(결정적) + json 강제(파싱 오류 제거). thinking_config 미설정 → 2.5-flash 기본 thinking ON
+    # (표·한글·소수점 인식 정확도 우선. 속도가 더 중요하면 thinking_config=ThinkingConfig(thinking_budget=0)).
     cfg = types.GenerateContentConfig(temperature=0, response_mime_type="application/json")
 
     # 일시적 과부하(503/429 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
