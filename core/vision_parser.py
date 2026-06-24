@@ -1,28 +1,38 @@
 """
-Claude(Anthropic) Vision으로 포트폴리오 스크린샷에서 보유 종목 파싱.
+Gemini Vision으로 포트폴리오 스크린샷에서 보유 종목 파싱.
 반환값은 portfolio.py의 _first() 헬퍼가 수락하는 영문 필드 + 한국어 필드 양쪽 포함.
 
-소스: Anthropic API(`ANTHROPIC_API_KEY`). 구독(Max)과 별개의 종량제 키.
-모델: claude-sonnet-4-6 (표 추출 정확도·견고함 균형). 더 높은 정확도가 필요하면
-_MODEL 문자열만 claude-opus-4-8 로 바꾸면 된다(요청 파라미터 호환).
+소스: Gemini API(`GEMINI_API_KEY`, 무료 티어). 테스트 단계 무료 사용.
+모델: gemini-2.5-flash-lite — 이 키 기준 무료 한도 가용(2.0-flash=0, 2.5-flash=20/일 대비 헤드룸 큼).
+업로드는 이미지 N장을 단일 호출(extra_images)로 처리해 요청 수를 1로 줄인다.
+정확도가 부족하면 _MODEL 을 "gemini-2.5-flash"(20/일) 또는 Anthropic Claude(히스토리에 Sonnet 4.6)로 교체.
 """
-import base64
 import json
 import os
 import re
+import time
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = "gemini-2.5-flash-lite"
 
 
 class VisionBusyError(RuntimeError):
-    """비전 모델 과부하·일시적 사용 불가(429/5xx/네트워크). 잠시 후 재시도 권장 — UI 는 '혼잡' 안내."""
+    """비전 모델 과부하·일시적 사용 불가(503/429 등). 잠시 후 재시도 권장 — UI 는 '혼잡' 안내."""
+
+
+_TRANSIENT_HINTS = ("503", "unavailable", "overloaded", "high demand", "429",
+                    "resource_exhausted", "try again", "deadline", "timeout", "500")
+
+
+def _is_transient(err: Exception) -> bool:
+    s = str(err).lower()
+    return any(h in s for h in _TRANSIENT_HINTS)
 
 
 _PROMPT = """이 이미지(들)는 증권사 앱/HTS/MTS의 보유종목 또는 포트폴리오 화면입니다.
 여러 장인 경우 모든 이미지의 종목을 합쳐서 하나의 JSON 배열로 응답하세요.
 같은 종목이 여러 장에 중복되면 한 번만 포함하세요.
 
-화면에 보이는 보유 종목을 모두 추출해 JSON 배열로만 응답하세요 (설명·마크다운·코드펜스 없이):
+화면에 보이는 보유 종목을 모두 추출해 JSON 배열로만 응답하세요 (설명·마크다운 없이):
 
 [
   {
@@ -78,42 +88,38 @@ def parse_portfolio_image(
 ) -> list[dict]:
     """이미지 바이트 → 보유 종목 리스트. 여러 장 전달 시 단일 API 호출로 합산.
     extra_images: [(bytes, media_type), ...] 추가 이미지 목록."""
-    import anthropic
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다.")
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise EnvironmentError("ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.")
+    from google import genai
+    from google.genai import types
 
-    def _img_block(data: bytes, mt: str) -> dict:
-        return {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": mt or "image/jpeg",
-                "data": base64.standard_b64encode(data).decode("ascii"),
-            },
-        }
+    client = genai.Client(api_key=api_key)
 
-    content: list = [_img_block(image_bytes, media_type)]
+    parts: list = [types.Part.from_bytes(data=image_bytes, mime_type=media_type)]
     for extra_bytes, extra_mt in (extra_images or []):
-        content.append(_img_block(extra_bytes, extra_mt))
-    content.append({"type": "text", "text": _PROMPT})
+        parts.append(types.Part.from_bytes(data=extra_bytes, mime_type=extra_mt))
+    parts.append(_PROMPT)
 
-    client = anthropic.Anthropic()  # ANTHROPIC_API_KEY · SDK가 429/5xx 자동 재시도
-    try:
-        resp = client.messages.create(
-            model=_MODEL,
-            max_tokens=8000,
-            thinking={"type": "disabled"},  # 표 추출은 추론 불필요 → 빠르게(opus 전환 시도 호환)
-            messages=[{"role": "user", "content": content}],
-        )
-    except anthropic.APIStatusError as e:  # 429/5xx 등
-        if e.status_code == 429 or e.status_code >= 500:
-            raise VisionBusyError(str(e)) from e
-        raise
-    except anthropic.APIConnectionError as e:  # 네트워크/타임아웃
-        raise VisionBusyError(str(e)) from e
+    # temperature=0(결정적) + json 강제(파싱 오류 제거). flash-lite 는 기본 thinking 최소라 미설정으로 충분.
+    cfg = types.GenerateContentConfig(temperature=0, response_mime_type="application/json")
 
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
+    # 일시적 과부하(503/429 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
+    resp = None
+    for _attempt in range(3):
+        try:
+            resp = client.models.generate_content(model=_MODEL, contents=parts, config=cfg)
+            break
+        except Exception as e:  # noqa: BLE001 — 일시적/영구 구분만 하고 재던짐
+            if _is_transient(e):
+                if _attempt < 2:
+                    time.sleep(1.5 * (_attempt + 1))
+                    continue
+                raise VisionBusyError(str(e)) from e
+            raise
+
+    text = (resp.text or "").strip()
     text = re.sub(r"^```[a-z]*\n?", "", text)   # 방어적: 코드펜스가 섞이면 제거
     text = re.sub(r"\n?```$", "", text)
     holdings = json.loads(text.strip())
