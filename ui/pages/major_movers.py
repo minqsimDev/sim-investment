@@ -113,8 +113,23 @@ _MV_CSS = """<style>
 </style>"""
 
 
+def _held_tickers() -> set[str]:
+    """로그인 유저의 '실제' 보유 티커 집합(세션). 크립토는 BTC↔BTC-USD 양형 포함.
+    '직접 보유'는 워치리스트(my_etfs)가 아니라 이 실보유 기준이어야 함(유령 보유 방지)."""
+    out: set[str] = set()
+    for h in (st.session_state.get("brokerage_holdings") or []):
+        tk = str(h.get("ticker") or "").upper().strip()
+        if not tk:
+            continue
+        out.add(tk)
+        out.add(tk.removesuffix("-USD"))
+        if not tk.endswith("-USD"):
+            out.add(f"{tk}-USD")
+    return out
+
+
 def _mv_held(m: dict) -> bool:
-    return "직접 보유" in (m.get("portfolio_relevance") or "")
+    return bool(m.get("_held"))   # render()에서 실보유 티커로 태깅(아래 _held_tickers)
 
 
 def _mv_detail(m: dict) -> None:
@@ -153,6 +168,11 @@ def render(embedded: bool = False) -> None:
     gainers = movers.get("gainers", [])
     losers  = movers.get("losers",  [])
     unusual = movers.get("unusual", [])
+
+    # '직접 보유' 태깅 — 워치리스트가 아니라 세션의 실제 보유 티커 기준(유령 보유 표시 방지)
+    _held = _held_tickers()
+    for _m in gainers + losers + unusual:
+        _m["_held"] = str(_m.get("ticker") or "").upper().strip() in _held
 
     total = len(gainers) + len(losers)
 
