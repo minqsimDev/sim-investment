@@ -1365,13 +1365,6 @@ def _live_section(suffix: str = "") -> None:
     st.markdown(mkt_section_header("시장 한눈", "핵심 3개 시장(미국·한국·원자재) — 대표 등락·breadth·리더 · 클릭 시 이동"),
                 unsafe_allow_html=True)
     st.markdown(_market_glance_html(data, suffix), unsafe_allow_html=True)
-    st.markdown(
-        f'<a href="?market_tab=all{suffix}" target="_self" '
-        'style="display:inline-block;margin:0 0 14px;font-size:11.5px;font-weight:800;'
-        'color:#7E8694;text-decoration:none">크립토·ETF·외환·채권까지 전 자산군 한눈 → '
-        '<span style="color:#D9A441">전체 비교</span></a>',
-        unsafe_allow_html=True,
-    )
 
     # ── 테마별 시장 동향 — 본문·배지·순서 모두 실시세 파생(당일 |등락률| 큰 순) ──────
     st.markdown(mkt_section_header("테마별 시장 동향", "오늘 먼저 볼 흐름 · 등락 큰 순"), unsafe_allow_html=True)
@@ -1382,7 +1375,7 @@ def _live_section(suffix: str = "") -> None:
 
     # '카테고리별 시장 분석'(TOP12 순환)은 '전체' 탭과 중복 → 무버는 '전체' 탭 단일 소스로 통합.
     # 개별 종목 애널리스트 노트는 미국/한국/매크로 탭의 '애널리스트 전망'에서 확인.
-    st.caption("자산군별 급등·급락은 상단 **전체 비교**에서 한눈에 확인하세요")
+    # (전체 비교 안내는 상단 뷰 토글로 일원화 — 중복 링크·캡션 제거)
 
 
 # ── 쿼리파라미터 기반 서브탭 (딥링크·카드 클릭 이동 지원) ──────────────────────
