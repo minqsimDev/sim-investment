@@ -33,6 +33,7 @@ def test_vision_parser_import_does_not_require_google_genai(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # 두 프로바이더 키 모두 없어야 EnvironmentError
     sys.modules.pop("core.vision_parser", None)
 
     module = importlib.import_module("core.vision_parser")

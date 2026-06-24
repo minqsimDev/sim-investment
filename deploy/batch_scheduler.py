@@ -33,14 +33,6 @@ def _run() -> None:
         _log(f"main.py 실행 예외: {e}")
 
 
-def _seconds_until_next() -> float:
-    now = datetime.now(_KST)
-    nxt = now.replace(hour=_HOUR, minute=0, second=0, microsecond=0)
-    if nxt <= now:
-        nxt += timedelta(days=1)
-    return (nxt - now).total_seconds()
-
-
 _SNAPSHOT_SEC = max(60, int(os.getenv("SNAPSHOT_INTERVAL_SEC", "600")))   # 장중 시세 스냅샷 주기
 
 

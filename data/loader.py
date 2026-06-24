@@ -17,12 +17,6 @@ def load_market_data(_bucket: int = 0) -> dict:
     return fetch_all()
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def load_app_config() -> dict:
-    """YAML config — parsed once per day. Same content unless the file changes."""
-    return _load_config_raw()
-
-
 @st.cache_data(ttl=900, show_spinner=False)
 def batch_close_history(tickers_key: str, period: str = "6mo", _bucket: int = 0) -> dict:
     """티커 묶음의 종가 시계열을 1회 배치 다운로드. {ticker: Close Series}.
@@ -89,13 +83,6 @@ def compute_live_indicators(closes) -> dict:
         "MA20 이격%": round((latest - ma20) / ma20 * 100, 2) if ma20 else None,
         "추세":       trend,
     }
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_indicator_summary_cached(db_path: str) -> "object":
-    """SQLite indicator summary — 30 min cache to skip repeated disk reads per render."""
-    from src.database import load_latest_indicator_summary
-    return load_latest_indicator_summary(db_path)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

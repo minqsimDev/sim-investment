@@ -2,7 +2,7 @@ import base64
 import streamlit as st
 from pathlib import Path
 
-from core.accounts import authenticate, create_account, get_portfolios, save_portfolio, has_accounts
+from core.accounts import authenticate, create_account, get_portfolios, save_portfolio
 from core.brand import APP_NAME
 
 _ASSETS = Path(__file__).parent.parent.parent / "assets" / "intro"

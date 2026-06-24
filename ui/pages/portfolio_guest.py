@@ -51,16 +51,6 @@ def _fetch_guest_quotes(tickers: tuple[str, ...]) -> dict:
     return result
 
 
-def _guest_price_text(ticker: str, price: float | None) -> str:
-    if price is None:
-        return "데이터 대기"
-    if ticker.endswith(".KS"):
-        return _cur(price, "KRW")
-    if ticker == "CASH":
-        return "원화 예수금"
-    return _cur(price, "USD")
-
-
 def _guest_change(chg: float | None) -> tuple[str, str]:
     if chg is None:
         return "대기", "flat"

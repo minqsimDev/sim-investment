@@ -13,10 +13,3 @@ _BRAND_SOLID = {
     "105560": "#D6A23A", "055550": "#3B82C4",
 }
 
-
-def brand_color(ticker: str | None) -> str | None:
-    """티커 → 브랜드 시그니처 색(알려진 경우). 없으면 None."""
-    if not ticker:
-        return None
-    key = str(ticker).replace(".KS", "").replace(".KQ", "").upper()
-    return _BRAND_SOLID.get(key)

@@ -815,30 +815,3 @@ def _indicators_to_watch(movers: dict) -> str:
     sorted_indicators = sorted(indicator_counts.items(), key=lambda x: x[1], reverse=True)
     return ", ".join(ind for ind, _ in sorted_indicators[:6])
 
-
-def generate_movers_narrative(movers: dict, data: dict) -> str:
-    """Returns Korean-language narrative summary as markdown string."""
-    gainers = movers.get("gainers", [])
-    losers  = movers.get("losers",  [])
-
-    top_gainers = gainers[:3]
-    top_losers  = losers[:3]
-
-    gainers_text = ", ".join(_format_asset_line(m) for m in top_gainers) if top_gainers else "해당 없음"
-    losers_text  = ", ".join(_format_asset_line(m) for m in top_losers)  if top_losers  else "해당 없음"
-
-    common_theme    = _infer_common_theme(movers, data)
-    portfolio_notes = _portfolio_impact_notes(movers, data)
-    indicators      = _indicators_to_watch(movers)
-
-    narrative = f"""## 오늘의 주요 이동 요약
-
-**주요 급등 자산:** {gainers_text}
-**주요 급락 자산:** {losers_text}
-**공통 원인 후보:** {common_theme}
-**내 ETF 관련 포인트:** {portfolio_notes}
-**확인이 필요한 지표:** {indicators}
-
-> 투자 참고용이며 매매 권유가 아닙니다."""
-
-    return narrative

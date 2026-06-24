@@ -10,7 +10,7 @@ import streamlit as st
 
 from data.loader import load_market_data
 from src.database import load_latest_indicator_summary, DEFAULT_DB
-from src.mover_analysis import detect_major_movers, generate_movers_narrative
+from src.mover_analysis import detect_major_movers
 from ui.components.dash_style import (
     inject_css, jj_footer, mark_active_nav, numeric, show_skeleton,
     mkt_page_header, mkt_section_header, bar_color, color_change,
@@ -81,42 +81,6 @@ def _style_movers(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
     if numeric_cols:
         styled = styled.map(_color_cell, subset=numeric_cols)
     return styled
-
-
-def _show_movers_table(
-    title_html: str,
-    movers: list[dict],
-    is_unusual: bool = False,
-    caption: str = "",
-) -> None:
-    st.markdown(title_html, unsafe_allow_html=True)
-
-    if not movers:
-        st.info("해당 기준을 충족하는 자산 없음")
-        return
-
-    if is_unusual:
-        df = _build_unusual_df(movers)
-        pct_cols = [c for c in df.columns if "%" in str(c)]
-        if pct_cols:
-            st.dataframe(df.style.map(color_change, subset=pct_cols),
-                         use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df, hide_index=True, use_container_width=True)
-    else:
-        df = _build_display_df(movers)
-        pct_cols = [c for c in ["1D %", "1W %", "1M %"] if c in df.columns]
-        df_numeric = numeric(df, pct_cols)
-        styled = _style_movers(df_numeric).format(
-            {c: "{:+.2f}%" for c in pct_cols}, na_rep="—")
-        st.dataframe(
-            styled,
-            hide_index=True,
-            use_container_width=True,
-        )
-
-    if caption:
-        st.caption(caption)
 
 
 # ── 전체 탭 재구성: 요약 카드 + 행 상세 ─────────────────────────────────────────

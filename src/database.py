@@ -334,32 +334,3 @@ def load_latest_risk_signals(db_path: str = DEFAULT_DB) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
-
-def load_price_history(symbol: str, db_path: str = DEFAULT_DB) -> pd.DataFrame:
-    try:
-        with _conn(db_path) as conn:
-            return pd.read_sql_query(
-                "SELECT date, close FROM prices WHERE symbol=? ORDER BY date",
-                conn, params=(symbol,),
-            )
-    except Exception:
-        return pd.DataFrame()
-
-
-def load_signal_history(limit: int = 70, db_path: str = DEFAULT_DB) -> pd.DataFrame:
-    try:
-        with _conn(db_path) as conn:
-            return pd.read_sql_query(
-                "SELECT run_date, signal_name, level FROM risk_signals "
-                "ORDER BY run_date DESC LIMIT ?",
-                conn, params=(limit,),
-            )
-    except Exception:
-        return pd.DataFrame()
-
-
-def save_daily_report_record(report_date: str, file_path: str,
-                              db_path: str = DEFAULT_DB) -> None:
-    sql = "INSERT OR REPLACE INTO daily_reports (report_date, file_path) VALUES (?,?)"
-    with _conn(db_path) as conn:
-        conn.execute(sql, (report_date, file_path))

@@ -68,12 +68,6 @@ def is_mobile(breakpoint: int = MOBILE_BREAKPOINT) -> bool:
     return viewport_width() < breakpoint
 
 
-def refresh_viewport():
-    """회전·리사이즈 후 폭을 다시 감지하고 싶을 때 호출."""
-    st.session_state.pop("siminvest_vw_px", None)
-    st.session_state.pop("siminvest_vw", None)
-
-
 # ──────────────────────────────────────────────────────────────
 # 2. 반응형 CSS (재스타일 전용)
 # ──────────────────────────────────────────────────────────────
@@ -258,39 +252,9 @@ def _metric_card(m: dict):
     )
 
 
-def metric_row(metrics: list, breakpoint: int = MOBILE_BREAKPOINT):
-    """
-    metrics: [{"label":"오늘 손익","value":"-6,487,760원","delta":"-1.16%"}, ...]
-    데스크탑: n열 가로 / 모바일: 2열 그리드.
-    ⚠️ st.metric 은 US 색(녹/적)을 하드코딩하므로 절대 쓰지 말 것 — 이 함수로 대체.
-    """
-    if is_mobile(breakpoint):
-        cols = st.columns(2)
-        for i, m in enumerate(metrics):
-            with cols[i % 2]:
-                _metric_card(m)
-    else:
-        cols = st.columns(len(metrics))
-        for c, m in zip(cols, metrics):
-            with c:
-                _metric_card(m)
-
-
 # ──────────────────────────────────────────────────────────────
 # 6. 가로 스크롤 칩 줄 (핵심 지표 칩 등)
 # ──────────────────────────────────────────────────────────────
-def chip_row(chips: list):
-    """chips: [{"label":"나스닥100","value":"-1.90%"}, {"label":"금","value":"+0.39%"}]"""
-    html = '<div class="siminvest-chiprow">'
-    for c in chips:
-        val = c.get("value")
-        color = change_color(val) if val is not None else "inherit"
-        v = f' <b style="color:{color}">{val}</b>' if val is not None else ""
-        html += f'<span class="siminvest-chip">{c.get("label", "")}{v}</span>'
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
-
-
 # ──────────────────────────────────────────────────────────────
 # 7. 디바이스별 분기 헬퍼 (트리맵 ↔ 리스트 등 진짜 교체용)
 # ──────────────────────────────────────────────────────────────
@@ -348,41 +312,3 @@ def _signed_value(v) -> float:
 # ──────────────────────────────────────────────────────────────
 # 8. (선택) 모바일 하단 고정 탭바
 # ──────────────────────────────────────────────────────────────
-def bottom_nav(items: list, key: str = "tab", breakpoint: int = MOBILE_BREAKPOINT):
-    """
-    모바일 전용 하단 고정 탭바. 데스크탑에서는 기존 상단 nav 를 그대로 쓰면 된다.
-    items: [("전체현황","home"), ("포트폴리오","port"), ("시장","market"), ("리스크","risk")]
-    선택값은 st.query_params[key] 로 관리하며 현재 선택값을 반환한다.
-
-    ⚠️ 기존 nav 상태와 합치려면, 페이지 라우팅을 query_params 기준으로 통일하는 게 깔끔하다.
-    """
-    current = st.query_params.get(key, items[0][1])
-    if not is_mobile(breakpoint):
-        return current
-
-    bar = '<div class="siminvest-bottomnav">'
-    for label, val in items:
-        active = "active" if val == current else ""
-        bar += (
-            f'<a class="siminvest-navitem {active}" '
-            f'href="?{key}={val}" target="_self">{label}</a>'
-        )
-    bar += "</div>"
-    st.markdown(
-        bar
-        + f"""
-        <style>
-          .siminvest-bottomnav {{
-            position: fixed; bottom: 0; left: 0; right: 0; display: flex;
-            background: {BASE}; border-top: 1px solid rgba(255,255,255,.08); z-index: 1000;
-          }}
-          .siminvest-navitem {{
-            flex: 1; text-align: center; padding: .7rem 0; font-size: .75rem;
-            color: {FLAT}; text-decoration: none;
-          }}
-          .siminvest-navitem.active {{ color: {GOLD}; font-weight: 700; }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    return current
