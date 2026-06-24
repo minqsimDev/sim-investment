@@ -131,7 +131,7 @@ _MY_CSS = """<style>
 .ov-hero-sub{font-size:12px;font-weight:700;color:#7E8694}
 /* 라벨 좌 · 값 우 정렬(키-값 행 스택). 총자산은 큰 글씨 유지 */
 .ov-hero-nums{display:flex;flex-direction:column;gap:10px}
-.ov-hn-main,.ov-hn{display:flex;align-items:baseline;justify-content:flex-end;gap:10px;text-align:right}
+.ov-hn-main,.ov-hn{display:flex;align-items:baseline;justify-content:flex-start;gap:10px;text-align:left}
 .ov-hn-main span,.ov-hn span{font-size:12px;font-weight:800;letter-spacing:.02em;color:#7E8694}
 .ov-hn-main b{font-size:27px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .ov-hn b{font-size:18px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
