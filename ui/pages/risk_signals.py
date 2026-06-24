@@ -260,6 +260,8 @@ _RISK_LOCAL_CSS = """<style>
 .rsk-sb-lbl{font-size:13px;font-weight:900}
 .rsk-scorebar.risk .rsk-sb-lbl{color:#E8883A}.rsk-scorebar.warn .rsk-sb-lbl{color:#D9A441}.rsk-scorebar.good .rsk-sb-lbl{color:#9AA0AD}
 .rsk-sb-mode{font-size:12px;font-weight:750;color:#9AA0AD;margin-left:auto}
+/* 시나리오(가정) 카드 — 현황 구조카드와 구분: 파랑(=하방 충격) 좌측바 + 옅은 틴트 */
+.rsk-scenario{border-left:3px solid #4D90F0;background:#15181F}
 </style>"""
 
 
@@ -464,7 +466,7 @@ def _severity_block_html(high_sigs, mid_sigs, low_sigs) -> str:
         f'<span class="hi" title="위험: {_escape(_tags(high_sigs))}">● 위험 {n_high}</span>'
         f'<span class="mid" title="주의: {_escape(_tags(mid_sigs))}">● 주의 {n_mid}</span>'
         f'<span class="lo" title="완충: {_escape(_tags(low_sigs))}">● 완충 {n_low}</span>'
-        f'<span class="rsk-bal-net {net_cls}">위험 {n_high} − 완충 {n_low} = {sign}{net} · {net_dir}</span>'
+        f'<span class="rsk-bal-net {net_cls}">{net_dir}</span>'  # 산수(위험N−완충N=±net)는 점수 산식에만(중복 제거)
         '</div>'
     )
     return (
@@ -706,8 +708,8 @@ def _scenario_card_html(holdings: list[dict], total: float) -> str:
                   f'<div class="rsk-myr-v" style="color:#4D90F0">{v}</div>'
                   f'<div class="rsk-myr-b">{_escape(body)}</div></div>')
     return (
-        '<div class="rsk-card">'
-        '<div class="rsk-card-title">만약 이렇게 되면? '
+        '<div class="rsk-card rsk-scenario">'   # 가정(what-if) 카드 — 현황 구조카드와 시각 구분(파랑 좌측바)
+        '<div class="rsk-card-title">⚡ 만약 이렇게 되면? '
         '<span class="rsk-myr-sub">현 보유 기준 예상 낙폭 · 추정(상관·헤지 단순화)</span></div>'
         f'<div class="rsk-myr-grid">{cells}</div></div>'
     )
