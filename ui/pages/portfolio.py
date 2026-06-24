@@ -1,6 +1,7 @@
 import html as html_lib
 import re
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import streamlit as st
 import pandas as pd
@@ -174,6 +175,49 @@ def _market_price_maps(data: dict) -> dict[str, dict]:
     return maps
 
 
+def _quote_ticker(ticker: str, category: str) -> str:
+    """보유 티커 → 시세 조회용 티커. 크립토는 -USD 접미사 보정(BTC→BTC-USD, yfinance 형식)."""
+    t = ticker.upper().strip()
+    if category == "크립토" and t and not t.endswith("-USD"):
+        return f"{t}-USD"
+    return t
+
+
+def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, dict]) -> None:
+    """워치리스트(_market_price_maps)에 없는 보유 종목(PLTR·크립토 등)의 오늘 변동·현재가를
+    개별 시세(fetch_prices_bulk)로 보강. 원본 보유 티커 키로 price_maps 에 추가(동일 형식)."""
+    need: dict[str, str] = {}   # 원본티커(UPPER) -> 조회티커
+    for row in raw_records:
+        tk = str(_first(row, "ticker", "symbol", "code") or "").upper().strip()
+        if not tk or tk in price_maps:                      # 현금·이미 워치리스트 커버는 스킵
+            continue
+        cat = _category_for_holding(row, tk)
+        if cat == "현금":
+            continue
+        need[tk] = _quote_ticker(tk, cat)
+    if not need:
+        return
+    try:
+        from data.price_source import fetch_prices_bulk
+        quotes = fetch_prices_bulk(sorted(set(need.values())))
+    except Exception:                                       # 조회 실패해도 화면은 떠야 함(오늘값만 빔)
+        return
+    for orig, qtk in need.items():
+        q = quotes.get(qtk)
+        if q:
+            price_maps[orig] = dict(q)
+
+
+def _today_label(category: str, us_open: bool, kr_open: bool) -> str:
+    """오늘 변동 라벨 — 해당 시장 개장 중이면 '오늘', 마감이면 '전일'(마지막 세션 종가 기준).
+    미국장 마감 상태에서 '오늘'이라 부르면 간밤 세션을 오늘로 오인하므로 시장 상태로 구분. 크립토는 24h."""
+    if category == "크립토":
+        return "오늘"
+    if category in ("국내주식", "ETF"):
+        return "오늘" if kr_open else "전일"
+    return "오늘" if us_open else "전일"                     # 미국주식·원자재·기타 → 미국장 기준
+
+
 # USD/KRW 환율은 data/fx.py 단일 출처에 위임(이전엔 이 UI 파일 안에 자체 HTTP 호출이 박혀
 # 있었음). _usdkrw·_FX_FALLBACK 은 기존 호출부(`_usdkrw(data) or _FX_FALLBACK`) 호환 별칭.
 from data.fx import usdkrw as _usdkrw, FX_FALLBACK as _FX_FALLBACK
@@ -228,6 +272,7 @@ def _name_ticker_map(price_maps: dict[str, dict]) -> dict[str, str]:
 def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
     raw_records = _records_from_holdings(data.get("holdings"))
     price_maps = _market_price_maps(data)
+    _supplement_holding_quotes(raw_records, price_maps)  # 워치리스트 밖 보유(PLTR·크립토)도 오늘 변동 채움
     name_to_ticker = _name_ticker_map(price_maps)  # 이름→티커(스크린샷 ETF 등 티커 없는 보유 해소)
     fx = _usdkrw(data) or _FX_FALLBACK   # 환율 실패 시 폴백 — 미국 종목이 안 빠지게
     positions: list[dict] = []
@@ -537,6 +582,8 @@ def _portfolio_today_state(summary: dict) -> tuple[str, str, str, str]:
 def _format_weight(value: float | None) -> str:
     if value is None:
         return "0%"
+    if 0 < value < 0.1:          # 반올림 0%가 '데이터 없음'처럼 보이는 것 방지
+        return "<0.1%"
     return f"{pct_weight(value)}%"
 
 
@@ -784,11 +831,21 @@ def _sort_positions(positions: list[dict], target_prices: dict[str, float], sort
     return sorted(positions, key=lambda p: p.get("weight") or 0, reverse=True)
 
 
-def _holdings_table_html(positions: list[dict], target_prices: dict[str, float], limit: int | None = None) -> str:
+# 쓰레기통 아이콘 — 이모지(🗑)는 폰트에 따라 두부(□)로 깨져서 인라인 SVG 사용.
+_TRASH_SVG = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+              'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'
+              '<path d="M10 11v6M14 11v6"/></svg>')
+
+
+def _holdings_table_html(positions: list[dict], target_prices: dict[str, float], limit: int | None = None,
+                         editable: bool = False, sfx: str = "") -> str:
     visible = positions[:limit] if limit else positions
     if not visible:
         return '<div class="pd-empty"><b>표시할 보유종목이 없습니다</b><p>포트폴리오 데이터가 연결되면 여기에 종목 리스트가 표시됩니다.</p></div>'
     max_w = max((p.get("weight") or 0 for p in visible), default=0)
+    from core.market_hours import is_open
+    _us_open, _kr_open = is_open("US"), is_open("KR")   # '오늘/전일' 라벨 — 시장 개장 상태 기준
     rows = []
     for position in visible:
         w = position.get("weight") or 0
@@ -799,6 +856,10 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
         upside = _target_upside(position, target_prices)
         upside_label = f"{upside:+.1f}%" if upside is not None else "데이터 없음"
         upside_cls = _tone(upside)
+        # 현재가(시세) 표시 통화 — 미국주식은 USD. 평가액 환산통화(_holding_currency)와 별개이며,
+        # 잘못 저장된 currency='KRW'(구 파싱 버그)에 휘둘리지 않게 카테고리 기준으로 판정.
+        _cur_disp = "USD" if position.get("category") == "미국주식" else \
+            _holding_currency(position, position.get("ticker", ""), position.get("category", ""))
         logo_item = {"group": position["category"], "name": position["name"], "code": position["ticker"]}
         shares = _fmt_qty(position.get("quantity"), position.get("quantity_est", False))
         # 비중 바: 최대 비중만 주황(집중 위험 — 경고 채널), 나머지 회색. 손익 빨강과 분리
@@ -810,27 +871,40 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
                    f'<span class="hl-ret-amt {gain_cls}">{_money(position.get("gain_loss"), "KRW", signed=True, compact=True)}</span>')
         else:
             ret = '<span class="pd-neu">손익 대기</span>'
-        today = (f'<span class="hl-ret-today">오늘 <b class="{day_cls}">{position["today_change_pct"]:+.2f}%</b></span>'
-                 if position.get("today_change_pct") is not None else '')
+        _tlabel = _today_label(position["category"], _us_open, _kr_open)   # 미국장 마감 시 '전일'
+        today = (f'<span class="hl-ret-today">{_tlabel} <b class="{day_cls}">{position["today_change_pct"]:+.2f}%</b></span>'
+                 if position.get("today_change_pct") is not None
+                 else f'<span class="hl-ret-today">{_tlabel} —</span>')   # 미제공도 자리 유지(스캔성)
+        # 행 전체(summary)를 클릭하면 아래로 상세가 펼쳐짐. 🗑은 summary 바깥(맨 우측 거터)에 둬 클릭 충돌 방지.
+        hid = quote(str(position.get("ticker") or position.get("name") or ""))
+        trash = (f'<a class="hl-trash" href="?pf=holdings&hdel={hid}{sfx}" target="_self" '
+                 f'title="삭제" aria-label="삭제">{_TRASH_SVG}</a>') if editable else ''
         rows.append(
-            '<div class="hl-row">'
+            f'<div class="hl-rowwrap{" editable" if editable else ""}">'
+            '<details class="hl-exp" name="hold-acc">'
+            '<summary class="hl-srow" aria-label="상세 보기">'
             '<div class="hl-main">'
             f'{_logo_html(logo_item)}'
             '<div class="hl-info">'
             f'<b class="hl-name">{_escape(position["name"])}</b>'
-            f'<span class="hl-sub">{_escape(position["category"])} · {_escape(shares)} · 비중 {_format_weight(w)}</span>'
+            f'<span class="hl-sub"><b class="hl-w">비중 {_format_weight(w)}</b> · {_escape(position["category"])} · {_escape(shares)}</span>'
             f'<div class="hl-wbar"><i style="width:{min(w,100):.0f}%;background:{bar_color}"></i></div>'
             '</div></div>'
             '<div class="hl-vals">'
             f'<b class="hl-val">{_escape(primary_value)}</b>'
             f'<span class="hl-ret">{ret}{today}</span>'
             '</div>'
-            '<details class="hl-exp" name="hold-acc"><summary aria-label="상세 보기"><span class="hl-caret">▾</span></summary>'
-            f'<div class="hl-detail">{_insight_text(position, target_prices)}<br>'
-            f'<b>현재가</b> {_price(position.get("current_price"), position.get("currency", "KRW"))} · '
-            f'<b>평가액</b> {_escape(primary_value)} ({_escape(secondary_value)}) · '
-            f'<b>목표가</b> {_escape(target)} · <b>여력</b> <span class="{upside_cls}">{_escape(upside_label)}</span></div>'
+            '</summary>'
+            '<div class="hl-detail">'
+            f'<div class="hl-d-note">{_insight_text(position, target_prices)}</div>'
+            '<div class="hl-d-facts">'
+            f'<div><span>현재가</span><b>{_price(position.get("current_price"), _cur_disp)}</b></div>'
+            f'<div><span>평가액</span><b>{_escape(primary_value)}</b><em>{_escape(secondary_value)}</em></div>'
+            f'<div><span>목표가</span><b>{_escape(target)}</b></div>'
+            f'<div><span>여력</span><b class="{upside_cls}">{_escape(upside_label)}</b></div>'
+            '</div></div>'
             '</details>'
+            f'{trash}'
             '</div>'
         )
     return '<div class="pd-table-card hl-card">' + "".join(rows) + '</div>'
@@ -843,12 +917,14 @@ def _holdings_panel_html(
     target_prices: dict[str, float],
     limit: int | None = None,
     action: str = "",
+    editable: bool = False,
+    sfx: str = "",
 ) -> str:
     return (
         '<div class="pd-list-panel">'
         f'<div class="pd-list-head"><b>{_escape(title)}</b>'
         f'<div class="pd-head-right"><span>{_escape(subtitle)}</span>{action}</div></div>'
-        + _holdings_table_html(positions, target_prices, limit=limit)
+        + _holdings_table_html(positions, target_prices, limit=limit, editable=editable, sfx=sfx)
         + '</div>'
     )
 
@@ -1282,18 +1358,16 @@ def _target_info(position: dict, target_prices: dict[str, float]) -> tuple[str, 
 
 
 def _insight_text(position: dict, target_prices: dict[str, float]) -> str:
+    # 목표가/여력은 아래 사실 요약줄에 한 번만 표기 — 여기선 중복 제거. 영향도는 비중 기반 구체값으로.
     tk = str(position["ticker"])
     note = (_consensus_notes(tk).get(tk)
             or "네이버 컨센서스 미연결 종목 · 가격, 비중, 손익 변화를 함께 확인하세요.")
-    target, upside, _ = _target_info(position, target_prices)
-    impact = (
-        f"내 포지션 기준 영향: 현재 비중 {pct_weight(position.get('weight', 0))}%로,"
-        "해당 종목 변동성이 포트폴리오 평가액에 일부 반영될 수 있습니다."
-    )
+    w = float(position.get("weight") or 0)
+    impact = (f"이 종목이 20% 하락하면 계좌 평가액은 약 {w * 0.2:.1f}% 영향을 받습니다."
+              if w > 0 else "비중 정보가 없어 영향도를 계산할 수 없습니다.")
     return (
         f"<b>주요 이슈</b>: {_escape(note)}<br>"
-        f"<b>목표가</b>: {_escape(target)} · <b>목표가 대비 여력</b>: {_escape(upside)}<br>"
-        f"<b>{_escape(impact)}</b><br>"
+        f"<b>영향도</b>: {_escape(impact)}<br>"
         "<b>체크포인트</b>: 실적 가이던스, 금리·환율, 업종 모멘텀, 포트폴리오 내 비중 변화"
     )
 
@@ -2002,13 +2076,6 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
     )
 
 
-def _delete_holding(holdings: list[dict], index: int) -> list[dict]:
-    """holdings 에서 index 항목을 뺀 새 리스트 반환. 범위 밖이면 원본 복사본 그대로(원본 비변형)."""
-    if index < 0 or index >= len(holdings):
-        return list(holdings)
-    return [h for i, h in enumerate(holdings) if i != index]
-
-
 def _persist_holdings(holdings: list[dict]) -> None:
     """세션 + 계정 저장소에 보유를 반영. 로그인 유저만 영속화(스크린샷 적용 경로와 동일 패턴)."""
     st.session_state["brokerage_holdings"] = holdings
@@ -2019,39 +2086,6 @@ def _persist_holdings(holdings: list[dict]) -> None:
         _pf_name = _ex[0]["name"] if _ex else "내 포트폴리오"
         save_portfolio(_uname, holdings, name=_pf_name,
                        cash=st.session_state.get("brokerage_cash_balance", 0.0))
-
-
-def _render_holdings_editor() -> None:
-    """편집 모드 — 원본 brokerage_holdings 를 순서대로 보여주고 행별 삭제(2단계 확인)."""
-    holdings = st.session_state.get("brokerage_holdings") or []
-    if not holdings:
-        st.info("보유 종목이 없습니다.")
-        return
-    _last_note = " · 마지막 한 종목을 지우면 온보딩 화면으로 돌아갑니다." if len(holdings) == 1 else ""
-    st.caption(f"삭제할 종목의 🗑 버튼을 누르세요.{_last_note}")
-
-    pending = st.session_state.get("_pending_delete_holding")
-    for i, h in enumerate(holdings):
-        name = h.get("name", "—")
-        amt = _cur(float(h.get("평가금액") or h.get("eval_amount") or 0), "KRW")
-        c_info, c_act = st.columns([4, 2])
-        with c_info:
-            st.markdown(f"**{name}**  ·  {amt}")
-        with c_act:
-            if pending == i:
-                cc1, cc2 = st.columns(2)
-                if cc1.button("삭제 확정", key=f"del_confirm_{i}", type="primary",
-                              use_container_width=True):
-                    _persist_holdings(_delete_holding(holdings, i))
-                    st.session_state.pop("_pending_delete_holding", None)
-                    st.rerun()
-                if cc2.button("취소", key=f"del_cancel_{i}", use_container_width=True):
-                    st.session_state.pop("_pending_delete_holding", None)
-                    st.rerun()
-            else:
-                if st.button("🗑 삭제", key=f"del_{i}", use_container_width=True):
-                    st.session_state["_pending_delete_holding"] = i
-                    st.rerun()
 
 
 def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
@@ -2070,7 +2104,7 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
         '<div class="pd-header-sub"><p>가장 큰 리스크부터 — 총액·집중·대응</p>'
         f'<span class="bk-badge">{_escape(_prov)} 실계좌</span>'
         f'<span class="bk-badge">{_cnt}종목</span>'
-        f'{live_badge_html(["US", "KR", "CRYPTO"], compact=True)}</div></div>',
+        f'{live_badge_html(["US", "KR"], compact=True)}</div></div>',   # 배지는 주식장(US/KR) 기준 — 크립토 24h 때문에 '장중' 상시표시 방지(갱신은 아래 live_refresh가 CRYPTO 포함 유지)
         unsafe_allow_html=True,
     )
 
@@ -2130,19 +2164,45 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
 
     if pf == "holdings":
         st.markdown(_back, unsafe_allow_html=True)
-        edit_mode = st.toggle("편집 — 종목 삭제", key="holdings_edit_mode")
-        if edit_mode:
-            _render_holdings_editor()
-        else:
-            sort_key = st.radio(
-                "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
-                index=0, key="portfolio_holding_sort", label_visibility="collapsed", horizontal=True,
-            ) or "비중순"
-            sorted_positions = _sort_positions(positions, target_prices, sort_key)
+
+        # 인라인 삭제 — 통짜 HTML 리스트엔 네이티브 버튼을 못 넣으므로 🗑을 쿼리파라미터 링크로 처리.
+        #   🗑 클릭 → ?hdel=<id> (상단 확인 배너) → '삭제' → ?hdelok=<id> (실제 삭제·영속화).
+        _raw = st.session_state.get("brokerage_holdings") or []
+        def _ident(h: dict) -> str:
+            return str(h.get("ticker") or h.get("name") or "")
+        _hdelok = st.query_params.get("hdelok", "")
+        if _hdelok:
+            _kept = [h for h in _raw if _ident(h) != _hdelok]
+            if len(_kept) != len(_raw):
+                _persist_holdings(_kept)
+            st.query_params.pop("hdelok", None)
+            st.query_params.pop("hdel", None)
+            st.query_params["pf"] = "holdings"
+            st.rerun()
+        _hdel = st.query_params.get("hdel", "")
+        if _hdel:
+            _nm = next((h.get("name") or _hdel for h in _raw if _ident(h) == _hdel), _hdel)
             st.markdown(
-                _holdings_panel_html("전체 보유종목", f"{sort_key} · 비교형 리스트", sorted_positions, target_prices),
+                f'<div class="hl-delbar"><span>‘{_escape(str(_nm))}’ 종목을 삭제할까요?</span>'
+                f'<a class="hl-del-yes" href="?pf=holdings&hdelok={quote(_hdel)}{_sfx}" target="_self">삭제</a>'
+                f'<a class="hl-del-no" href="?pf=holdings{_sfx}" target="_self">취소</a></div>',
                 unsafe_allow_html=True,
             )
+
+        # 정렬 = 드롭다운(우측 플러시). 4지선다 가로 라디오는 모바일에서 폭 부족으로 깨져 selectbox 로 교체.
+        # 모바일은 컬럼이 세로로 쌓여 자동 전체폭(반응형).
+        _ctrl_l, _ctrl_r = st.columns([3, 1])
+        with _ctrl_r:
+            sort_key = st.selectbox(
+                "보유종목 정렬", ["비중순", "수익률순", "오늘 변동순", "목표여력순"],
+                index=0, key="portfolio_holding_sort", label_visibility="collapsed",
+            ) or "비중순"
+        sorted_positions = _sort_positions(positions, target_prices, sort_key)
+        st.markdown(  # 부제의 정렬 에코 제거(컨트롤이 이미 표시) → 종목수로 대체. 행 클릭=상세, 🗑=삭제.
+            _holdings_panel_html("전체 보유종목", f"{len(sorted_positions)}종목 · 행 클릭 시 상세",
+                                 sorted_positions, target_prices, editable=True, sfx=_sfx),
+            unsafe_allow_html=True,
+        )
     elif pf == "detail":
         st.markdown(_back, unsafe_allow_html=True)
         st.markdown(_portfolio_diagnosis_html(sorted_by_weight, categories, summary), unsafe_allow_html=True)

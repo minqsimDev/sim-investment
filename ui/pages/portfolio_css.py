@@ -270,9 +270,11 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
   text-decoration:none;background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.34);
   border-radius:999px;padding:3px 11px;white-space:nowrap}
 .pd-jump:hover{background:rgba(217,164,65,0.18);border-color:var(--sv-gold)}
-.pd-back{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:850;color:#9AA0AD!important;
-  text-decoration:none;margin:2px 0 10px}
-.pd-back:hover{color:#E7E9EE}
+/* 뒤로가기 — '전체 N종목 →'(pd-jump)와 동일한 골드 알약으로 통일 */
+.pd-back{display:inline-flex;align-items:center;font-size:11px;font-weight:850;color:var(--sv-gold)!important;
+  text-decoration:none;background:rgba(217,164,65,0.10);border:1px solid rgba(217,164,65,0.34);
+  border-radius:999px;padding:3px 11px;white-space:nowrap;margin:2px 0 14px}
+.pd-back:hover{background:rgba(217,164,65,0.18);border-color:var(--sv-gold)}
 /* 카드 수(3~5)에 맞춰 한 줄을 채움 — 3열 고정 시 4번째가 외톨이로 떨어지던 문제 해소 */
 .pd-diagnosis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:16px}
 .pd-diagnosis-item{border:1px solid #262A33;border-radius:10px;background:#1E2029;padding:10px 11px;border-left:3px solid #262A33}
@@ -328,16 +330,22 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .pd-row-actions[open] summary .pd-caret{transform:rotate(180deg);color:#9AA0AD}
 .pd-row-detail{border-top:1px solid #262A33;padding:10px;color:#9AA0AD;font-size:11px;font-weight:740;line-height:1.55}
 .pd-row-detail b{color:#E7E9EE}
-/* D3 핵심 보유종목 — 카드형 행(이름 15px + 섹터·주수 12px + 비중 바 | 평가 15px + 손익 12.5px | 펼침). C2 하한 준수 */
+/* D3 보유종목 — 행 전체 클릭=상세 아코디언 펼침, 맨 우측 거터=🗑 삭제(편집모드 없이 인라인). C2 하한 준수 */
 .hl-card{overflow:hidden}
-.hl-row{display:grid;grid-template-columns:minmax(0,1fr) auto 30px;gap:12px;align-items:center;
-  padding:12px 14px;border-bottom:1px solid #262A33;background:rgba(22,24,31,0.78)}
-.hl-row:last-child{border-bottom:0}
+.hl-rowwrap{position:relative;border-bottom:1px solid #262A33;background:rgba(22,24,31,0.78)}
+.hl-rowwrap:last-child{border-bottom:0}
+.hl-rowwrap:hover{background:rgba(255,255,255,0.022)}   /* 행 호버 힌트(클릭 가능 암시) */
+/* 🗑 거터 확보는 헤더(summary)에만 — 상세(detail)는 전체폭으로 펼쳐 구분선이 우측 끝까지 가게 */
+.hl-rowwrap.editable .hl-srow{padding-right:48px}
+.hl-srow{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;align-items:center;padding:12px 14px}
+.hl-srow::-webkit-details-marker{display:none}
 .hl-main{display:grid;grid-template-columns:34px minmax(0,1fr);gap:11px;align-items:center;min-width:0}
 .hl-main .hold-logo{width:34px;height:34px;border-radius:9px;font-size:11px}
 .hl-info{min-width:0}
 .hl-name{display:block;color:#E7E9EE;font-size:15px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hl-sub{display:block;color:#9AA0AD;font-size:12px;font-weight:750;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl-sub .hl-w{color:#C9CDD6;font-weight:850}  /* 비중을 맨 앞·살짝 강조 — 모바일에서 잘리지 않게 */
 .hl-wbar{height:5px;border-radius:999px;background:rgba(255,255,255,0.06);overflow:hidden;margin-top:8px;max-width:240px}
 .hl-wbar i{display:block;height:100%;border-radius:999px}
 .hl-vals{text-align:right;white-space:nowrap;min-width:0}
@@ -348,20 +356,35 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
 .hl-ret-amt{font-weight:800}
 .hl-ret-today{color:#7E8694;font-size:11.5px;font-weight:750}
 .hl-ret-today b{font-weight:850}
-.hl-exp{justify-self:end}
-.hl-exp summary{list-style:none;cursor:pointer;width:30px;height:30px;display:grid;place-items:center;
-  border:1px solid #262A33;border-radius:9px;background:#1E2029}
-.hl-exp summary::-webkit-details-marker{display:none}
-.hl-caret{font-size:12px;color:#7E8694;transition:transform .18s}
-.hl-exp summary:hover .hl-caret{color:#9AA0AD}
-.hl-exp[open]{grid-column:1/-1;margin-top:2px}
-.hl-exp[open] summary{margin-left:auto}
-.hl-exp[open] .hl-caret{transform:rotate(180deg);color:#9AA0AD}
-.hl-detail{border-top:1px solid #262A33;margin-top:10px;padding-top:10px;color:#9AA0AD;
-  font-size:12px;font-weight:740;line-height:1.6}
+.hl-exp[open] .hl-srow{background:rgba(255,255,255,0.015)}
+/* 상세 — PC: 좌(내러티브) | 우(사실 카드) 넓게 펼침 · 모바일: 세로 스택. 글씨 13px(기존 12 → 가독성↑) */
+.hl-detail{margin:0;padding:13px 14px;border-top:1px solid #2A2F3A;text-align:left;color:#9AA0AD;
+  display:grid;grid-template-columns:1fr;gap:12px;font-size:13px;font-weight:740;line-height:1.65}
 .hl-detail b{color:#E7E9EE}
+.hl-d-note{min-width:0}
+.hl-d-facts{display:grid;grid-template-columns:1fr 1fr;gap:9px 18px;align-content:start;
+  background:#16181E;border:1px solid #20242C;border-radius:10px;padding:12px 14px}
+.hl-d-facts>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hl-d-facts span{color:#7E8694;font-size:11px;font-weight:800;letter-spacing:.02em}
+.hl-d-facts b{font-size:13.5px;font-weight:850;font-variant-numeric:tabular-nums}
+.hl-d-facts em{color:#9AA0AD;font-style:normal;font-size:11px}
+@media(min-width:760px){
+  .hl-detail{grid-template-columns:1fr 320px}     /* PC 에서만 좌우 2단 */
+}
+/* 맨 우측 삭제 거터 — 행 높이(약 82px)에 맞춰 상하 가운데. 흰끼 → 호버 시 주황(경고 채널, 손익 빨강과 분리) */
+.hl-trash{position:absolute;top:0;right:0;width:42px;height:82px;display:grid;place-items:center;
+  color:#C9CDD6!important;border-left:1px solid #20242C;transition:.15s}  /* !important — Streamlit 링크 파랑 덮어쓰기 */
+.hl-trash:hover{color:#E2683C!important;background:rgba(226,104,60,0.08)}
+.hl-trash svg{display:block}
+/* 삭제 확인 배너 */
+.hl-delbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:11px 14px;
+  border:1px solid #3A2A22;background:rgba(226,104,60,0.08);border-radius:10px;
+  color:#E7E9EE;font-size:13px;font-weight:760}
+.hl-delbar a{text-decoration:none;font-size:12.5px;font-weight:850;padding:6px 14px;border-radius:8px}
+.hl-del-yes{background:#E2683C;color:#fff}
+.hl-del-no{background:#1E2029;color:#9AA0AD;border:1px solid #2A2F3A}
 @media(max-width:640px){
-  .hl-row{grid-template-columns:minmax(0,1fr) auto 30px;gap:10px}
+  .hl-srow{gap:10px}
   .hl-wbar{max-width:none}
 }
 .pd-rebalance-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 12px}
