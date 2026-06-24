@@ -35,6 +35,7 @@ _OV_CSS = """<style>
   border:1px solid rgba(217,164,65,0.42);color:#D9A441!important;font-size:13px;font-weight:850;
   text-decoration:none!important;transition:background .15s,border-color .15s}
 .ov-risk-link:hover{background:rgba(217,164,65,0.18);border-color:#D9A441}
+.ov-cta-r{text-align:right;margin-top:12px}   /* → 더보기 링크 우측 정렬(인라인 플렉스 링크를 우측으로) */
 </style>"""
 
 # ── Cached loaders ─────────────────────────────────────────────────────────────
@@ -224,8 +225,8 @@ def _risk_todo_html(holdings: list[dict], signals: list[dict], risk_href: str, t
     return (
         f'<div class="todo-card"><div class="todo-title">오늘 할 일 — 신호 → 내 노출 → 대응</div>'
         f'{body}'
-        f'<a class="ov-risk-link" href="{risk_href}" target="_self" style="display:inline-flex;margin-top:12px">'
-        f'리스크 신호·대응 자세히 &rarr;</a></div>'
+        f'<div class="ov-cta-r"><a class="ov-risk-link" href="{risk_href}" target="_self" style="display:inline-flex">'
+        f'리스크 신호·대응 자세히 &rarr;</a></div></div>'
     )
 
 def _market_digest_html(direction: str, note: str, market_href: str) -> str:
@@ -233,8 +234,8 @@ def _market_digest_html(direction: str, note: str, market_href: str) -> str:
     return (
         f'<div class="digest-card"><div class="digest-k">시장 다이제스트</div>'
         f'<div class="digest-line">{direction} — {note}</div>'
-        f'<a class="ov-risk-link" href="{market_href}" target="_self" style="display:inline-flex;margin-top:10px">'
-        f'시장 스캔 더 보기 — 지수 · 환율 · 변동성 &rarr;</a></div>'
+        f'<div class="ov-cta-r"><a class="ov-risk-link" href="{market_href}" target="_self" style="display:inline-flex">'
+        f'시장 스캔 더 보기 — 지수 · 환율 · 변동성 &rarr;</a></div></div>'
     )
 
 # ── Main render ────────────────────────────────────────────────────────────────
