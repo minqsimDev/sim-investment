@@ -183,6 +183,25 @@ def _quote_ticker(ticker: str, category: str) -> str:
     return t
 
 
+def _holding_ident(h: dict) -> str:
+    """보유 1건 식별자 — 삭제 링크·매칭 공용(티커 우선, 없으면 이름)."""
+    return str(h.get("ticker") or h.get("name") or "")
+
+
+def _price_currency(position: dict) -> str:
+    """현재가(시세) 표시 통화 — 미국주식은 USD. 평가액 환산통화(_holding_currency)와 별개이며,
+    잘못 저장된 currency='KRW'(구 파싱 버그)에 휘둘리지 않게 카테고리 기준."""
+    return "USD" if position.get("category") == "미국주식" else \
+        _holding_currency(position, position.get("ticker", ""), position.get("category", ""))
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_bulk_quotes(tickers: tuple[str, ...]) -> dict:
+    """보유 보강 시세 — 60초 캐시(매 렌더/위젯 클릭마다 네트워크 재호출 방지). 키=정렬된 티커 튜플."""
+    from data.price_source import fetch_prices_bulk
+    return fetch_prices_bulk(list(tickers))
+
+
 def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, dict]) -> None:
     """워치리스트(_market_price_maps)에 없는 보유 종목(PLTR·크립토 등)의 오늘 변동·현재가를
     개별 시세(fetch_prices_bulk)로 보강. 원본 보유 티커 키로 price_maps 에 추가(동일 형식)."""
@@ -198,8 +217,7 @@ def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, di
     if not need:
         return
     try:
-        from data.price_source import fetch_prices_bulk
-        quotes = fetch_prices_bulk(sorted(set(need.values())))
+        quotes = _cached_bulk_quotes(tuple(sorted(set(need.values()))))   # 60초 캐시(렌더마다 네트워크 X)
     except Exception:                                       # 조회 실패해도 화면은 떠야 함(오늘값만 빔)
         return
     for orig, qtk in need.items():
@@ -208,14 +226,12 @@ def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, di
             price_maps[orig] = dict(q)
 
 
-def _today_label(category: str, us_open: bool, kr_open: bool) -> str:
+def _today_label(quote_ticker: str, opens: dict[str, bool]) -> str:
     """오늘 변동 라벨 — 해당 시장 개장 중이면 '오늘', 마감이면 '전일'(마지막 세션 종가 기준).
-    미국장 마감 상태에서 '오늘'이라 부르면 간밤 세션을 오늘로 오인하므로 시장 상태로 구분. 크립토는 24h."""
-    if category == "크립토":
-        return "오늘"
-    if category in ("국내주식", "ETF"):
-        return "오늘" if kr_open else "전일"
-    return "오늘" if us_open else "전일"                     # 미국주식·원자재·기타 → 미국장 기준
+    시장은 canonical market_of(티커)로 판정(크립토 24h·US/KR 세션). 미국장 마감 시 간밤 세션을
+    '오늘'로 오인하지 않게 구분. ETF는 카테고리로는 시장이 모호해 티커 기준이 정확(.KS→KR, US ETF→US)."""
+    from core.market_hours import market_of
+    return "오늘" if opens.get(market_of(quote_ticker), opens["US"]) else "전일"
 
 
 # USD/KRW 환율은 data/fx.py 단일 출처에 위임(이전엔 이 UI 파일 안에 자체 HTTP 호출이 박혀
@@ -845,7 +861,7 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
         return '<div class="pd-empty"><b>표시할 보유종목이 없습니다</b><p>포트폴리오 데이터가 연결되면 여기에 종목 리스트가 표시됩니다.</p></div>'
     max_w = max((p.get("weight") or 0 for p in visible), default=0)
     from core.market_hours import is_open
-    _us_open, _kr_open = is_open("US"), is_open("KR")   # '오늘/전일' 라벨 — 시장 개장 상태 기준
+    _opens = {"US": is_open("US"), "KR": is_open("KR"), "CRYPTO": True, "FX": is_open("FX")}  # '오늘/전일' 라벨용
     rows = []
     for position in visible:
         w = position.get("weight") or 0
@@ -856,10 +872,7 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
         upside = _target_upside(position, target_prices)
         upside_label = f"{upside:+.1f}%" if upside is not None else "데이터 없음"
         upside_cls = _tone(upside)
-        # 현재가(시세) 표시 통화 — 미국주식은 USD. 평가액 환산통화(_holding_currency)와 별개이며,
-        # 잘못 저장된 currency='KRW'(구 파싱 버그)에 휘둘리지 않게 카테고리 기준으로 판정.
-        _cur_disp = "USD" if position.get("category") == "미국주식" else \
-            _holding_currency(position, position.get("ticker", ""), position.get("category", ""))
+        _cur_disp = _price_currency(position)   # 현재가 표시통화(미국주식→USD) — 평가액 환산통화와 별개
         logo_item = {"group": position["category"], "name": position["name"], "code": position["ticker"]}
         shares = _fmt_qty(position.get("quantity"), position.get("quantity_est", False))
         # 비중 바: 최대 비중만 주황(집중 위험 — 경고 채널), 나머지 회색. 손익 빨강과 분리
@@ -871,12 +884,12 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
                    f'<span class="hl-ret-amt {gain_cls}">{_money(position.get("gain_loss"), "KRW", signed=True, compact=True)}</span>')
         else:
             ret = '<span class="pd-neu">손익 대기</span>'
-        _tlabel = _today_label(position["category"], _us_open, _kr_open)   # 미국장 마감 시 '전일'
+        _tlabel = _today_label(_quote_ticker(position.get("ticker", ""), position["category"]), _opens)  # 미국장 마감 시 '전일'
         today = (f'<span class="hl-ret-today">{_tlabel} <b class="{day_cls}">{position["today_change_pct"]:+.2f}%</b></span>'
                  if position.get("today_change_pct") is not None
                  else f'<span class="hl-ret-today">{_tlabel} —</span>')   # 미제공도 자리 유지(스캔성)
         # 행 전체(summary)를 클릭하면 아래로 상세가 펼쳐짐. 🗑은 summary 바깥(맨 우측 거터)에 둬 클릭 충돌 방지.
-        hid = quote(str(position.get("ticker") or position.get("name") or ""))
+        hid = quote(_holding_ident(position))
         trash = (f'<a class="hl-trash" href="?pf=holdings&hdel={hid}{sfx}" target="_self" '
                  f'title="삭제" aria-label="삭제">{_TRASH_SVG}</a>') if editable else ''
         rows.append(
@@ -2168,11 +2181,9 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
         # 인라인 삭제 — 통짜 HTML 리스트엔 네이티브 버튼을 못 넣으므로 🗑을 쿼리파라미터 링크로 처리.
         #   🗑 클릭 → ?hdel=<id> (상단 확인 배너) → '삭제' → ?hdelok=<id> (실제 삭제·영속화).
         _raw = st.session_state.get("brokerage_holdings") or []
-        def _ident(h: dict) -> str:
-            return str(h.get("ticker") or h.get("name") or "")
         _hdelok = st.query_params.get("hdelok", "")
         if _hdelok:
-            _kept = [h for h in _raw if _ident(h) != _hdelok]
+            _kept = [h for h in _raw if _holding_ident(h) != _hdelok]
             if len(_kept) != len(_raw):
                 _persist_holdings(_kept)
             st.query_params.pop("hdelok", None)
@@ -2181,7 +2192,7 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
             st.rerun()
         _hdel = st.query_params.get("hdel", "")
         if _hdel:
-            _nm = next((h.get("name") or _hdel for h in _raw if _ident(h) == _hdel), _hdel)
+            _nm = next((h.get("name") or _hdel for h in _raw if _holding_ident(h) == _hdel), _hdel)
             st.markdown(
                 f'<div class="hl-delbar"><span>‘{_escape(str(_nm))}’ 종목을 삭제할까요?</span>'
                 f'<a class="hl-del-yes" href="?pf=holdings&hdelok={quote(_hdel)}{_sfx}" target="_self">삭제</a>'
