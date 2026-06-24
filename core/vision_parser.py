@@ -1,31 +1,41 @@
 """
-Gemini Vision으로 포트폴리오 스크린샷에서 보유 종목 파싱.
+Vision으로 포트폴리오 스크린샷에서 보유 종목 파싱.
 반환값은 portfolio.py의 _first() 헬퍼가 수락하는 영문 필드 + 한국어 필드 양쪽 포함.
 
-소스: Gemini API(`GEMINI_API_KEY`, 무료 티어). 테스트 단계 무료 사용.
-모델: gemini-2.5-flash-lite — 이 키 기준 무료 한도 가용(2.0-flash=0, 2.5-flash=20/일 대비 헤드룸 큼).
+라우팅(키 접두사로 자동 분기):
+- ANTHROPIC_API_KEY 가 실제 키(sk-ant-…)면 **Claude Sonnet 4.6**(주력) — 표·한글·소수점
+  인식이 가장 정확하고 일일 한도가 넉넉. 비전이 약한 크립토 카드형 화면도 강함.
+- 없으면 **gemini-2.5-flash**(기본 폴백, 무료 20/일) 로 자동 전환.
+  → 지금은 Gemini로 돌고, .env 에 실제 Anthropic 키만 넣으면 Claude로 자동 승격.
+
 업로드는 이미지 N장을 단일 호출(extra_images)로 처리해 요청 수를 1로 줄인다.
-정확도가 부족하면 _MODEL 을 "gemini-2.5-flash"(20/일) 또는 Anthropic Claude(히스토리에 Sonnet 4.6)로 교체.
 """
+import base64
 import json
 import os
 import re
 import time
 
-_MODEL = "gemini-2.5-flash-lite"
+_CLAUDE_MODEL = "claude-sonnet-4-6"
+_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 class VisionBusyError(RuntimeError):
-    """비전 모델 과부하·일시적 사용 불가(503/429 등). 잠시 후 재시도 권장 — UI 는 '혼잡' 안내."""
+    """비전 모델 과부하·일시적 사용 불가(503/429/529 등). 잠시 후 재시도 권장 — UI 는 '혼잡' 안내."""
 
 
-_TRANSIENT_HINTS = ("503", "unavailable", "overloaded", "high demand", "429",
-                    "resource_exhausted", "try again", "deadline", "timeout", "500")
+_TRANSIENT_HINTS = ("503", "529", "unavailable", "overloaded", "high demand", "429",
+                    "resource_exhausted", "rate limit", "try again", "deadline", "timeout", "500")
 
 
 def _is_transient(err: Exception) -> bool:
     s = str(err).lower()
     return any(h in s for h in _TRANSIENT_HINTS)
+
+
+def _has_claude_key() -> bool:
+    """실제 Anthropic 키(sk-ant-…)가 있을 때만 Claude 경로. 플레이스홀더는 무시."""
+    return (os.getenv("ANTHROPIC_API_KEY") or "").startswith("sk-ant-")
 
 
 _PROMPT = """이 이미지(들)는 증권사 앱/HTS/MTS의 보유종목 또는 포트폴리오 화면입니다.
@@ -86,36 +96,73 @@ def _normalize(holdings: list[dict]) -> list[dict]:
     return out
 
 
+def _extract_json(text: str) -> list[dict]:
+    """모델 응답 텍스트 → 보유 리스트. 코드펜스/래핑 방어."""
+    text = (text or "").strip()
+    text = re.sub(r"^```[a-z]*\n?", "", text)   # 방어적: 코드펜스가 섞이면 제거
+    text = re.sub(r"\n?```$", "", text)
+    holdings = json.loads(text.strip())
+    if not isinstance(holdings, list):           # 드물게 {"holdings": [...]} 형태 방어
+        holdings = holdings.get("holdings") or holdings.get("items") or []
+    return holdings
+
+
+def _parse_with_claude(images: list[tuple[bytes, str]]) -> list[dict]:
+    """Claude Sonnet 4.6 비전 — 가장 정확. 이미지 N장을 한 번에 분석."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    content: list[dict] = []
+    for img_bytes, mt in images:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": mt,
+                       "data": base64.standard_b64encode(img_bytes).decode()},
+        })
+    content.append({"type": "text", "text": _PROMPT})
+
+    msg = client.messages.create(
+        model=_CLAUDE_MODEL,
+        max_tokens=4096,
+        temperature=0,                            # 결정적 추출
+        messages=[{"role": "user", "content": content}],
+    )
+    text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
+    return _extract_json(text)
+
+
+def _parse_with_gemini(images: list[tuple[bytes, str]]) -> list[dict]:
+    """gemini-2.5-flash 폴백(무료 20/일). thinking 기본 ON(정확도 우선)."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    parts: list = [types.Part.from_bytes(data=b, mime_type=mt) for b, mt in images]
+    parts.append(_PROMPT)
+    cfg = types.GenerateContentConfig(temperature=0, response_mime_type="application/json")
+    resp = client.models.generate_content(model=_GEMINI_MODEL, contents=parts, config=cfg)
+    return _extract_json(resp.text)
+
+
 def parse_portfolio_image(
     image_bytes: bytes,
     media_type: str = "image/png",
     extra_images: list[tuple[bytes, str]] | None = None,
 ) -> list[dict]:
     """이미지 바이트 → 보유 종목 리스트. 여러 장 전달 시 단일 API 호출로 합산.
-    extra_images: [(bytes, media_type), ...] 추가 이미지 목록."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다.")
+    extra_images: [(bytes, media_type), ...] 추가 이미지 목록.
+    Claude 키가 있으면 Claude(주력), 없으면 gemini-2.5-flash(폴백)."""
+    images = [(image_bytes, media_type)] + list(extra_images or [])
+    use_claude = _has_claude_key()
+    if not use_claude and not os.getenv("GEMINI_API_KEY"):
+        raise EnvironmentError("ANTHROPIC_API_KEY(sk-ant-…) 또는 GEMINI_API_KEY 가 필요합니다.")
 
-    from google import genai
-    from google.genai import types
+    runner = _parse_with_claude if use_claude else _parse_with_gemini
 
-    client = genai.Client(api_key=api_key)
-
-    parts: list = [types.Part.from_bytes(data=image_bytes, mime_type=media_type)]
-    for extra_bytes, extra_mt in (extra_images or []):
-        parts.append(types.Part.from_bytes(data=extra_bytes, mime_type=extra_mt))
-    parts.append(_PROMPT)
-
-    # temperature=0(결정적) + json 강제(파싱 오류 제거). flash-lite 는 기본 thinking 최소라 미설정으로 충분.
-    cfg = types.GenerateContentConfig(temperature=0, response_mime_type="application/json")
-
-    # 일시적 과부하(503/429 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
-    resp = None
+    # 일시적 과부하(503/429/529 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
     for _attempt in range(3):
         try:
-            resp = client.models.generate_content(model=_MODEL, contents=parts, config=cfg)
-            break
+            return _normalize(runner(images))
         except Exception as e:  # noqa: BLE001 — 일시적/영구 구분만 하고 재던짐
             if _is_transient(e):
                 if _attempt < 2:
@@ -123,11 +170,3 @@ def parse_portfolio_image(
                     continue
                 raise VisionBusyError(str(e)) from e
             raise
-
-    text = (resp.text or "").strip()
-    text = re.sub(r"^```[a-z]*\n?", "", text)   # 방어적: 코드펜스가 섞이면 제거
-    text = re.sub(r"\n?```$", "", text)
-    holdings = json.loads(text.strip())
-    if not isinstance(holdings, list):           # 드물게 {"holdings": [...]} 형태 방어
-        holdings = holdings.get("holdings") or holdings.get("items") or []
-    return _normalize(holdings)

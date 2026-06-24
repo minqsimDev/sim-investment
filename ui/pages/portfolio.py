@@ -2522,6 +2522,20 @@ def _merge_holdings(holdings: list[dict]) -> list[dict]:
     return [best[k] for k in order]
 
 
+def _merge_into_existing(existing: list[dict], new: list[dict]) -> list[dict]:
+    """기존 보유에 새 인식분을 합침(업데이트). 같은 (종목명,코드)는 새 값으로 갱신, 없던 건 추가,
+    이번 스크린샷에 없는 기존 종목은 유지. dict 순서로 기존 위치 보존 + 신규는 뒤에 추가."""
+    def _k(h: dict) -> tuple:
+        return (str(h.get("name", "")).strip(), str(h.get("ticker", "")).strip())
+    merged: dict = {}
+    for h in (existing or []):
+        merged[_k(h)] = h
+    for h in (new or []):
+        merged[_k(h)] = h   # 새 인식분 우선(갱신/추가)
+    merged.pop(("", ""), None)
+    return list(merged.values())
+
+
 def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool = True) -> None:
     from core.vision_parser import parse_portfolio_image
     from ui.pages.login import _filter_valid_holdings
@@ -2641,29 +2655,51 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     else:
         st.dataframe(_preview_df, use_container_width=True, hide_index=True)
 
-    col_apply, col_cancel = st.columns([2, 1])
-    with col_apply:
-        if st.button("이 데이터로 포트폴리오 적용", use_container_width=True, key=f"btn_apply_{key}"):
-            st.session_state["brokerage_holdings"] = holdings
-            st.session_state["brokerage_cash_balance"] = cash
-            st.session_state["brokerage_debug"] = result.get("_debug", {})
-            st.session_state["brokerage_provider"] = "screenshot"
-            # 로그인 유저는 계정 저장소에도 영속화 — 안 하면 하드 nav(?_user=) 후
-            # app.py 세션 복원이 옛 보유로 되돌려 "업데이트가 안 되는" 것처럼 보임(login.py 저장 경로와 동일).
-            _uname = st.session_state.get("username")
-            if st.session_state.get("auth_role") == "user" and _uname:
-                from core.accounts import get_portfolios, save_portfolio
-                _existing = get_portfolios(_uname)
-                _pf_name = _existing[0]["name"] if _existing else "내 포트폴리오"
-                save_portfolio(_uname, holdings, name=_pf_name, cash=cash)
-            st.session_state.pop(cache_key, None)
-            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
-            st.rerun()
-    with col_cancel:
-        if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
-            st.session_state.pop(cache_key, None)
-            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
-            st.rerun()
+    def _apply(final_holdings: list[dict], final_cash: float) -> None:
+        st.session_state["brokerage_holdings"] = final_holdings
+        st.session_state["brokerage_cash_balance"] = final_cash
+        st.session_state["brokerage_debug"] = result.get("_debug", {})
+        st.session_state["brokerage_provider"] = "screenshot"
+        # 로그인 유저는 계정 저장소에도 영속화 — 안 하면 하드 nav(?_user=) 후
+        # app.py 세션 복원이 옛 보유로 되돌려 "업데이트가 안 되는" 것처럼 보임(login.py 저장 경로와 동일).
+        _uname = st.session_state.get("username")
+        if st.session_state.get("auth_role") == "user" and _uname:
+            from core.accounts import get_portfolios, save_portfolio
+            _existing = get_portfolios(_uname)
+            _pf_name = _existing[0]["name"] if _existing else "내 포트폴리오"
+            save_portfolio(_uname, final_holdings, name=_pf_name, cash=final_cash)
+        st.session_state.pop(cache_key, None)
+        st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
+        st.rerun()
+
+    def _clear() -> None:
+        st.session_state.pop(cache_key, None)
+        st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
+        st.rerun()
+
+    _existing_h = st.session_state.get("brokerage_holdings") or []
+    _existing_cash = _num(st.session_state.get("brokerage_cash_balance")) or 0.0
+    if _existing_h:
+        # 기존 보유가 있으면 합치기(업데이트) ↔ 전체 교체 선택 — 부분 캡처로 기존이 지워지지 않게.
+        c_merge, c_replace, c_cancel = st.columns([2, 2, 1])
+        with c_merge:
+            if st.button("기존에 합치기", use_container_width=True, key=f"btn_merge_{key}"):
+                _apply(_merge_into_existing(_existing_h, holdings), cash or _existing_cash)
+        with c_replace:
+            if st.button("전체 교체", use_container_width=True, key=f"btn_replace_{key}"):
+                _apply(holdings, cash)
+        with c_cancel:
+            if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
+                _clear()
+        st.caption("합치기 = 같은 종목 갱신·새 종목 추가·기존 유지(부분 캡처 안전) · 교체 = 이번 인식분으로 전부 대체")
+    else:
+        col_apply, col_cancel = st.columns([2, 1])
+        with col_apply:
+            if st.button("이 데이터로 포트폴리오 적용", use_container_width=True, key=f"btn_apply_{key}"):
+                _apply(holdings, cash)
+        with col_cancel:
+            if st.button("취소", use_container_width=True, key=f"btn_cancel_{key}"):
+                _clear()
 
 
 def _is_token_expired() -> bool:
