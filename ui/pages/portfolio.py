@@ -2499,6 +2499,11 @@ def _render_onboarding() -> None:
     st.markdown(jj_footer(), unsafe_allow_html=True)
 
 
+def _holding_key(h: dict) -> tuple:
+    """보유 dedup 키 — (종목명, 코드). 양쪽 빈 값이면 ("","")(드롭 대상)."""
+    return (str(h.get("name", "")).strip(), str(h.get("ticker", "")).strip())
+
+
 def _merge_holdings(holdings: list[dict]) -> list[dict]:
     """여러 스크린샷에서 모은 보유를 (종목명, 코드) 기준으로 병합 — 겹친 캡처 중복 제거.
     같은 종목이 여러 장에 걸치면 평가금액이 큰(=더 완전한) 항목을 남긴다. 입력 순서 보존."""
@@ -2511,7 +2516,7 @@ def _merge_holdings(holdings: list[dict]) -> list[dict]:
     best: dict = {}
     order: list = []
     for h in holdings:
-        k = (str(h.get("name", "")).strip(), str(h.get("ticker", "")).strip())
+        k = _holding_key(h)
         if k == ("", ""):
             continue
         if k not in best:
@@ -2525,13 +2530,11 @@ def _merge_holdings(holdings: list[dict]) -> list[dict]:
 def _merge_into_existing(existing: list[dict], new: list[dict]) -> list[dict]:
     """기존 보유에 새 인식분을 합침(업데이트). 같은 (종목명,코드)는 새 값으로 갱신, 없던 건 추가,
     이번 스크린샷에 없는 기존 종목은 유지. dict 순서로 기존 위치 보존 + 신규는 뒤에 추가."""
-    def _k(h: dict) -> tuple:
-        return (str(h.get("name", "")).strip(), str(h.get("ticker", "")).strip())
     merged: dict = {}
     for h in (existing or []):
-        merged[_k(h)] = h
+        merged[_holding_key(h)] = h
     for h in (new or []):
-        merged[_k(h)] = h   # 새 인식분 우선(갱신/추가)
+        merged[_holding_key(h)] = h   # 새 인식분 우선(갱신/추가)
     merged.pop(("", ""), None)
     return list(merged.values())
 
@@ -2656,18 +2659,11 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
         st.dataframe(_preview_df, use_container_width=True, hide_index=True)
 
     def _apply(final_holdings: list[dict], final_cash: float) -> None:
-        st.session_state["brokerage_holdings"] = final_holdings
         st.session_state["brokerage_cash_balance"] = final_cash
         st.session_state["brokerage_debug"] = result.get("_debug", {})
         st.session_state["brokerage_provider"] = "screenshot"
-        # 로그인 유저는 계정 저장소에도 영속화 — 안 하면 하드 nav(?_user=) 후
-        # app.py 세션 복원이 옛 보유로 되돌려 "업데이트가 안 되는" 것처럼 보임(login.py 저장 경로와 동일).
-        _uname = st.session_state.get("username")
-        if st.session_state.get("auth_role") == "user" and _uname:
-            from core.accounts import get_portfolios, save_portfolio
-            _existing = get_portfolios(_uname)
-            _pf_name = _existing[0]["name"] if _existing else "내 포트폴리오"
-            save_portfolio(_uname, final_holdings, name=_pf_name, cash=final_cash)
+        # 세션+계정 영속화는 공통 헬퍼로(하드 nav 후 옛 보유로 복원되는 것 방지). cash 는 위에서 세션에 반영됨.
+        _persist_holdings(final_holdings)
         st.session_state.pop(cache_key, None)
         st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
         st.rerun()
