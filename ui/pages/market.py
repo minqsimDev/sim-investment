@@ -1311,9 +1311,10 @@ def _build_news_grid(data: dict) -> str:
 
 # ── Main render ───────────────────────────────────────────────────────────────
 
-@st.fragment(run_every=1800)
 def _pulse_chips(data: dict) -> str:
-    """요약 상단 — 대표 지수/환율/원자재/크립토 1D 변동 칩."""
+    """요약 상단 — 대표 지수/환율/원자재/크립토 1D 변동 칩.
+    (HTML 문자열만 반환하는 순수 함수 — 렌더를 안 하므로 @st.fragment 는 무의미해 제거.
+     덕분에 요약/전체 토글을 fragment 로 감싸도 중첩 크래시가 없음.)"""
     def _chg(key, col, val):
         df = data.get(key, pd.DataFrame())
         if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
@@ -1421,25 +1422,24 @@ def _market_tab_bar(active: str, suffix: str) -> str:
     return _TABBAR_CSS + f'<div class="mkt-tabbar">{"".join(parts)}</div>'
 
 
-_VIEWTOGGLE_CSS = """<style>
-.mkt-vt-wrap{display:inline-flex;gap:3px;padding:3px;border:1px solid #262A33;border-radius:12px;
-  background:rgba(255,255,255,.04);margin:2px 0 16px}
-.mkt-vt{font-size:13px;font-weight:800;color:#9AA0AD;text-decoration:none!important;
-  padding:7px 16px;border-radius:9px;transition:background .15s,color .15s;white-space:nowrap}
-.mkt-vt:hover{color:#E7E9EE}
-.mkt-vt.on{background:#D9A441;color:#0E0F13!important}
-</style>"""
-
-
-def _view_toggle_html(view: str, suffix: str) -> str:
-    """진입 기본 화면 상단 뷰 토글 — [한눈에 요약] ⇄ [전체 비교]."""
-    opts = [("summary", "한눈에 요약"), ("all", "전체 비교")]
-    pills = "".join(
-        f'<a class="mkt-vt {"on" if v == view else ""}" '
-        f'href="?market_tab={v}{suffix}" target="_self">{lbl}</a>'
-        for v, lbl in opts
-    )
-    return _VIEWTOGGLE_CSS + f'<div class="mkt-vt-wrap">{pills}</div>'
+@st.fragment
+def _market_summary_all(suffix: str, initial_view: str) -> None:
+    """요약 ⇄ 전체 비교 — 토글 위젯+뷰를 한 fragment 로 묶어 누를 때 이 섹션만 부분 렌더
+    (페이지 전체 재실행·CSS 재주입·스크롤 점프 제거). 초기값은 쿼리파라미터(딥링크 진입)."""
+    from ui.pages import major_movers
+    _default = "전체 비교" if initial_view == "all" else "한눈에 요약"
+    _sel = st.segmented_control(
+        "시장 뷰", ["한눈에 요약", "전체 비교"], default=_default,
+        key="mkt_view_sel", label_visibility="collapsed",
+    ) or _default
+    if _sel == "전체 비교":
+        from ui.components.all_markets import all_markets_html
+        st.markdown(all_markets_html(load_market_data(), suffix), unsafe_allow_html=True)
+        # 전 자산군 급등·급락 순위 상세는 기본 접힘(토글)
+        if st.toggle("급등·급락 순위 전체 보기 (전 자산군 상세)", key="all_movers_detail", value=False):
+            major_movers.render(embedded=True)
+    else:
+        _live_section(suffix)
 
 
 def render() -> None:
@@ -1469,7 +1469,7 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    from ui.pages import us_stocks, kr_stocks, commodities, fx_rates, major_movers, crypto, etf
+    from ui.pages import us_stocks, kr_stocks, commodities, fx_rates, crypto, etf  # major_movers 는 _market_summary_all fragment 내부에서 import
 
     # 쿼리파라미터 기반 서브탭 — st.tabs 대신(딥링크·시장 한눈 카드 클릭 이동 지원)
     _asset_tabs = {s for _, s in _MARKET_TABS}
@@ -1494,18 +1494,9 @@ def render() -> None:
         elif active == "rates":
             fx_rates.render_rates(embedded=True)
     else:
-        # 진입 기본 화면 = 요약. 상단 토글로 [한눈에 요약] ⇄ [전체 비교](구 '전체' 탭 흡수).
-        _view = "all" if active == "all" else "summary"
-        st.markdown(_view_toggle_html(_view, suffix), unsafe_allow_html=True)
-        if _view == "all":
-            from ui.components.all_markets import all_markets_html
-            _all_data = load_market_data()
-            st.markdown(all_markets_html(_all_data, suffix), unsafe_allow_html=True)
-            # 전 자산군 급등·급락 순위 상세는 기본 접힘(토글) — major_movers 내부 expander 중첩 회피
-            if st.toggle("급등·급락 순위 전체 보기 (전 자산군 상세)", key="all_movers_detail", value=False):
-                major_movers.render(embedded=True)
-        else:
-            _live_section(suffix)
+        # 진입 기본 화면 = 요약/전체. 토글은 fragment 안의 위젯 — 누르면 페이지 전체가 아니라
+        # 이 섹션만 다시 그린다(하드 nav·CSS 재주입·스크롤 점프 제거). 초기값은 쿼리파라미터(딥링크).
+        _market_summary_all(suffix, "all" if active == "all" else "summary")
 
     glossary_expander("MA20 이격", "breadth", "추세", "상승여력", "감지 임계값")
     st.markdown(jj_footer(), unsafe_allow_html=True)
