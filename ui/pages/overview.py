@@ -129,12 +129,18 @@ _MY_CSS = """<style>
 .ov-hero-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .ov-hero-label{font-size:13px;font-weight:900;color:#E7E9EE;letter-spacing:.02em}
 .ov-hero-sub{font-size:12px;font-weight:700;color:#7E8694}
-.ov-hero-nums{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-end}
-.ov-hn-main span,.ov-hn span{display:block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#7E8694;margin-bottom:4px}
-.ov-hn-main b{display:block;font-size:30px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
-.ov-hn b{display:block;font-size:19px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+/* 라벨 좌 · 값 우 정렬(키-값 행 스택). 총자산은 큰 글씨 유지 */
+.ov-hero-nums{display:flex;flex-direction:column;gap:10px}
+.ov-hn-main,.ov-hn{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.ov-hn-main span,.ov-hn span{font-size:12px;font-weight:800;letter-spacing:.02em;color:#7E8694}
+.ov-hn-main b{font-size:27px;font-weight:950;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
+.ov-hn b{font-size:18px;font-weight:900;color:#E7E9EE;font-variant-numeric:tabular-nums;line-height:1}
 .ov-hn b.up{color:#F25560}.ov-hn b.down{color:#4D90F0}
-@media(max-width:760px){.todo-row{grid-template-columns:1fr;gap:3px}.ov-hero-nums{gap:20px}.ov-hn-main b{font-size:26px}}
+/* 상세 링크 — 리스크 카드 안쪽 하단·우측(골드 강조) */
+.pb-card-link{display:block;text-align:right;margin-top:11px;font-size:12px;font-weight:850;
+  color:#D9A441!important;text-decoration:none}
+.pb-card-link:hover{color:#E7B964!important}
+@media(max-width:760px){.todo-row{grid-template-columns:1fr;gap:3px}.ov-hn-main b{font-size:24px}}
 </style>"""
 
 def _session_suffix() -> str:
@@ -306,13 +312,11 @@ def render():
 
     if _diag:
         # 1단 — 한 줄 진단(요약). 풀 카드(지표 그리드·재배분·벤치마크)는 포트폴리오/리스크에서만 — 100% 복제 제거.
-        st.markdown(_pb_risk_summary_html(_diag), unsafe_allow_html=True)
-        # 다이제스트 정책: 벤치마크 상세 바·보유·리밸런싱은 포트폴리오에서(중복 노출 방지) → 링크만.
-        st.markdown(
-            f'<a class="ov-risk-link" href="/portfolio{_suf}" target="_self" '
-            'style="display:inline-flex;margin:2px 0 6px">'
-            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a>',
-            unsafe_allow_html=True)
+        # 상세 링크는 카드 '안쪽 하단·우측'에(밖에 떠다니지 않게). 풀 상세는 포트폴리오 탭.
+        _detail_link = (
+            f'<a class="pb-card-link" href="/portfolio{_suf}" target="_self">'
+            '내 포트폴리오 상세 — 벤치마크 비교 · 보유 · 리밸런싱 &rarr;</a>')
+        st.markdown(_pb_risk_summary_html(_diag, footer=_detail_link), unsafe_allow_html=True)
 
     # 2단 — 오늘 할 일(신호 → 내 노출 → 대응 3줄), 상세는 리스크 탭
     _todo = _risk_todo_html(_holdings, signals, f"/risk{_suf}", total=_total or 0.0)
