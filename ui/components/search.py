@@ -93,8 +93,8 @@ def _build_universe() -> list[tuple[str, str, str]]:
     except Exception:
         pass
     try:
-        from ui.pages.commodities import _COMM_STOCK_KOR
-        items += [(nm, tk, "원자재") for tk, nm in _COMM_STOCK_KOR.items()]
+        from ui.pages.commodities import _META   # {key: (한글명, 단위, 그룹)} — 티커 없이 key만
+        items += [(nm, key, "원자재") for key, (nm, _u, _g) in _META.items()]
     except Exception:
         pass
     try:
@@ -121,7 +121,7 @@ def render_global_search() -> None:
     st.markdown(_GS_BAR_CSS, unsafe_allow_html=True)
     q = st.text_input(
         "종목 검색", key="global_search_q",
-        placeholder="종목·티커 검색 (예: 테슬라, TSLA, BTC)",
+        placeholder="내 보유·주요 종목 검색 (예: 테슬라, 삼성전자, 금)",
         label_visibility="collapsed",
     )
     q = (q or "").strip()
@@ -144,15 +144,17 @@ def render_global_search() -> None:
             results.append((nm, disp, "보유"))
             shown.add(disp.lower())
     if not results:
-        st.caption(f"‘{q}’ 검색 결과가 없습니다.")
+        st.caption(f"‘{q}’ 검색 결과가 없습니다 — 내 보유·주요 종목만 검색됩니다.")
         return
 
     amp = f"&{auth}" if auth else ""
     links = []
     for name, tk, cat in results[:12]:
-        # 외환은 종목 상세가 없어 시장 외환 탭으로, 나머지는 종목 상세 페이지로
+        # 외환·원자재는 개별 종목 상세가 없어 해당 시장 탭으로, 나머지는 종목 상세 페이지로
         if cat == "외환":
             href = f"/market?market_tab=fx{amp}"
+        elif cat == "원자재":
+            href = f"/market?market_tab=commodities{amp}"
         else:
             href = f"/stock?symbol={tk}{amp}"
         links.append(
