@@ -1203,25 +1203,24 @@ def numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 # 단일 잉크 블롭이 살아있듯 border-radius를 모핑하며 14s에 한 바퀴 천천히 회전(무텍스트).
 # 전 페이지 공용(show_skeleton) — 한 곳만 바꾸면 전역 적용.
 _LOADER_CSS = """<style>
-@keyframes ov-morph{
-  0%,100%{border-radius:60% 40% 47% 53% / 62% 53% 47% 38%}
-  25%{border-radius:40% 60% 62% 38% / 47% 62% 38% 53%}
-  50%{border-radius:52% 48% 35% 65% / 40% 47% 53% 60%}
-  75%{border-radius:46% 54% 58% 42% / 56% 38% 62% 44%}
-}
-@keyframes ov-roll{to{offset-distance:100%}}
-.ov-loader-wrap{display:grid;place-items:center;min-height:140px;padding:20px 0}
-.ov-loader{width:26px;height:26px;opacity:.5;
-  background:radial-gradient(circle at 38% 33%,rgba(255,213,150,.62) 0%,rgba(245,158,11,.55) 58%,rgba(201,122,12,.44) 100%);
-  box-shadow:0 6px 18px rgba(245,158,11,.16);
-  offset-path:circle(15px at 50% 50%);
-  animation:ov-morph 3s ease-in-out infinite, ov-roll 2.2s linear infinite}
-@media(prefers-reduced-motion:reduce){
-  .ov-loader{offset-path:none;animation:ov-morph 8s ease-in-out infinite}
-}
+/* 금덩어리 3개가 시계방향으로 굴러가는(공전) 로더 — 골드 팔레트(#FBD79A→#F7B038→#C97A0C).
+   컨테이너가 시계방향 회전 → 120° 간격 너깃 3개가 orbit. 불규칙 라운드로 '덩어리' 질감. */
+@keyframes ov-orbit{to{transform:rotate(360deg)}}
+.ov-loader-wrap{display:grid;place-items:center;min-height:96px;padding:16px 0}
+.ov-loader{position:relative;width:32px;height:32px;animation:ov-orbit 1.1s linear infinite}
+.ov-loader span{position:absolute;top:0;left:50%;width:7px;height:7px;margin-left:-3.5px;
+  border-radius:60% 40% 55% 45% / 52% 60% 40% 48%;
+  background:radial-gradient(circle at 38% 33%,#FBD79A 0%,#F7B038 60%,#C97A0C 100%);
+  transform-origin:50% 16px}
+/* 투명도 꼬리(밝음→흐림) = 시계방향 회전 방향이 또렷이 읽힘(태양 X, 도는 점 O) */
+.ov-loader span:nth-child(1){transform:rotate(0deg);opacity:1}
+.ov-loader span:nth-child(2){transform:rotate(125deg);opacity:.55}
+.ov-loader span:nth-child(3){transform:rotate(250deg);opacity:.28}
+@media(prefers-reduced-motion:reduce){.ov-loader{animation-duration:3s}}
 </style>"""
 
-_LOADER_HTML = '<div class="ov-loader-wrap"><div class="ov-loader" role="status" aria-label="불러오는 중"></div></div>'
+_LOADER_HTML = ('<div class="ov-loader-wrap"><div class="ov-loader" role="status" aria-label="불러오는 중">'
+                '<span></span><span></span><span></span></div></div>')
 
 
 def show_skeleton():
