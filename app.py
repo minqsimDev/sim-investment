@@ -21,6 +21,15 @@ st.set_page_config(
 # var(--sv-gold) 등을 쓸 수 있게). 색의 단일 출처는 siminvest_theme.py.
 st.markdown(theme_root_css(), unsafe_allow_html=True)
 
+# 문서 lang을 ko로 고정 — Streamlit 기본값 lang="en" 이면 한·중·일 공유 글자(한자 漢字)가
+# macOS에서 일본어 글꼴(Hiragino)로 폴백돼 일본어처럼 보인다. ko 로 두면 한국어 글꼴로 렌더.
+# st.html 은 스크립트를 실행하지 않으므로 components.html(iframe srcdoc, 동일 출처)에서 window.parent 로 부모 문서를 수정.
+import streamlit.components.v1 as _components
+_components.html(
+    "<script>try{window.parent.document.documentElement.lang='ko';}catch(e){}</script>",
+    height=0, width=0,
+)
+
 
 # ── Cache warming (서버 부팅 1회) ────────────────────────────────────────────────
 # st.cache_resource → 프로세스당 1회만 본문 실행. 진입 경로(로그인/게스트/하드nav)와

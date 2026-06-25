@@ -199,6 +199,7 @@ def _render_guest_portfolio():
 .gp-home-main{background:#16181F}
 .gp-home-side{background:#16181F}
 .gp-home-top{position:relative;z-index:1}
+/* 샘플 표기 — 파랑-라임 그라데이션 알약(전체현황 .ov-sample-mark 와 동일 스타일) */
 .gp-kicker{display:inline-flex;border:1px solid #262A33;background:linear-gradient(135deg,rgba(133,186,234,.25),rgba(226,235,136,.34));color:#E7E9EE;border-radius:999px;padding:6px 10px;font-size:10px;font-weight:950;margin-bottom:14px}
 .gp-total-label{font-size:12px;color:#9AA0AD;font-weight:900;margin-bottom:5px}
 .gp-total{color:#E7E9EE;font-size:40px;font-weight:950;line-height:1.05;font-variant-numeric:tabular-nums}
@@ -275,11 +276,7 @@ def _render_guest_portfolio():
     _bench = _get_bench_returns(_sd_raw if isinstance(_sd_raw, str) else _sd_raw.isoformat())
     _diag = pb_diagnostics(holdings_for_pb(guest_positions), current_asset, _cash, _start, _sval, _bench)
     if _diag:
-        st.markdown(
-            '<div style="font-size:11.5px;font-weight:750;color:#8A999B;margin:6px 0 8px">'
-            '샘플 포트폴리오 기준 — 로그인 시 내 계좌로 자동 전환</div>',
-            unsafe_allow_html=True,
-        )
+        # 진단부 위 '샘플 포트폴리오' 인라인 마커 제거 — 홈 히어로 .gp-kicker 가 동일 표기 담당(페이지당 1회).
         st.markdown(_pb_risk_card_html(_diag), unsafe_allow_html=True)
         _bm = _benchmark_compare_html(_diag, _bench)
         if _bm:

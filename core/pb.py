@@ -128,6 +128,33 @@ def pb_diagnostics(holdings, total_value, cash, start_date, start_value,
     }
 
 
+# ── 표준 정량 리스크 지표 (베타·HHI·추정 변동성) ──────────────────────────────
+_MARKET_SIGMA = 18.0  # 시장 연환산 변동성 가정(%) — 체계적 σ 추정용(KOSPI/S&P 장기 실현 ~15~20% 중앙값)
+
+
+def portfolio_risk_metrics(holdings: list[dict]) -> dict | None:
+    """표준 정량 리스크 지표 — 보유 weight·beta에서 자동 산출.
+    - beta_p = Σ wᵢβᵢ            (체계적 시장 민감도 = CAPM 베타)
+    - hhi = Σ wᵢ², eff_n = 1/hhi (집중도 = 허핀달-허시먼 지수 · 유효종목수)
+    - sigma_p ≈ beta_p × 시장σ   (체계적 변동성 추정, 연율%)
+    - top_w                       (최대 단일종목 비중 0~1 — 단일명 꼬리위험)
+    β·HHI는 표준 정의를 그대로 사용. 0~100 점수화 매핑·가중은 호출부(리스크 페이지) 책임."""
+    hs = [h for h in holdings if (h.get("weight") or 0) > 0]
+    if not hs:
+        return None
+    wsum = sum(h["weight"] for h in hs) or 1.0
+    norm = [(h["weight"] / wsum, h) for h in hs]                 # 비중 합 1로 정규화(현금 제외분 보정)
+    beta_p = sum(w * (h.get("beta") or 1.0) for w, h in norm)
+    hhi = sum(w * w for w, _ in norm)
+    eff_n = (1.0 / hhi) if hhi else float(len(hs))
+    top_w, top = max(norm, key=lambda x: x[0])
+    return {
+        "beta_p": beta_p, "hhi": hhi, "eff_n": eff_n,
+        "sigma_p": beta_p * _MARKET_SIGMA,
+        "top_w": top_w, "top_name": top.get("name", ""),
+    }
+
+
 # ── 벤치마크 동일 기간 수익률 ────────────────────────────────────────────────
 _BENCH_TICKERS = {"NASDAQ100": "QQQ", "S&P500": "SPY", "KOSPI": "^KS11"}
 
