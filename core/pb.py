@@ -143,15 +143,16 @@ def portfolio_risk_metrics(holdings: list[dict]) -> dict | None:
     if not hs:
         return None
     wsum = sum(h["weight"] for h in hs) or 1.0
-    norm = [(h["weight"] / wsum, h) for h in hs]                 # 비중 합 1로 정규화(현금 제외분 보정)
+    norm = [(h["weight"] / wsum, h) for h in hs]                 # β·HHI는 투자분 합=1 기준(표준)
     beta_p = sum(w * (h.get("beta") or 1.0) for w, h in norm)
     hhi = sum(w * w for w, _ in norm)
     eff_n = (1.0 / hhi) if hhi else float(len(hs))
-    top_w, top = max(norm, key=lambda x: x[0])
+    # 단일명 노출(top_w)은 '총액 대비'(현금 포함) — 진단카드·자산배분바와 동일 숫자 + 현금 완충 반영.
+    top = max(hs, key=lambda h: h.get("weight") or 0)
     return {
         "beta_p": beta_p, "hhi": hhi, "eff_n": eff_n,
         "sigma_p": beta_p * _MARKET_SIGMA,
-        "top_w": top_w, "top_name": top.get("name", ""),
+        "top_w": top.get("weight") or 0, "top_name": top.get("name", ""),
     }
 
 

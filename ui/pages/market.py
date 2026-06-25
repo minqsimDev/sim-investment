@@ -13,7 +13,7 @@ import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data, batch_history
 from ui.components.dash_style import (
     glossary_expander,
-    inject_css, show_skeleton, mkt_stats_chips,
+    inject_css, show_skeleton, market_pulse_chips,
     mark_active_nav, mkt_page_header, mkt_section_header, jj_footer,
 )
 
@@ -1323,36 +1323,15 @@ def _build_news_grid(data: dict) -> str:
 # ── Main render ───────────────────────────────────────────────────────────────
 
 def _pulse_chips(data: dict) -> str:
-    """요약 상단 — 대표 지수/환율/원자재/크립토 1D 변동 칩.
-    (HTML 문자열만 반환하는 순수 함수 — 렌더를 안 하므로 @st.fragment 는 무의미해 제거.
-     덕분에 요약/전체 토글을 fragment 로 감싸도 중첩 크래시가 없음.)"""
-    def _chg(key, col, val):
-        df = data.get(key, pd.DataFrame())
-        if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
-            return None
-        r = df[df[col] == val]
-        if r.empty:
-            return None
-        c = r.iloc[0].get("change_pct")
-        return float(c) if isinstance(c, (int, float)) and not pd.isna(c) else None
-
-    specs = [
+    """요약 상단 — 대표 지수/환율/원자재/크립토 1D 변동 칩(공용 market_pulse_chips)."""
+    return market_pulse_chips(data, [
         ("나스닥100", "benchmarks", "ticker", "QQQ"),
         ("S&P500",   "benchmarks", "ticker", "SPY"),
         ("반도체",    "benchmarks", "ticker", "SOXX"),
         ("USD/KRW",  "fx",          "pair",   "usd_krw"),
         ("금",        "commodities", "name",   "gold"),
         ("비트코인",  "crypto",      "ticker", "BTC-USD"),
-    ]
-    items = []
-    for label, key, col, val in specs:
-        c = _chg(key, col, val)
-        if c is None:
-            continue
-        sign = "+" if c >= 0 else ""
-        items.append({"label": label, "value": f"{sign}{c:.2f}%",
-                      "cls": "pos" if c > 0 else ("neg" if c < 0 else "neu")})
-    return mkt_stats_chips(items) if items else ""
+    ])
 
 
 def _live_section(suffix: str = "") -> None:
