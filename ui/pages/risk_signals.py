@@ -325,7 +325,7 @@ def _quant_risk_score(holdings: list[dict], mkt_raw: float) -> tuple[int, dict |
                    "conc_single": conc_single, "market_score": market_score}
 
 
-def _my_portfolio_risk_html(holdings: list[dict], is_guest: bool) -> str:
+def _my_portfolio_risk_html(holdings: list[dict], is_guest: bool, metrics: dict | None = None) -> str:
     """내 포트폴리오 구조 리스크 — 단일종목 집중·상위3개·USD 노출(자동 산출).
 
     최우선 위험(집중 ≥50%)=레드 좌측 바, 주의(≥30%)=골드.
@@ -361,9 +361,11 @@ def _my_portfolio_risk_html(holdings: list[dict], is_guest: bool) -> str:
         + _card("상위 3개 비중", f'{pct_weight(top3)}%', "상위 포지션 집중도 — 리밸런싱 1순위", top3_sev)
         + _card("USD 노출", f'{pct_weight(usd)}%', "원/달러 변동이 원화 평가액에 직접 반영", usd_sev)
     )
-    # 시장 민감도 — 정량 표준 지표(β = CAPM, σ = 체계적 변동성 추정). B 업그레이드.
-    from core.pb import portfolio_risk_metrics
-    _m = portfolio_risk_metrics(holdings)
+    # 시장 민감도 — 정량 표준 지표(β = CAPM, σ = 체계적 변동성 추정). 호출부의 risk_parts 재사용(중복계산 제거).
+    _m = metrics
+    if _m is None:
+        from core.pb import portfolio_risk_metrics
+        _m = portfolio_risk_metrics(holdings)
     if _m:
         _beta_sev = "danger" if _m["beta_p"] >= 1.5 else ("warn" if _m["beta_p"] >= 1.2 else "")
         _beta_body = (f'추정 연변동성 ~{_m["sigma_p"]:.0f}% · '
@@ -619,7 +621,7 @@ def render():
         expanded=True,
     ):
         st.markdown(_signal_cards_html(_mrows), unsafe_allow_html=True)
-    st.markdown(_my_portfolio_risk_html(holdings, _is_guest), unsafe_allow_html=True)
+    st.markdown(_my_portfolio_risk_html(holdings, _is_guest, risk_parts), unsafe_allow_html=True)
     st.markdown(_scenario_card_html(holdings, _impact_total), unsafe_allow_html=True)  # A2 시나리오
     # 오늘 할 일 체크 = 매트릭스의 구체 대응(위험·주의 신호만, 완충은 행동 불필요), 중복 액션 제거.
     _todo = list(dict.fromkeys(r["action"] for r in _mrows if r["col"] in ("high", "mid")))
