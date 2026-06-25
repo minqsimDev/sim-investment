@@ -13,8 +13,8 @@ from data.loader import load_market_data
 from src.risk import compute_regime_signals
 from ui.components.dash_style import (
     glossary_expander,
-    inject_css, numeric, show_skeleton,
-    mark_active_nav, mkt_page_header, jj_footer, mkt_stats_chips,
+    inject_css, show_skeleton,
+    mark_active_nav, mkt_page_header, jj_footer, market_pulse_chips,
 )
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -314,29 +314,12 @@ def _risk_todo_html(rows: list[dict], kor2eng: dict, footer: str = "") -> str:
     )
 
 def _market_pulse_chips(data: dict) -> str:
-    """시장 펄스 — 핵심 지표 1D% 미니 칩(시장 페이지 '오늘의 핵심 지표'와 동일 컴포넌트·소스).
-    풀 지표는 시장 페이지 담당, 여기선 5개 요약만(다이제스트)."""
-    def _chg(key, col, val):
-        df = data.get(key)
-        if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
-            return None
-        r = df[df[col] == val]
-        if r.empty:
-            return None
-        c = r.iloc[0].get("change_pct")
-        return float(c) if isinstance(c, (int, float)) and not pd.isna(c) else None
-    specs = [("나스닥100", "benchmarks", "ticker", "QQQ"), ("S&P500", "benchmarks", "ticker", "SPY"),
-             ("반도체", "benchmarks", "ticker", "SOXX"), ("USD/KRW", "fx", "pair", "usd_krw"),
-             ("비트코인", "crypto", "ticker", "BTC-USD")]
-    items = []
-    for label, key, col, val in specs:
-        c = _chg(key, col, val)
-        if c is None:
-            continue
-        sign = "+" if c >= 0 else ""
-        items.append({"label": label, "value": f"{sign}{c:.2f}%",
-                      "cls": "pos" if c > 0 else ("neg" if c < 0 else "neu")})
-    return f'<div class="ov-mkt-chips">{mkt_stats_chips(items)}</div>' if items else ""
+    """시장 펄스 — 핵심 지표 1D% 미니 칩(공용 market_pulse_chips, 시장 페이지와 동일 소스). 5개 요약(다이제스트)."""
+    chips = market_pulse_chips(data, [
+        ("나스닥100", "benchmarks", "ticker", "QQQ"), ("S&P500", "benchmarks", "ticker", "SPY"),
+        ("반도체", "benchmarks", "ticker", "SOXX"), ("USD/KRW", "fx", "pair", "usd_krw"),
+        ("비트코인", "crypto", "ticker", "BTC-USD")])
+    return f'<div class="ov-mkt-chips">{chips}</div>' if chips else ""
 
 def _market_digest_html(direction: str, note: str, tone: str, chips: str, footer: str = "") -> str:
     """4단 — 시장 다이제스트: 방향 칩(색 배지) + 한 줄 + 핵심 지표 펄스 칩 + 시장 탭 링크."""

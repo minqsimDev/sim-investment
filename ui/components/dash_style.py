@@ -1111,6 +1111,31 @@ def mkt_section_header(title: str, sub: str = "") -> str:
     return f'<div class="mkt-sec"><span class="mkt-sec-t">{title}</span>{s}</div>'
 
 
+def change_pct_from(data: dict, key: str, col: str, val) -> float | None:
+    """data[key] DataFrame에서 col==val 행의 change_pct(숫자) 반환. 없으면 None. 시장·전체현황 공용."""
+    df = data.get(key)
+    if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
+        return None
+    r = df[df[col] == val]
+    if r.empty:
+        return None
+    c = r.iloc[0].get("change_pct")
+    return float(c) if isinstance(c, (int, float)) and not pd.isna(c) else None
+
+
+def market_pulse_chips(data: dict, specs: list[tuple]) -> str:
+    """specs=[(label,key,col,val)] → 핵심지표 1D% 칩(등락 pos/neg/neu). 시장·전체현황 공용(단일 출처)."""
+    items = []
+    for label, key, col, val in specs:
+        c = change_pct_from(data, key, col, val)
+        if c is None:
+            continue
+        sign = "+" if c >= 0 else ""
+        items.append({"label": label, "value": f"{sign}{c:.2f}%",
+                      "cls": "pos" if c > 0 else ("neg" if c < 0 else "neu")})
+    return mkt_stats_chips(items) if items else ""
+
+
 def mkt_stats_chips(items: list[dict]) -> str:
     """items: [{label, value, cls}]  cls ∈ {pos, neg, neu}"""
     html = '<div class="mkt-chips">'
