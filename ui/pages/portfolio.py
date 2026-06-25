@@ -1692,8 +1692,9 @@ def _pb_risk_summary_html(d: dict, footer: str = "") -> str:
         head = f'{d["top_name"]} {pct_s}% 집중 — 분산 점검이 필요합니다'
     else:
         head = f'{d["top_name"]} {pct_s}% — 집중도는 양호합니다'
-    sub = (f'최대 종목 −20% 시 계좌 {d["shock_pct"]:.1f}% · 현금 {pct_weight(d["cash_pct"])}% · '
-           f'USD {pct_weight(d["usd_w"])}%')
+    # USD 노출은 2단 '오늘 할 일 — 내 노출'과 중복이라 여기선 제외(집중/노출은 2단으로 일원화).
+    # 1단은 '집중도 한 줄 진단 + 충격 시나리오(완충=현금)'에 집중.
+    sub = f'최대 종목 −20% 시 계좌 {d["shock_pct"]:.1f}% · 현금 {pct_weight(d["cash_pct"])}%'
     return (
         f'<div class="pb-card pb-{lv_cls} pb-compact">'
         f'<span class="pb-sev">{sev_html}</span>'

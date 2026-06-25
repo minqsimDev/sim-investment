@@ -371,6 +371,17 @@ summary.neu-bg{background:rgba(255,255,255,0.04);border-color:rgba(38,42,51,0.7)
   .mkt-note-panel{margin:0 10px 10px;min-height:0;padding:10px}
   .mkt-note-text{-webkit-line-clamp:4}
 }
+/* '한눈에 요약 / 전체 비교' 뷰 토글 = 미국/한국 ETF 라디오와 동일 양식(전역 radiogroup 골드칩) + 우측 정렬(period_radio 와 동일) */
+[data-testid="stElementContainer"]:has(>[data-testid="stRadio"]){width:100%!important}
+[data-testid="stRadio"]{display:flex!important;width:100%!important;justify-content:flex-end!important}
+[data-testid="stRadio"] div[role="radiogroup"]{justify-content:flex-end!important;flex-wrap:wrap}
+div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_control"]{
+  background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important;
+  border-bottom:2px solid transparent!important;color:#9AA0AD!important;
+  font-size:14px!important;font-weight:700!important;padding:8px 2px!important;margin:0!important}
+div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_control"]:hover{color:#E7E9EE!important}
+div[data-testid="stButtonGroup"] button[data-testid="stBaseButton-segmented_controlActive"]{
+  color:#E7E9EE!important;border-bottom-color:#D9A441!important}
 </style>"""
 
 
@@ -1427,11 +1438,12 @@ def _market_summary_all(suffix: str, initial_view: str) -> None:
     """요약 ⇄ 전체 비교 — 토글 위젯+뷰를 한 fragment 로 묶어 누를 때 이 섹션만 부분 렌더
     (페이지 전체 재실행·CSS 재주입·스크롤 점프 제거). 초기값은 쿼리파라미터(딥링크 진입)."""
     from ui.pages import major_movers
-    _default = "전체 비교" if initial_view == "all" else "한눈에 요약"
-    _sel = st.segmented_control(
-        "시장 뷰", ["한눈에 요약", "전체 비교"], default=_default,
-        key="mkt_view_sel", label_visibility="collapsed",
-    ) or _default
+    # 미국 ETF / 한국 ETF 와 동일 양식 — st.radio horizontal(전역 radiogroup 골드칩 스타일 공유) + 우측 정렬
+    _idx = 1 if initial_view == "all" else 0
+    _sel = st.radio(
+        "시장 뷰", ["한눈에 요약", "전체 비교"], index=_idx, horizontal=True,
+        key="mkt_view_radio", label_visibility="collapsed",
+    ) or "한눈에 요약"
     if _sel == "전체 비교":
         from ui.components.all_markets import all_markets_html
         st.markdown(all_markets_html(load_market_data(), suffix), unsafe_allow_html=True)
