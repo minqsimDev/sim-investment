@@ -1,15 +1,15 @@
 # 단일 EC2 운영 — 앱 + Caddy(자동 HTTPS). ALB/NAT/RDS/ECS/CloudFront 미사용.
-# 사용:  cd deploy && docker compose up -d --build
-# .env (이 디렉터리)에서 DOMAIN·시크릿을 읽는다(깃·이미지에 굽지 않음).
+# 이미지는 GitHub Actions(.github/workflows/build.yml)가 GHCR에 빌드·푸시한다(linux/amd64).
+# EC2 는 빌드하지 않고 받아서 띄운다:  cd deploy && docker compose pull && docker compose up -d
+# .env (이 디렉터리)에서 DOMAIN·시크릿·IMAGE_TAG 를 읽는다(깃·이미지에 굽지 않음).
 
 services:
   app:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: sim-investment:latest   # batch 사이드카가 재사용(중복 빌드 방지)
+    # CI가 푸시한 GHCR 이미지. 롤백 시 .env 에 IMAGE_TAG=sha-xxxx 지정(기본 latest).
+    image: ghcr.io/minqsimdev/sim-investment:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
-    env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS 키
+    env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS/USE_TOSS 키
     environment:
       - HOME=/data
     volumes:
@@ -21,7 +21,8 @@ services:
   # 데이터 배치 작성기 — 매일 KST 06시 main.py 실행해 market_data.db 갱신.
   # app 과 동일 이미지·볼륨·.env 공유(같은 DB 파일에 씀). Caddy 미노출.
   batch:
-    image: sim-investment:latest   # app 이 빌드한 이미지 재사용
+    image: ghcr.io/minqsimdev/sim-investment:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     env_file: .env
     environment:
@@ -32,7 +33,7 @@ services:
       - ./appdata:/app/data        # app 과 동일 market_data.db 영속 볼륨
     command: ["python", "deploy/batch_scheduler.py"]
     depends_on:
-      - app                        # app 빌드 후 그 이미지 재사용
+      - app
 
   caddy:
     image: caddy:2

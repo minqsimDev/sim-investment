@@ -1,0 +1,77 @@
+name: build-image
+
+# main 푸시 시 linux/amd64 이미지를 빌드 → 이미지 안에서 스모크 테스트 → 통과 시에만 GHCR 푸시.
+# 빌드/테스트 실패 시 푸시 안 됨 → GHCR latest 는 직전 정상 이미지 유지(운영 무영향).
+# EC2 는 빌드하지 않고 `docker compose pull` 로 받아 띄운다(아키텍처=amd64 보장).
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (소문자 이미지명·태그)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      # 1) 빌드만 (러너에 load, 아직 푸시 안 함)
+      - name: Build (load, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: sim-investment:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 2) 스모크 테스트 — 슬림 이미지 안에서 전 런타임 의존성 + 앱 엔진 import 검증.
+      #    (pyzbar 는 런타임 미사용=libzbar0 불필요라 일부러 제외)
+      - name: Smoke test (이미지 내부 import)
+        run: |
+          docker run --rm sim-investment:ci python -c "
+          import streamlit, pandas, numpy, plotly, yfinance, sqlalchemy, fredapi
+          import requests, requests_cache, yaml, dotenv, openpyxl, anthropic, qrcode
+          from google import genai
+          import core.pb, data.price_source
+          print('smoke OK')
+          "
+
+      # 3) 테스트 통과 시에만 GHCR 푸시 (캐시 히트라 빠름)
+      - name: Push to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
