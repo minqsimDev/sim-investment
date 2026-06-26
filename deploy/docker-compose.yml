@@ -13,8 +13,8 @@ services:
     environment:
       - HOME=/data
     volumes:
-      - ./state:/data         # ~/.siminvest_accounts.json, alerts.json, auth 등(영속)
-      - ./appdata:/app/data    # market_data.db 등(영속)
+      - ./state:/data            # ~/.siminvest_accounts.json, alerts.json, auth 등(영속)
+      - ./appdata:/app/appdata   # market_data.db (DB_PATH=/app/appdata/market_data.db). /app/data 는 패키지 코드라 덮지 않음
     expose:
       - "8520"                # 외부 비공개 — Caddy만 접근
 
@@ -30,7 +30,7 @@ services:
       - BATCH_HOUR=6                # KST 실행 시각(미국 장마감 후)
     volumes:
       - ./state:/data
-      - ./appdata:/app/data        # app 과 동일 market_data.db 영속 볼륨
+      - ./appdata:/app/appdata     # app 과 동일 market_data.db 영속 볼륨(DB_PATH)
     command: ["python", "deploy/batch_scheduler.py"]
     depends_on:
       - app
