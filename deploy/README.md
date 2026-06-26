@@ -129,14 +129,36 @@ docker compose logs -f caddy   # 인증서 발급 로그 확인(Ctrl+C로 빠져
 > ```
 > 서버 시간대 확인: `timedatectl`. 필요시 `sudo timedatectl set-timezone Asia/Seoul`.
 
-## 11. 업데이트 / 롤백
-코드를 main에 머지하면 Actions가 새 이미지를 GHCR에 푸시한다. EC2에서:
+## 11. 자동 배포(CD) — main 푸시 한 번으로 끝
+**main 에 머지하면 GitHub Actions(`.github/workflows/build.yml`)가 자동으로:**
+1. linux/amd64 이미지 빌드 → 이미지 내부 스모크 테스트(통과해야 진행)
+2. GHCR 에 `latest` + `sha-<커밋>` 태그로 푸시
+3. **EC2 에 SSH 접속해 `git pull && docker compose pull && up -d`** → 새 이미지로 재기동
+
+→ **`git push` 외에 EC2에서 손댈 게 없다.** 진행/성공은 GitHub **Actions 탭**에서 확인. 빌드·테스트 실패 시 배포 안 됨(운영은 직전 이미지 유지).
+
+### 일회성 설정 — 자동 배포 활성화 (EC2 띄운 뒤 1회)
+GitHub → 레포 → **Settings → Secrets and variables → Actions → New repository secret** 로 3개 등록:
+
+| 시크릿 | 값 |
+|---|---|
+| `EC2_HOST` | EC2 **Elastic IP** (예: `3.34.56.78`) |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | EC2 접속용 **개인키 전체**(`-----BEGIN ... END-----` 포함, `.pem` 내용 그대로) |
+
+또는 CLI로:
 ```bash
-cd ~/sim-investment && git pull            # compose/Caddyfile 등 변경 반영(있을 때만)
-cd deploy && docker compose pull && docker compose up -d   # 최신 이미지로 재기동
+gh secret set EC2_HOST  --body "3.34.56.78"
+gh secret set EC2_USER  --body "ubuntu"
+gh secret set EC2_SSH_KEY < ~/path/to/key.pem
 ```
-**롤백**: `.env`에 이전 태그를 지정하고 재기동(Actions가 커밋 SHA 태그도 푸시함).
+> 시크릿 등록 전엔 deploy 단계가 자동 스킵돼 **빌드/푸시만** 수행된다(EC2 준비 전 머지해도 안전). 등록 후 다음 푸시부터 자동 배포.
+> GHCR 패키지가 Private면 EC2에서 1회 `docker login ghcr.io`(9장) 필요 — Public 권장.
+
+### 롤백
+Actions가 커밋 SHA 태그도 푸시하므로 EC2에서 이전 태그로 되돌린다:
 ```bash
+cd ~/sim-investment/deploy
 echo 'IMAGE_TAG=sha-<이전커밋>' >> .env     # 예: sha-3d2e03d (GHCR 패키지 페이지에서 태그 확인)
 docker compose up -d
 ```
