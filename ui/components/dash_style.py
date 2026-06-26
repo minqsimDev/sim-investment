@@ -992,10 +992,15 @@ def render_shell_header(pages=None):
         _order = ["", "portfolio", "market", "risk"]   # default(home) 의 url_path 는 ""
         _cs_pages = [_by_path[u] for u in _order if u in _by_path]
         if len(_cs_pages) == len(_order):
+            # 숨긴 page_link + 부트용 srcdoc iframe(conn·liquid·브리지, 전부 height=0 스크립트) 컨테이너를
+            # display:none → 공간·블록간격 0. JS 프로그램 클릭은 display:none 에서도 동작(검증).
+            # js_eval(너비감지)은 src=URL 이라 매칭 안 됨(영향 없음).
             st.markdown(
-                '<style>[data-testid="stPageLink"]{position:absolute!important;'
-                'width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;'
-                'overflow:hidden!important;clip:rect(0,0,0,0)!important;border:0!important}</style>',
+                '<style>'
+                '[data-testid="stElementContainer"]:has([data-testid="stPageLink"]),'
+                '[data-testid="stElementContainer"]:has(iframe[srcdoc])'
+                '{display:none!important}'
+                '</style>',
                 unsafe_allow_html=True,
             )
             for _p, (_lbl, *_rest) in zip(_cs_pages, nav_items):

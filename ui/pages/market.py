@@ -1455,10 +1455,8 @@ def render() -> None:
 </script>
 """)
 
-    st.markdown(
-        mkt_page_header("📊", "시장", "전 자산군 — 미국 · 한국 · ETF · 원자재 · 크립토 · 외환 · 채권/금리"),
-        unsafe_allow_html=True,
-    )
+    # 최상위 '시장' 배너는 제거 — 제목은 상단 네비와 중복, 부제(전 자산군)는 바로 아래 탭과 중복.
+    # (서브탭별 배너 us_stocks/kr_stocks 등은 탭 식별용이라 유지)
 
     from ui.pages import us_stocks, kr_stocks, commodities, fx_rates, crypto, etf  # major_movers 는 _market_summary_all fragment 내부에서 import
 
