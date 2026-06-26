@@ -82,6 +82,12 @@ def inject_responsive_css(breakpoint: int = MOBILE_BREAKPOINT) -> None:
              (display:none 이어도 <style> 규칙은 전역 적용되어 무해) */
           [data-testid=stElementContainer]:empty,
           [data-testid=stElementContainer]:has(> [data-testid=stMarkdown] [data-testid=stMarkdownContainer] > style:only-child) {{ display: none !important; }}
+          /* 폭 감지용 streamlit_js_eval 컴포넌트: 보이는 26px 블록 + flex gap 으로 공백을 만든다.
+             폭 측정은 유지(width:100%)하되 흐름에서 빼고(absolute) 높이 0 으로 접어 공백 제거. */
+          [data-testid=stElementContainer]:has(iframe[src*="streamlit_js_eval"]) {{
+            position: absolute !important; width: 100% !important; height: 0 !important;
+            overflow: hidden !important; margin: 0 !important; padding: 0 !important; pointer-events: none !important;
+          }}
           /* ── 모바일 ── */
           @media (max-width: {breakpoint}px) {{
             .block-container {{ padding: 0.75rem 0.75rem 4.75rem !important; }}

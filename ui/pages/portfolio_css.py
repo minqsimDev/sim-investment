@@ -625,7 +625,8 @@ _PB_CSS = """<style>
   border-radius:999px;padding:3px 10px;letter-spacing:.04em}
 .pb-warn .pb-sev{color:#E08A3C;background:rgba(224,138,60,0.14)}
 .pb-safe .pb-sev{color:#3FB27F;background:rgba(63,178,127,0.14)}
-.pb-head{font-size:21px;font-weight:950;color:#E7E9EE;letter-spacing:-.02em;margin:10px 0 14px;line-height:1.25}
+.pb-head{font-size:21px;font-weight:950;color:#E7E9EE;letter-spacing:-.02em;margin:10px 0 14px;line-height:1.3;word-break:keep-all}
+@media(max-width:560px){.pb-head{font-size:18px}}
 .pb-scen{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
 @media(max-width:720px){.pb-scen{grid-template-columns:1fr}}
 .pb-s{background:rgba(255,255,255,0.03);border:1px solid #262A33;border-radius:12px;padding:11px 13px}
