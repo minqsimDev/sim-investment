@@ -698,8 +698,13 @@ _MARKET_CSS = f"""<style>
 /* ── Section header — Jeju style (h3 + muted right span) ───── */
 .mkt-sec{{display:flex;justify-content:space-between;align-items:flex-end;
   gap:10px;margin:22px 0 12px;padding:0}}
-.mkt-sec-t{{font-size:18px;font-weight:900;color:{NAVY};letter-spacing:-0.045em}}
-.mkt-sec-s{{font-size:12px;color:{META};font-weight:800;letter-spacing:0.02em}}
+.mkt-sec-t{{font-size:18px;font-weight:900;color:{NAVY};letter-spacing:-0.045em;white-space:nowrap;flex:0 0 auto}}
+.mkt-sec-s{{font-size:12px;color:{META};font-weight:800;letter-spacing:0.02em;min-width:0;text-align:right}}
+/* 모바일: 제목이 긴 부제에 눌려 '시장 한 / 눈'으로 깨지던 것 → 제목/부제 세로 스택 */
+@media(max-width:560px){{
+  .mkt-sec{{flex-direction:column;align-items:flex-start;gap:2px}}
+  .mkt-sec-s{{text-align:left}}
+}}
 /* ── Sub-section eyebrow (used inside cards / for sector labels) ── */
 .mkt-eyebrow{{font-size:10px;font-weight:800;color:{META};text-transform:uppercase;
   letter-spacing:1px;margin:14px 0 6px;display:inline-block}}
