@@ -97,13 +97,18 @@ docker compose logs -f caddy   # 인증서 발급 로그 확인(Ctrl+C로 빠져
 ```
 → `https://invest.example.com` 접속. Caddy가 Let's Encrypt 인증서를 자동 발급·갱신한다(추가비용 0). 상태 파일은 `deploy/state/`·`deploy/appdata/`(호스트 EBS)에 영속.
 
-## 10. 일배치(main.py) — 지표 DB·텔레그램 평가
-상시 서버가 아닌 **하루 1회 배치**로 지표/리스크를 갱신한다. host cron으로:
-```bash
-crontab -e
-# 매일 06:10(서버 시간) — 컨테이너로 1회 실행 후 종료
-10 6 * * * cd /home/ubuntu/sim-investment/deploy && docker compose run --rm app python main.py >> /home/ubuntu/batch.log 2>&1
-```
+## 10. 일배치(main.py) — 지표 DB·텔레그램 평가 (자동, 추가 설정 불필요)
+`docker compose up -d` 에 **`batch` 사이드카**(`deploy/batch_scheduler.py`)가 포함돼 있어 **자동**으로:
+- 매일 **KST 06:00**(`.env`의 `BATCH_HOUR`로 조정) `main.py` 실행 → `market_data.db` 갱신·텔레그램 평가
+- 장중에는 `SNAPSHOT_INTERVAL_SEC`(기본 600s)마다 시세 스냅샷으로 quotes 워밍
+
+→ **별도 host cron 불필요.** (`docker compose ps` 에 `batch` 컨테이너가 떠 있으면 동작 중.)
+
+> ⚠️ host cron 으로 `main.py` 를 또 걸지 말 것 — 사이드카와 **이중 실행**된다. 사이드카를 끄고 cron 만 쓰려면 compose 의 `batch` 서비스를 제거한 뒤 아래를 사용:
+> ```bash
+> crontab -e
+> 10 6 * * * cd /home/ubuntu/sim-investment/deploy && docker compose run --rm app python main.py >> /home/ubuntu/batch.log 2>&1
+> ```
 > 서버 시간대 확인: `timedatectl`. 필요시 `sudo timedatectl set-timezone Asia/Seoul`.
 
 ## 11. 업데이트 / 롤백
