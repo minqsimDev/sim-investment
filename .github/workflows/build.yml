@@ -1,0 +1,114 @@
+name: build-image
+
+# CI/CD: main 푸시 → linux/amd64 빌드 → 이미지 내부 스모크 테스트 → 통과 시에만 GHCR 푸시
+#        → EC2 에 SSH 로 docker compose pull && up -d (자동 배포).
+# 빌드/테스트 실패 시 푸시·배포 안 됨 → 운영(EC2)은 직전 정상 이미지 유지(무영향).
+# EC2 는 빌드하지 않고 받아서 띄운다(아키텍처=amd64 보장).
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (소문자 이미지명·태그)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      # 1) 빌드만 (러너에 load, 아직 푸시 안 함)
+      - name: Build (load, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: sim-investment:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 2) 스모크 테스트 — 슬림 이미지 안에서 전 런타임 의존성 + 앱 엔진 import 검증.
+      #    (pyzbar 는 런타임 미사용=libzbar0 불필요라 일부러 제외)
+      - name: Smoke test (이미지 내부 import)
+        run: |
+          docker run --rm sim-investment:ci python -c "
+          import streamlit, pandas, numpy, plotly, yfinance, sqlalchemy, fredapi
+          import requests, requests_cache, yaml, dotenv, openpyxl, anthropic, qrcode
+          from google import genai
+          import core.pb, data.price_source
+          print('smoke OK')
+          "
+
+      # 3) 테스트 통과 시에만 GHCR 푸시 (캐시 히트라 빠름)
+      - name: Push to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 빌드·푸시 성공 후 EC2 에 SSH 접속해 새 이미지로 재기동(자동 배포).
+  # EC2 시크릿(EC2_HOST/EC2_USER/EC2_SSH_KEY)이 등록되기 전엔 deploy 스텝을 스킵 →
+  # EC2 띄우기 전에 머지해도 빌드는 초록불 유지(배포만 보류).
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: EC2 시크릿 설정 여부 확인
+        id: gate
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          if [ -n "$EC2_HOST" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::EC2_HOST 시크릿 미설정 — 배포 스킵(빌드/푸시만 수행). EC2 준비 후 Secrets 등록 시 자동 배포된다."
+          fi
+
+      - name: Deploy to EC2 (compose pull && up -d)
+        if: steps.gate.outputs.ready == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # 코드(compose/Caddyfile 등) 변경 반영 후 GHCR 최신 이미지로 무중단에 가깝게 재기동.
+          script: |
+            set -e
+            cd ~/sim-investment
+            git pull --ff-only
+            cd deploy
+            docker compose pull
+            docker compose up -d
+            docker image prune -f
