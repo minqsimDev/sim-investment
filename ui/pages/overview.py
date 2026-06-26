@@ -135,10 +135,11 @@ _MY_CSS = """<style>
 .ov-dir-chip.risk{color:#E8883A;background:rgba(232,136,58,.14)}
 .ov-mkt-chips{margin-top:13px}
 /* B1: 빈 히어로 카드에 핵심 숫자 통합 — 총자산 大(30px) + 총수익·오늘 보조. 위험 카드와 같은 카드 리듬. */
-.ov-hero{border:1px solid #262A33;border-radius:18px;background:#15171E;padding:18px 22px;margin:2px 0 16px}
+.ov-hero{position:relative;border:1px solid #262A33;border-radius:18px;background:#15171E;padding:18px 22px;margin:2px 0 16px}
 .ov-hero-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .ov-hero-label{font-size:13px;font-weight:900;color:#E7E9EE;letter-spacing:.02em}
 .ov-hero-sub{font-size:12px;font-weight:700;color:#7E8694}
+.ov-hero-upd{position:absolute;top:14px;right:18px;font-size:11px;font-weight:700;color:#7E8694}
 /* 핵심 숫자 — 가로 한 줄(총자산 大 앵커 + 총수익·오늘). 카드 가로폭 활용 + 위계 강조. */
 .ov-hero-nums{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:6px 30px}
 .ov-hn-main,.ov-hn{display:flex;align-items:baseline;gap:8px}
@@ -390,16 +391,16 @@ def render():
     _nums += "".join(f'<div class="ov-hn"><span>{l}</span><b class="{c}">{v}</b></div>' for l, v, c in _hs[1:])
     # 부제 = 아래 카드 제목 복붙(중복) 대신 실제 메타(갱신 시각). fetched_at=isoformat → HH:MM.
     _fa = str(data.get("fetched_at") or "")
-    _upd = f'<span class="ov-hero-sub">갱신 {_fa[11:16]}</span>' if len(_fa) >= 16 else ""
+    _upd = f'<span class="ov-hero-upd">갱신 {_fa[11:16]}</span>' if len(_fa) >= 16 else ""
     # 자산 배분 미니바(내 쏠림) + 목표 진행률 — 히어로 빈 공간을 '내 계좌 파생 정보'로 채움
     _alloc = _alloc_bar_html(bundle.get("alloc", []), bundle.get("cash_pct", 0.0))
     _prog = bundle.get("progress")
     _goal = _goal_bar_html(bundle.get("target", 0), _prog) if (_prog is not None and bundle.get("target")) else ""
+    # '전체 현황' 라벨은 상단 네비와 중복 → 제거하고 총자산(_nums 첫 항목)이 헤더 역할.
+    # 갱신 시각만 카드 우상단에 작게.
     st.markdown(
-        '<div class="ov-hero"><div class="ov-hero-head">'
-        '<span class="ov-hero-label">전체 현황</span>'
-        f'{_upd}'
-        f'</div><div class="ov-hero-nums">{_nums}</div>'
+        f'<div class="ov-hero">{_upd}'
+        f'<div class="ov-hero-nums">{_nums}</div>'
         f'{_alloc}{_goal}</div>',
         unsafe_allow_html=True,
     )
