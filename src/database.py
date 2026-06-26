@@ -6,13 +6,16 @@ Tradeoff: multiple runs same day → multiple rows in summary/signals tables,
 but only the latest run_date matters for queries.
 """
 import math
+import os
 import sqlite3
 from datetime import date as _date, datetime as _dt, timedelta as _td
 from pathlib import Path
 
 import pandas as pd
 
-DEFAULT_DB = "data/market_data.db"
+# 기본은 소스트리 내 data/ (로컬 dev). Docker 운영에선 DB_PATH 로 패키지 밖 영속 경로를
+# 지정한다 — data/ 는 파이썬 패키지라 볼륨으로 덮으면 코드가 가려지기 때문.
+DEFAULT_DB = os.getenv("DB_PATH", "data/market_data.db")
 
 _DDL = """
 PRAGMA journal_mode=WAL;
