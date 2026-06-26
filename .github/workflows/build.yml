@@ -111,4 +111,6 @@ jobs:
             cd deploy
             docker compose pull
             docker compose up -d
+            # Caddyfile 은 볼륨 마운트라 up -d 로는 갱신 안 됨 → 무중단 reload(변경 없어도 안전)
+            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
             docker image prune -f

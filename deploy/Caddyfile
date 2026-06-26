@@ -1,6 +1,10 @@
-# 도메인으로 들어오는 트래픽을 앱(8520)으로. HTTPS 인증서는 Caddy가
-# Let's Encrypt로 자동 발급·갱신(추가 비용 0). 웹소켓(Streamlit)은 자동 통과.
+# 도메인 트래픽 → 앱(8520). HTTPS 인증서는 Caddy가 Let's Encrypt로 자동 발급·갱신.
 {$DOMAIN} {
 	encode zstd gzip
+	# Streamlit 멀티페이지: 서브경로(/market 등)를 새로고침/직접진입하면 내부 리소스를
+	# 상대경로로 요청해 /<page>/_stcore/... 404 가 난다(특히 _stcore/stream 웹소켓이 끊겨
+	# 모바일·딥링크에서 화면이 깨짐). 루트 /_stcore/... 로 되돌린다.
+	@stcore path_regexp st ^/[^/]+/(_stcore/.*)$
+	rewrite @stcore /{re.st.1}
 	reverse_proxy app:8520
 }
