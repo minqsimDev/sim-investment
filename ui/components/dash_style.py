@@ -689,10 +689,9 @@ _MARKET_CSS = f"""<style>
 .mkt-chip-val{{font-size:13px;font-weight:800;
   font-family:'SF Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}}
 .mkt-chip-val.pos{{color:{POS}}}.mkt-chip-val.neg{{color:{NEG}}}.mkt-chip-val.neu{{color:{META}}}
-/* 모바일: 핵심 지표 칩은 줄바꿈 대신 한 줄 가로 스크롤 */
+/* 모바일: 핵심 지표 칩은 줄바꿈해 전부 보이게(가로 스크롤은 잘린 것처럼 보여 혼란) */
 @media (max-width:768px){{
-  .mkt-chips{{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}}
-  .mkt-chips::-webkit-scrollbar{{display:none}}
+  .mkt-chips{{flex-wrap:wrap}}
   .mkt-chip{{flex:0 0 auto}}
 }}
 
@@ -937,15 +936,19 @@ def render_shell_header(pages=None):
     else:
         _suffix = ""
         refresh_href = "?refresh=1"
+    # (라벨, fallback href, data-path, 라우팅 url_path) — data-nav 인덱스로 숨은 page_link 와 1:1 매핑.
+    # 비주얼 핀은 JS 브리지로 클라이언트사이드 page_link 를 클릭한다(하드네비=프록시 뒤 라우팅 깨짐 회피).
+    # href 는 새 탭/모디파이어 클릭·JS 미동작 시의 폴백(세션 복원 위해 _suffix 유지).
     nav_items = [
-        ("전체 현황",  f"/{_suffix}",              "/"),
-        ("포트폴리오", f"/portfolio{_suffix}",     "/portfolio"),
-        ("시장",       f"/market{_suffix}",         "/market"),
-        ("리스크",     f"/risk{_suffix}",           "/risk"),
+        ("전체 현황",  f"/{_suffix}",              "/",          "home"),
+        ("포트폴리오", f"/portfolio{_suffix}",     "/portfolio", "portfolio"),
+        ("시장",       f"/market{_suffix}",         "/market",    "market"),
+        ("리스크",     f"/risk{_suffix}",           "/risk",      "risk"),
     ]
     nav_html = "".join(
-        f'<a href="{html_escape(href)}" data-path="{html_escape(path)}" target="_self">{html_escape(label)}</a>'
-        for label, href, path in nav_items
+        f'<a href="{html_escape(href)}" data-path="{html_escape(path)}" '
+        f'data-nav="{i}" target="_self">{html_escape(label)}</a>'
+        for i, (label, href, path, _up) in enumerate(nav_items)
     )
     # 계정 컨트롤 — 게스트=로그인/가입 진입, 로그인=사용자명+로그아웃 (둘 다 /?logout=1로 세션 종료)
     if is_guest:
@@ -980,6 +983,45 @@ def render_shell_header(pages=None):
 """,
         unsafe_allow_html=True,
     )
+
+    # ── 클라이언트사이드 네비 브리지 ────────────────────────────────────────────────
+    # 하드네비(<a> 풀 리로드)는 리버스 프록시 뒤 멀티페이지 서브경로에서 항상 홈으로 빠진다.
+    # → 숨긴 st.page_link(네이티브 클라이언트사이드)를 만들고, 위 비주얼 핀 클릭을 JS로 그쪽에 위임.
+    if pages:
+        _by_path = {getattr(p, "url_path", ""): p for p in pages}
+        _order = ["", "portfolio", "market", "risk"]   # default(home) 의 url_path 는 ""
+        _cs_pages = [_by_path[u] for u in _order if u in _by_path]
+        if len(_cs_pages) == len(_order):
+            st.markdown(
+                '<style>[data-testid="stPageLink"]{position:absolute!important;'
+                'width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;'
+                'overflow:hidden!important;clip:rect(0,0,0,0)!important;border:0!important}</style>',
+                unsafe_allow_html=True,
+            )
+            for _p, (_lbl, *_rest) in zip(_cs_pages, nav_items):
+                st.page_link(_p, label=_lbl)
+            import streamlit.components.v1 as _components
+            _components.html(
+                """
+<script>
+(function(){
+  var pdoc = window.parent.document, pwin = window.parent;
+  if (pwin.__svNavBridge) return; pwin.__svNavBridge = true;
+  pdoc.addEventListener('click', function(e){
+    var a = e.target.closest('.sv-nav a[data-nav]');
+    if (!a) return;
+    // 새 탭/모디파이어·휠 클릭은 기본 동작(폴백 href)으로 둔다
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault(); e.stopPropagation();
+    var idx = parseInt(a.getAttribute('data-nav'), 10);
+    var links = pdoc.querySelectorAll('[data-testid="stPageLink-NavLink"]');
+    if (links[idx]) links[idx].click();
+  }, true);
+})();
+</script>
+""",
+                height=0,
+            )
 
 
 def empty_state(msg: str, sub: str = "데이터가 연결되면 표시됩니다") -> None:
