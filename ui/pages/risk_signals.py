@@ -504,14 +504,8 @@ def render():
     mark_active_nav("/risk")
     st.markdown(_RISK_LOCAL_CSS, unsafe_allow_html=True)
 
-    st.markdown(
-        mkt_page_header(
-            "🛡",
-            "리스크 모니터링",
-            "내 포트폴리오 집중·환율 리스크 · 시장 국면(달러·금리·환율·모멘텀)",
-        ),
-        unsafe_allow_html=True,
-    )
+    # 상단 '리스크 모니터링' 배너 제거 — 제목은 네비와 중복, 부제는 아래 점수·신호가 대신 설명.
+    # (불필요 요소 제거 + 상단 여백 축소로 핵심 콘텐츠를 위로)
 
     # 보유 자동 주입(로그인=내 보유 / 게스트·미연결=샘플)
     holdings, _is_guest, _impact_total = _my_holdings_for_impact()

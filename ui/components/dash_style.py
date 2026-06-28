@@ -723,7 +723,7 @@ _MARKET_CSS = f"""<style>
 
 /* ── Section header — Jeju style (h3 + muted right span) ───── */
 .mkt-sec{{display:flex;justify-content:space-between;align-items:flex-end;
-  gap:10px;margin:22px 0 12px;padding:0}}
+  gap:10px;margin:16px 0 10px;padding:0}}
 .mkt-sec-t{{font-size:18px;font-weight:900;color:{NAVY};letter-spacing:-0.045em;white-space:nowrap;flex:0 0 auto}}
 .mkt-sec-s{{font-size:12px;color:{META};font-weight:800;letter-spacing:0.02em;min-width:0;text-align:right}}
 /* 모바일: 제목이 긴 부제에 눌려 '시장 한 / 눈'으로 깨지던 것 → 제목/부제 세로 스택 */
