@@ -14,7 +14,7 @@ def load_market_data(_bucket: int = 0) -> dict:
     _bucket: 장중 자동 갱신용 캐시 버스팅 키. 기본 0(=종전 30분 캐시). 장중 라이브를 원하는 페이지는
     core.market_hours.live_bucket(...)을 넘기면 개장 중 60초마다 캐시가 자연 만료된다.
     """
-    return fetch_all()
+    return fetch_all(prefer_db=True)   # 앱은 DB(배치 적재) 우선 — API 지연 제거(SSOT). 미충족 시 라이브 폴백.
 
 
 @st.cache_data(ttl=900, show_spinner=False)
