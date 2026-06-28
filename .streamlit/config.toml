@@ -1,3 +1,10 @@
+[server]
+# HTTPS 리버스 프록시(Caddy) 뒤에서 파일 업로드(스크린샷 인식)가 막히는 문제 해결.
+# 기본 XSRF/CORS 보호가 프록시 경유 업로드 PUT 을 거부해 "분석 중"이 안 뜸 → 비활성.
+# (단일 사용자·HTTPS·로그인 게이트 환경이라 허용 가능한 트레이드오프)
+enableCORS = false
+enableXsrfProtection = false
+
 [client]
 toolbarMode = "minimal"
 
