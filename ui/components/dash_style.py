@@ -571,6 +571,23 @@ div[role="radiogroup"] > label:hover div, div[role="radiogroup"] > label:hover p
 div[role="radiogroup"] > label:has(input:checked) {{ background:{ACCENT}; }}
 div[role="radiogroup"] > label:has(input:checked) div,
 div[role="radiogroup"] > label:has(input:checked) p {{ color:#0E0F13 !important; font-weight:900; }}
+/* 시장 자산군 탭만 골드칩 대신 '언더라인 탭'(칩이 구리다는 피드백 반영) */
+.st-key-mkt_asset_tab div[role="radiogroup"] {{
+    background:transparent !important; border:0 !important;
+    border-bottom:1px solid {BORDER} !important; border-radius:0 !important;
+    padding:0 !important; gap:2px !important; margin:2px 0 14px !important;
+}}
+.st-key-mkt_asset_tab div[role="radiogroup"] > label {{
+    border-radius:0 !important; padding:9px 12px !important;
+    border-bottom:2px solid transparent !important;
+}}
+.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) {{
+    background:transparent !important; border-bottom-color:{ACCENT} !important;
+}}
+.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) div,
+.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) p {{
+    color:{ACCENT} !important;
+}}
 
 /* ── Misc ────────────────────────────────────────────────────── */
 hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
