@@ -80,3 +80,29 @@ def test_crypto_keeps_snapshot():
 def test_stock_without_live_price_falls_back_to_snapshot():
     mv, *_ = _eval("미국주식", qty=10, current=None, fx_factor=1535, direct_market=2000.0)
     assert mv == 2000.0 * 1535   # 스냅샷 평가금액 × 환율
+
+
+# ── 소수점 누락(파서 OCR 자릿수) 자동 보정 ────────────────────────────────────
+def test_decimal_dropped_cost_is_auto_corrected():
+    # AAPL: 매입 $27,543.519 가 27543519로(×1000) 읽힘 → 보정 후 수익률 폭발 안 함(+44%대)
+    mv, mv_local, cost, gl, gl_local, gpct, today = _eval(
+        "미국주식", qty=140, current=283.78, fx_factor=1535,
+        direct_market=41_694_800, direct_cost=27_543_519, direct_gain=14_102_820,
+        direct_gain_pct=51.20)
+    assert round(cost) == round(27_543.519 * 1535)    # ÷1000 보정 후 ×환율
+    assert 30 < gpct < 60                              # +44%대 (−99.9% 폭발 아님)
+    assert gl > 0
+
+
+def test_normal_cost_not_corrected():
+    # 정상 데이터(스냅샷평가 ≈ 라이브평가) → 보정 안 함
+    mv, _l, cost, *_ = _eval("미국주식", qty=10, current=200.0, fx_factor=1535,
+                             direct_market=2050.0, direct_cost=1500.0, direct_gain_pct=36.7)
+    assert cost == 1500.0 * 1535   # 그대로(÷10 안 함)
+
+
+def test_genuine_crash_not_corrected():
+    # 증권사 수익률 -95%(실제 폭락) → 자릿수 보정 안 함(오보정 방지)
+    mv, _l, cost, *_ = _eval("미국주식", qty=10, current=2.0, fx_factor=1535,
+                             direct_market=20.0, direct_cost=400.0, direct_gain_pct=-95.0)
+    assert cost == 400.0 * 1535   # 보정 안 함

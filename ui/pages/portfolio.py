@@ -1,4 +1,5 @@
 import html as html_lib
+import math
 import re
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -235,6 +236,22 @@ def _position_eval(category, qty, current, fx_factor, direct_market,
     fx_factor = 이 보유의 USD→원화 환산계수(USD=환율, 원화권=1). _holding_currency 가 티커/카테고리로
     USD 여부를 robust 판정하므로(파서 currency 오태깅 무관) **평가금액·매입금액에 동일 fx_factor 일관 적용**
     → 둘이 어긋나 수익률 폭발하던 버그 제거. 라이브 현재가 없으면 스냅샷 평가금액 폴백. 크립토는 스냅샷."""
+    # 소수점 누락(파서 OCR 자릿수 오류) 자동 보정: 매입금액 '27,543.519'를 27543519처럼 ×10ⁿ 부풀려
+    # 읽으면 수익률이 -99.9%로 폭발. 스냅샷 평가금액 vs 라이브 평가액(수량×현재가)의 배율로 자릿수 k를
+    # 추정해 스냅샷 금액들(매입·평가·손익)을 되돌린다. 라이브 평가금액(수량×현재가)은 영향 없음.
+    # 가드: 주식만(현재가·평가금액 동일 통화) + 증권사 수익률 -90% 미만(실제 폭락)이면 보정 안 함.
+    # (크립토는 현재가=BTC-USD·평가금액=원화로 통화가 달라 배율이 자릿수 오류가 아니므로 제외.)
+    if (category in ("미국주식", "국내주식") and direct_market and qty and current and current > 0
+            and (direct_gain_pct is None or direct_gain_pct > -90)):
+        _r = direct_market / (qty * current)
+        if _r > 50:                                  # 스냅샷이 라이브의 50배 초과 = 자릿수 누락
+            _k = 10 ** round(math.log10(_r))
+            if _k >= 10:
+                direct_market /= _k
+                if direct_cost is not None: direct_cost /= _k
+                if direct_gain is not None: direct_gain /= _k
+                if direct_today is not None: direct_today /= _k
+
     live = category in ("미국주식", "국내주식") and bool(qty) and current is not None and current > 0
 
     cost_basis = direct_cost   # 매입금액(원가)은 시세와 무관 — 고정(USD면 ×환율)
