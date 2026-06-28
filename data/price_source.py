@@ -115,6 +115,7 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
     fallbacks: list[str] = []
 
     # 토스 현재가 (배치 1콜)
+    _need_prev: list[str] = []   # 토스 prevClose=null → 아래에서 yfinance 1배치로 일괄 보강
     if toss_price_map:
         try:
             prices = _toss_client().get_prices(list(toss_price_map))
@@ -127,15 +128,25 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
                 fallbacks.extend(origs)
                 continue
             price = _to_float(p["lastPrice"])
-            # 전일종가: 배치 응답에 있으면 그대로(종목당 캔들 호출·throttle 제거 → 첫 로딩 단축),
-            # 없을 때만 일봉 캔들로 폴백.
-            prev = None
-            if with_change:
-                prev = _to_float(p.get("prevClose"))
-                if prev is None:
-                    prev = _toss_prev_close(toss_sym)
+            prev = _to_float(p.get("prevClose")) if with_change else None
             for o in origs:
                 results[o] = _quote(price, prev, p.get("currency"), "toss")
+                if with_change and prev is None:
+                    _need_prev.append(o)
+
+    # 전일종가 일괄 보강 — 토스가 prevClose=null 을 줘서 종목당 캔들(throttle, ~17s/52종목)로
+    # 빠지던 것을 yfinance 1배치(~2s)로 대체. 현재가=토스(신선) + 전일=yfinance(일 단위 안정).
+    if _need_prev:
+        try:
+            _yprev = _yf.fetch_prices_bulk(_need_prev, force)
+        except Exception:
+            _yprev = {}
+        for o in _need_prev:
+            r = results.get(o)
+            pr = (_yprev or {}).get(o)
+            prevc = pr.get("prev_close") if pr else None
+            if r and prevc:
+                results[o] = _quote(r["price"], prevc, r["currency"], "toss")
 
     # 토스 환율 (USD/KRW)
     for o, (base, quote) in toss_fx.items():
