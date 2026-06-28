@@ -229,29 +229,26 @@ def _position_eval(category, qty, current, fx_factor, direct_market,
                    direct_cost, avg_price, direct_gain, direct_gain_pct, direct_today, change, fx=1):
     """수량 보유 1건의 (평가금액, 평가금액_현지, 원가, 평가손익, 평가손익_현지, 손익률, 오늘변동금액).
 
-    **평가금액 = 보유수량 × 라이브 현재가**(종가/장중 실시간)로 산출 → 시세 변동을 반영(스냅샷 고정 X).
-    **매입금액(원가)·매입단가는 고정**(스냅샷 direct_cost/avg_price) — 산 가격은 안 변하니까.
-    수익률 = (평가금액 − 매입금액)/매입금액. 시세 정확도가 전제(시세가 틀리면 수익률도 어긋남 → 시세는
-    DB-우선+장중 라이브 경로가 책임). 라이브 현재가가 없으면(콜드 DB·미배치) 스냅샷 평가금액 폴백.
+    **평가금액 = 보유수량 × 라이브 현재가**(종가/장중 실시간) → 시세 변동 반영(스냅샷 고정 X).
+    **매입금액(원가)·매입단가는 고정**(스냅샷 direct_cost/avg_price). 수익률 = (평가−매입)/매입.
 
-    현재가 통화는 **카테고리 기준 price_fx**(미국주식=USD→환율, 그 외=원화) — 저장 currency='KRW'
-    오기입(구 파싱 버그)이 흔해 fx_factor(보유 currency) 쓰면 USD 현재가가 원화로 오인돼 평가금액이
-    1/환율로 축소되므로 분리. 크립토는 USD/원화 기준 차(국내거래소 프리미엄)로 스냅샷 유지(별도 결정)."""
+    fx_factor = 이 보유의 USD→원화 환산계수(USD=환율, 원화권=1). _holding_currency 가 티커/카테고리로
+    USD 여부를 robust 판정하므로(파서 currency 오태깅 무관) **평가금액·매입금액에 동일 fx_factor 일관 적용**
+    → 둘이 어긋나 수익률 폭발하던 버그 제거. 라이브 현재가 없으면 스냅샷 평가금액 폴백. 크립토는 스냅샷."""
     live = category in ("미국주식", "국내주식") and bool(qty) and current is not None and current > 0
 
-    cost_basis = direct_cost   # 매입금액(원가)은 시세와 무관 — 고정(보유 currency=fx_factor 기준 환산)
+    cost_basis = direct_cost   # 매입금액(원가)은 시세와 무관 — 고정(USD면 ×환율)
     if cost_basis is not None and fx_factor != 1:
         cost_basis = direct_cost * fx_factor
     elif cost_basis is None and avg_price is not None:
         cost_basis = qty * avg_price * fx_factor
 
     if live:
-        price_fx = fx if (category == "미국주식" and fx) else 1   # 현재가(시세) 통화 기준 환율
-        market_value = qty * current * price_fx
+        market_value = qty * current * fx_factor   # 평가금액·매입금액 동일 환산(일관)
         gain_loss = (market_value - cost_basis) if cost_basis is not None else None
         gain_pct = (gain_loss / cost_basis * 100) if (gain_loss is not None and cost_basis) else None
-        today_amount = (qty * change * price_fx) if change is not None else None
-        local_fx = price_fx
+        today_amount = (qty * change * fx_factor) if change is not None else None
+        local_fx = fx_factor
     else:
         market_value = direct_market
         if market_value is not None and fx_factor != 1:
@@ -312,15 +309,19 @@ def _category_for_holding(row: dict, ticker: str) -> str:
 def _holding_currency(row: dict, ticker: str = "", category: str = "") -> str:
     """보유 1건의 환산·표시 통화(KRW|USD) — 전 화면 '보유→원화' 변환의 단일 출처(SSOT).
 
-    규칙: 명시 currency(KRW/USD) 우선 → 없으면 카테고리로 판정.
-    '미국주식'(us_stock)만 USD(×환율 대상), 그 외(국내·ETF·크립토·원자재·현금·기타)는 KRW.
-    크립토를 USD 로 보면 국내거래소 원화 평가금액에 ×환율되어 총액이 폭증함(예: 1,200만→184억).
-    render()·_render_portfolio_detail() 두 경로가 이 함수 하나만 쓰게 해 결과 불일치를 차단한다."""
-    cur = str(_first(row, "currency", "ccy") or "").upper()
-    if cur in {"KRW", "USD"}:
-        return cur
+    판정은 **티커/카테고리 기준**(스크린샷 파서의 currency·asset_class 가 자주 틀려서 — 미국주식을
+    'KRW'로 오태깅하거나, 미국주식을 ETF로 오분류 → 환율 미적용으로 수익률 폭발). 따라서:
+    - 원화권: 국내주식·크립토(국내거래소 원화)·현금·원자재, 또는 .KS/.KQ 티커 → KRW.
+    - 그 외 해외 상장(미국주식·해외 ETF·기타, 비한국 티커) → USD(×환율). 저장 currency 태그에 안 휘둘림.
+    크립토를 USD로 보면 국내거래소 원화 평가금액에 ×환율되어 총액 폭증(예: 1,200만→184억)이라 KRW 고정."""
     cat = category or _category_for_holding(row, ticker)
-    return "USD" if cat == "미국주식" else "KRW"
+    t = (ticker or "").upper()
+    if cat in ("국내주식", "크립토", "현금", "원자재") or t.endswith(".KS") or t.endswith(".KQ"):
+        return "KRW"
+    if cat in ("미국주식", "ETF", "기타"):   # 해외 상장(비한국 티커) — 매입·평가금액이 USD
+        return "USD"
+    cur = str(_first(row, "currency", "ccy") or "").upper()   # 분류 불가 시 명시 태그, 기본 KRW
+    return cur if cur in ("KRW", "USD") else "KRW"
 
 
 def _display_currency(row: dict, ticker: str, category: str) -> str:
@@ -442,7 +443,7 @@ def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
         # 평가금액·손익·오늘변동 — 주식은 라이브 재계산(스냅샷 평가금액 대체), 크립토 등은 스냅샷 유지.
         market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount = \
             _position_eval(category, qty, current, fx_factor, direct_market, direct_cost,
-                           avg_price, direct_gain, direct_gain_pct, direct_today, change, fx=fx)
+                           avg_price, direct_gain, direct_gain_pct, direct_today, change)
         positions.append({
             "id": ticker or f"HOLDING-{idx}",
             "category": category,
