@@ -559,12 +559,12 @@ div[role="radiogroup"] > label div, div[role="radiogroup"] > label p {{
     color:#9AA0AD; font-size:13px; font-weight:800; text-align:center; width:100%;
 }}
 /* 시장 자산군 탭(8개) — 한 줄 깔끔하게. 데스크톱은 균등 분할, 모바일은 가로 스크롤(줄바꿈·잘림 없음) */
-.st-key-mkt_asset_tab div[role="radiogroup"] {{ display:flex !important; flex-wrap:nowrap; width:100%; }}
-.st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:1 1 0; min-width:0; padding:7px 8px !important; }}
+.st-key-mkt_asset_tab div[role="radiogroup"] {{ display:flex !important; flex-wrap:nowrap !important; width:100% !important; }}
+.st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:1 1 0 !important; min-width:0; padding:7px 8px !important; }}
 @media(max-width:680px) {{
-  .st-key-mkt_asset_tab div[role="radiogroup"] {{ overflow-x:auto; -webkit-overflow-scrolling:touch; }}
+  .st-key-mkt_asset_tab div[role="radiogroup"] {{ overflow-x:auto !important; -webkit-overflow-scrolling:touch; }}
   .st-key-mkt_asset_tab div[role="radiogroup"]::-webkit-scrollbar {{ display:none; }}
-  .st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:0 0 auto; }}
+  .st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:0 0 auto !important; }}
 }}
 div[role="radiogroup"] > label:hover div, div[role="radiogroup"] > label:hover p {{ color:#E7E9EE; }}
 /* 토스식 세그먼트: 선택칸 = 중립 elevated thumb(은은한 그림자) + 골드 텍스트(브랜드 유지, 안 시끄럽게) */
