@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
-from data.loader import load_market_data, batch_history
+from data.loader import load_market_data, batch_history, batch_close_history
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton, market_pulse_chips,
@@ -395,7 +395,8 @@ def _instrument_data(pool_version: str = _POOL_VERSION) -> tuple[dict[str, list[
         for key, _, src in pool:
             key_to_ticker[key] = _spark_ticker_for(key, src)
     tickers = list(dict.fromkeys(key_to_ticker.values()))
-    hist = batch_history(",".join(tickers), "1y")
+    # 스파크라인·시세는 종가만 필요 → DB-우선 close 히스토리(batch_close_history)로 (OHLCV 라이브 회피)
+    hist = batch_close_history(",".join(tickers), "1y")
     if not hist:
         return {}, {}
 
@@ -405,7 +406,7 @@ def _instrument_data(pool_version: str = _POOL_VERSION) -> tuple[dict[str, list[
         df = hist.get(tk)
         if df is None:
             continue
-        series = df["Close"].dropna()
+        series = df.dropna()
         if len(series) < 2:
             continue
         weekly = series.resample("W").last().dropna()
