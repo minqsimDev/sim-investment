@@ -31,7 +31,25 @@ def _resilient_prices(prices: dict) -> dict:
     return prices
 
 
-def fetch_all(config: dict | None = None, force: bool = False) -> dict:
+def _db_prices(all_tickers: list[str]) -> dict | None:
+    """DB quotes 가 충분히 채워졌으면 {ticker: quote} 반환, 아니면 None(→ 라이브 폴백).
+    앱 요청 경로(prefer_db)는 이 DB값(배치가 적재)을 즉시 읽어 API 지연을 없앤다(SSOT)."""
+    try:
+        from src.database import load_quotes, DEFAULT_DB
+        dbq = load_quotes(db_path=DEFAULT_DB)
+    except Exception:
+        return None
+    if not dbq:
+        return None
+    have = sum(1 for t in all_tickers if dbq.get(t) and dbq[t].get("price") is not None)
+    if have < max(1, int(len(all_tickers) * 0.6)):   # DB 미충족(콜드/배치 전) → 라이브로
+        return None
+    return {t: dbq.get(t) for t in all_tickers}
+
+
+def fetch_all(config: dict | None = None, force: bool = False, prefer_db: bool = False) -> dict:
+    """prefer_db=True(앱 요청 경로): DB quotes 우선 읽기(즉시). 미충족 시에만 라이브.
+    prefer_db=False(배치/강제): 라이브 fetch → DB 적재(앱이 읽을 SSOT를 따뜻하게 유지)."""
     if config is None:
         config = load_config()
 
@@ -53,15 +71,20 @@ def fetch_all(config: dict | None = None, force: bool = False) -> dict:
     # Run yfinance bulk download and FRED macro fetch in parallel
     # 토스 우선 + yfinance 폴백(지시서 3장). 토스 전일대비는 캔들 조회라
     # 첫 호출(콜드 캐시)이 길 수 있어 타임아웃을 넉넉히 둔다(이후 당일 캐시).
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        prices_future = ex.submit(price_source.fetch_prices_bulk, all_tickers, force)
-        macro_future  = ex.submit(_fetch_macro, config)
-        prices = prices_future.result(timeout=45)
-        macro  = macro_future.result(timeout=15)
-
-    # 복원력 + DB-서빙: 라이브 성공분은 DB 스냅샷으로 저장(앱 트래픽·배치가 DB를 따뜻하게 유지),
-    # 라이브 실패(None)분은 DB 마지막값(last-known-good)으로 백필 → 소스 장애에도 화면 유지.
-    prices = _resilient_prices(prices)
+    prices = _db_prices(all_tickers) if (prefer_db and not force) else None
+    if prices is not None:
+        # DB 즉시 서빙(앱 경로) — 라이브 API 안 침. 신선도는 배치 스냅샷이 책임.
+        macro = _fetch_macro(config)
+    else:
+        # 라이브 경로(배치/강제/ DB 미충족) — fetch 후 DB 적재.
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            prices_future = ex.submit(price_source.fetch_prices_bulk, all_tickers, force)
+            macro_future  = ex.submit(_fetch_macro, config)
+            prices = prices_future.result(timeout=45)
+            macro  = macro_future.result(timeout=15)
+        # 복원력 + DB-서빙: 라이브 성공분은 DB 스냅샷으로 저장(배치·앱이 DB를 따뜻하게 유지),
+        # 라이브 실패(None)분은 DB 마지막값(last-known-good)으로 백필 → 소스 장애에도 화면 유지.
+        prices = _resilient_prices(prices)
 
     results = {
         "fetched_at": datetime.now().isoformat(),
