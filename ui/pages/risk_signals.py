@@ -605,7 +605,8 @@ def render():
             from core.market_hours import any_open as _any_open
             _mkt_state = "장중 최신" if _any_open(["US", "KR"]) else "장마감 — 마지막 세션 종가 기준"
             _lines.append("신호 출처: 벤치마크·원자재·환율 종가 + FRED 금리(DB 적재) · "
-                          "모멘텀 = 20거래일(1개월) 추세 · 달러·금리 = 현재 레벨 · " + _mkt_state)
+                          "모멘텀=20거래일 수익률, 달러=DXY 레벨 → 자기 1년 분포의 백분위로 판정"
+                          "(상/하위 25%, 표본 부족 시 추세 폴백) · 금리=고정 레벨 · " + _mkt_state)
             st.markdown(
                 '<div class="rsk-formula-t">점수 산식 — 체계적(β·시장) + 비체계적(HHI 집중)</div>'
                 '<ul class="rsk-formula">' + "".join(f"<li>{ln}</li>" for ln in _lines) + "</ul>",
