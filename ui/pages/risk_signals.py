@@ -601,6 +601,11 @@ def render():
                     f"보유 미연결 → 종합 = 시장 점수 = <b>{score} / 100</b>",
                     f"구간: 0–39 안정 · 40–69 주의 · 70+ 위험 → 현재 <b>{score} ({tone_label})</b>",
                 ]
+            # D(투명화): 신호 데이터 출처·산식 기준·신선도 명시 — "이 숫자 어디서 왔나" 해소.
+            from core.market_hours import any_open as _any_open
+            _mkt_state = "장중 최신" if _any_open(["US", "KR"]) else "장마감 — 마지막 세션 종가 기준"
+            _lines.append("신호 출처: 벤치마크·원자재·환율 종가 + FRED 금리(DB 적재) · "
+                          "모멘텀 = 20거래일(1개월) 추세 · 달러·금리 = 현재 레벨 · " + _mkt_state)
             st.markdown(
                 '<div class="rsk-formula-t">점수 산식 — 체계적(β·시장) + 비체계적(HHI 집중)</div>'
                 '<ul class="rsk-formula">' + "".join(f"<li>{ln}</li>" for ln in _lines) + "</ul>",
