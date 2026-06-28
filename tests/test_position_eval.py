@@ -5,7 +5,21 @@
 → _holding_currency 가 티커/카테고리로 USD를 robust 판정하고, _position_eval 이 평가·매입에
 동일 fx_factor 를 일관 적용.
 """
-from ui.pages.portfolio import _position_eval, _holding_currency
+from ui.pages.portfolio import _position_eval, _holding_currency, _category_for_holding
+
+
+# ── _category_for_holding: 파서의 ETF 오분류 보정 ─────────────────────────────
+def test_spcx_mislabeled_etf_becomes_us_stock():
+    # 파서가 SPCX(스페이스X)를 etf로 오분류 → 이름에 ETF 없고 비한국 티커 → 미국주식
+    assert _category_for_holding({"name": "스페이스X", "asset_class": "etf"}, "SPCX") == "미국주식"
+
+
+def test_real_us_etf_stays_etf_by_name():
+    assert _category_for_holding({"name": "S&P500 ETF", "asset_class": "etf"}, "SPY") == "ETF"
+
+
+def test_korean_etf_stays_etf():
+    assert _category_for_holding({"name": "KODEX 종합채권", "asset_class": "etf"}, "273130.KS") == "ETF"
 
 
 # ── _holding_currency: 티커/카테고리 기준 robust 판정 ──────────────────────────

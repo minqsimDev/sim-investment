@@ -297,7 +297,12 @@ def _category_for_holding(row: dict, ticker: str) -> str:
         return "크립토"
     if "commodity" in raw or "원자재" in raw:
         return "원자재"
-    if "etf" in raw or any(name.upper().startswith(prefix) for prefix in _ISSUER_CLASSES):
+    # ETF 판정: 이름에 'ETF' 표기 OR 국내 ETF 발행사 접두 OR (asset_class=etf & 한국 티커).
+    # 파서(vision)가 개별 미국주식을 'etf'로 오분류하는 경우(예: SPCX/스페이스X)를 거른다 —
+    # 비한국 티커는 이름이 ETF가 아니면 미국주식으로(통화/수익률은 이미 티커 기준이라 무관, 라벨만 보정).
+    name_u = name.upper()
+    if ("ETF" in name_u or any(name_u.startswith(prefix) for prefix in _ISSUER_CLASSES)
+            or ("etf" in raw and (ticker.endswith(".KS") or ticker.endswith(".KQ")))):
         return "ETF"
     if "kr" in raw or ticker.endswith(".KS") or ticker.endswith(".KQ"):
         return "국내주식"
