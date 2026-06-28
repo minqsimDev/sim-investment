@@ -229,36 +229,52 @@ def _position_eval(category, qty, current, fx_factor, direct_market,
                    direct_cost, avg_price, direct_gain, direct_gain_pct, direct_today, change, fx=1):
     """수량 보유 1건의 (평가금액, 평가금액_현지, 원가, 평가손익, 평가손익_현지, 손익률, 오늘변동금액).
 
-    **브로커 스냅샷(direct_*) 기준** — 증권사 앱이 보여준 평가금액·손익·수익률을 그대로 쓴다.
-    우리 시세(yfinance/DB)로 보유수량×현재가 재계산하면 출처·기준 차이(지연·환율·프리미엄)로 수익률이
-    증권사 값과 어긋나 "수익률이 엉망"으로 보인다 → 스냅샷이 사용자 신뢰의 단일 기준. 현재가(시세)는
-    표시용으로만 라이브(_position_value_pair 등), 평가금액·손익은 스냅샷 유지. 최신화는 스크린샷 재업로드.
-    direct_market 이 없을 때만(수량만 있는 경우) 수량×현재가로 보강."""
-    market_value = direct_market
-    if market_value is not None and fx_factor != 1:
-        market_value = direct_market * fx_factor
-    elif market_value is None and current is not None:
-        market_value = qty * current * fx_factor
-    cost_basis = direct_cost
+    **평가금액 = 보유수량 × 라이브 현재가**(종가/장중 실시간)로 산출 → 시세 변동을 반영(스냅샷 고정 X).
+    **매입금액(원가)·매입단가는 고정**(스냅샷 direct_cost/avg_price) — 산 가격은 안 변하니까.
+    수익률 = (평가금액 − 매입금액)/매입금액. 시세 정확도가 전제(시세가 틀리면 수익률도 어긋남 → 시세는
+    DB-우선+장중 라이브 경로가 책임). 라이브 현재가가 없으면(콜드 DB·미배치) 스냅샷 평가금액 폴백.
+
+    현재가 통화는 **카테고리 기준 price_fx**(미국주식=USD→환율, 그 외=원화) — 저장 currency='KRW'
+    오기입(구 파싱 버그)이 흔해 fx_factor(보유 currency) 쓰면 USD 현재가가 원화로 오인돼 평가금액이
+    1/환율로 축소되므로 분리. 크립토는 USD/원화 기준 차(국내거래소 프리미엄)로 스냅샷 유지(별도 결정)."""
+    live = category in ("미국주식", "국내주식") and bool(qty) and current is not None and current > 0
+
+    cost_basis = direct_cost   # 매입금액(원가)은 시세와 무관 — 고정(보유 currency=fx_factor 기준 환산)
     if cost_basis is not None and fx_factor != 1:
         cost_basis = direct_cost * fx_factor
     elif cost_basis is None and avg_price is not None:
         cost_basis = qty * avg_price * fx_factor
-    gain_loss = direct_gain
-    if gain_loss is not None and fx_factor != 1:
-        gain_loss = direct_gain * fx_factor
-    elif gain_loss is None and market_value is not None and cost_basis is not None:
-        gain_loss = market_value - cost_basis
-    gain_pct = direct_gain_pct
-    if gain_pct is None and gain_loss is not None and cost_basis:
-        gain_pct = gain_loss / cost_basis * 100
-    today_amount = direct_today
-    if today_amount is not None and fx_factor != 1:
-        today_amount = direct_today * fx_factor
-    elif today_amount is None and change is not None:
-        today_amount = qty * change * fx_factor
-    market_value_local = (market_value / fx_factor) if (fx_factor != 1 and market_value is not None) else market_value
-    gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+
+    if live:
+        price_fx = fx if (category == "미국주식" and fx) else 1   # 현재가(시세) 통화 기준 환율
+        market_value = qty * current * price_fx
+        gain_loss = (market_value - cost_basis) if cost_basis is not None else None
+        gain_pct = (gain_loss / cost_basis * 100) if (gain_loss is not None and cost_basis) else None
+        today_amount = (qty * change * price_fx) if change is not None else None
+        local_fx = price_fx
+    else:
+        market_value = direct_market
+        if market_value is not None and fx_factor != 1:
+            market_value = direct_market * fx_factor
+        elif market_value is None and current is not None:
+            market_value = qty * current * fx_factor
+        gain_loss = direct_gain
+        if gain_loss is not None and fx_factor != 1:
+            gain_loss = direct_gain * fx_factor
+        elif gain_loss is None and market_value is not None and cost_basis is not None:
+            gain_loss = market_value - cost_basis
+        gain_pct = direct_gain_pct
+        if gain_pct is None and gain_loss is not None and cost_basis:
+            gain_pct = gain_loss / cost_basis * 100
+        today_amount = direct_today
+        if today_amount is not None and fx_factor != 1:
+            today_amount = direct_today * fx_factor
+        elif today_amount is None and change is not None:
+            today_amount = qty * change * fx_factor
+        local_fx = fx_factor
+
+    market_value_local = (market_value / local_fx) if (local_fx != 1 and market_value is not None) else market_value
+    gain_loss_local = (gain_loss / local_fx) if (local_fx != 1 and gain_loss is not None) else gain_loss
     return market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount
 
 
