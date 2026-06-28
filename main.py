@@ -106,11 +106,37 @@ def main():
     try:
         from data.price_source import _yf_close_history
         from src.database import save_close_history
-        univ = []
+        univ: set[str] = set()
         for k in ("my_etfs", "benchmark_etfs", "us_stocks", "kr_stocks", "crypto"):
-            univ += [e["ticker"] for e in config.get(k, [])]
-        univ += list(config["commodities"].values()) + [v["ticker"] for v in config["fx"].values()]
-        univ = list(dict.fromkeys(univ))   # 중복 제거
+            univ |= {e["ticker"] for e in config.get(k, [])}
+        univ |= set(config["commodities"].values()) | {v["ticker"] for v in config["fx"].values()}
+        # 페이지·스파크라인 유니버스도 포함 → 앱이 차트로 그리는 전 종목 DB화(첫 진입도 빠르게).
+        # UI 상수 형태가 바뀌어도 배치가 죽지 않게 각각 try.
+        def _tk(x):
+            return x[0] if isinstance(x, (list, tuple)) else x
+        try:
+            from ui.pages.us_stocks import _US_UNIVERSE, _US_NEW_LISTINGS, _US_BENCH
+            univ |= {_tk(x) for x in _US_UNIVERSE} | {_tk(x) for x in _US_NEW_LISTINGS} | set(_US_BENCH)
+        except Exception as _e: print(f"  (us universe skip: {_e})", file=sys.stderr)
+        try:
+            from ui.pages.kr_stocks import _KR_UNIVERSE, _KOSPI_BENCH
+            univ |= {_tk(x) for x in _KR_UNIVERSE} | set(_KOSPI_BENCH)
+        except Exception as _e: print(f"  (kr universe skip: {_e})", file=sys.stderr)
+        try:
+            from ui.pages.etf import _KR_ETF_UNIVERSE
+            univ |= {x[2] if isinstance(x, (list, tuple)) and len(x) > 2 else _tk(x) for x in _KR_ETF_UNIVERSE}
+        except Exception as _e: print(f"  (etf universe skip: {_e})", file=sys.stderr)
+        try:
+            from ui.pages.crypto import _CRYPTO_UNIVERSE
+            univ |= {x[1] if isinstance(x, (list, tuple)) and len(x) > 1 else _tk(x) for x in _CRYPTO_UNIVERSE}
+        except Exception as _e: print(f"  (crypto universe skip: {_e})", file=sys.stderr)
+        try:
+            from ui.pages.market import _CAT_POOLS, _spark_ticker_for
+            for pool in _CAT_POOLS.values():
+                for key, _nm, src in pool:
+                    univ.add(_spark_ticker_for(key, src))
+        except Exception as _e: print(f"  (spark universe skip: {_e})", file=sys.stderr)
+        univ = [t for t in dict.fromkeys(univ) if t]   # dedup + 빈값 제거
         hist = _yf_close_history(univ, "1y")
         n = save_close_history(hist, DEFAULT_DB)
         print(f"  Price history saved: {n} rows ({len(hist)}/{len(univ)} tickers)")
