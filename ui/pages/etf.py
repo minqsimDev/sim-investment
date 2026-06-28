@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from data.loader import load_market_data, batch_history
+from data.loader import load_market_data, batch_history, batch_close_history
 from ui.components.dash_style import (
     empty_state,
     inject_css, jj_footer, mark_active_nav, show_skeleton,
@@ -78,24 +78,25 @@ def _slice_period(s, pcode: str):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _etf_bundle(tickers_key: str) -> dict:
-    """ETF 1년치 OHLCV 1회 배치 → {closes, turnover}. price_source 단일 진입점(batch_history) 경유.
+    """{closes, turnover}. closes=DB-우선 종가(batch_close_history, 즉시) ·
+    turnover=거래대금(거래량 필요 → 라이브이나 일 단위 안정 → 24h 별도 캐시)."""
+    return {"closes": batch_close_history(tickers_key, "1y"),
+            "turnover": _etf_turnover(tickers_key)}
 
-    히스토리(현재가·1D%·3M·추세·스파크)·52주 레인지·추이 비교·규모(거래대금)를 모두
-    이 한 번의 다운로드에서 파생한다."""
-    hist = batch_history(tickers_key, "1y")
-    closes, turnover = {}, {}
-    for tk, df in hist.items():
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _etf_turnover(tickers_key: str) -> dict:
+    """거래대금(Close×Volume 최근 20일 평균) — ETF 규모 랭킹용. 일 단위라 24h 캐시.
+    최근 3개월 OHLCV면 tail(20) 충분(라이브 다운로드 최소화)."""
+    turnover = {}
+    for tk, df in batch_history(tickers_key, "3mo").items():
         try:
-            c = df["Close"].dropna()
-            if c.empty:
-                continue
-            closes[tk] = c
             tv = (df["Close"] * df["Volume"]).dropna()
             if not tv.empty:
                 turnover[tk] = float(tv.tail(20).mean())
         except Exception:
             pass
-    return {"closes": closes, "turnover": turnover}
+    return turnover
 
 
 def _ind(closes) -> dict:
