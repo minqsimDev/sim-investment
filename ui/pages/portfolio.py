@@ -196,9 +196,26 @@ def _price_currency(position: dict) -> str:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _cached_bulk_quotes(tickers: tuple[str, ...]) -> dict:
-    """보유 보강 시세 — 60초 캐시(매 렌더/위젯 클릭마다 네트워크 재호출 방지). 키=정렬된 티커 튜플."""
-    from data.price_source import fetch_prices_bulk
-    return fetch_prices_bulk(list(tickers))
+    """보유 보강 시세 — DB(quotes, 배치 적재) 우선 → 미존재(계정별 비주류 보유)만 라이브 + 자가 적재.
+    60초 캐시(매 렌더/위젯 클릭마다 네트워크 재호출 방지). 키=정렬된 티커 튜플."""
+    out: dict = {}
+    try:
+        from src.database import load_quotes, DEFAULT_DB
+        dbq = load_quotes(db_path=DEFAULT_DB)
+        out = {t: dbq[t] for t in tickers if dbq.get(t) and dbq[t].get("price") is not None}
+    except Exception:
+        out = {}
+    missing = [t for t in tickers if t not in out]
+    if missing:
+        from data.price_source import fetch_prices_bulk
+        live = fetch_prices_bulk(missing)
+        out.update(live)
+        try:   # 라이브로 가져온 비주류 보유는 DB에 적재 → 다음부터 DB 히트(자가 치유)
+            from src.database import save_quotes, DEFAULT_DB
+            save_quotes({t: q for t, q in live.items() if q and q.get("price") is not None}, DEFAULT_DB)
+        except Exception:
+            pass
+    return out
 
 
 def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, dict]) -> None:
