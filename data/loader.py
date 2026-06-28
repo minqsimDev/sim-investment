@@ -68,6 +68,33 @@ def batch_history(tickers_key: str, period: str = "1y", _bucket: int = 0) -> dic
         return {}
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def batch_quotes(tickers_key: str, _bucket: int = 0) -> dict:
+    """보강 시세를 DB(quotes, 배치 적재) 우선으로 1회 조회 → 미존재(계정별 비주류 보유)만 라이브 + 자가 적재.
+    batch_close_history 와 동일한 DB-first→missing→live→self-heal 패턴의 quotes판(UI가 src.database·
+    price_source를 직접 만지지 않게 로더 계층에 단일화). 60초 캐시. tickers_key=콤마조인(캐시 키)."""
+    tickers = [t for t in tickers_key.split(",") if t]
+    if not tickers:
+        return {}
+    try:
+        from src.database import load_quotes, DEFAULT_DB
+        out = {t: q for t, q in load_quotes(db_path=DEFAULT_DB, tickers=tickers).items()
+               if q.get("price") is not None}
+    except Exception:
+        out = {}
+    missing = [t for t in tickers if t not in out]
+    if missing:
+        from data import price_source
+        live = price_source.fetch_prices_bulk(missing) or {}
+        out.update(live)
+        try:   # 라이브로 가져온 비주류 보유는 DB에 적재 → 다음부터 DB 히트(자가 치유)
+            from src.database import save_quotes, DEFAULT_DB
+            save_quotes({t: q for t, q in live.items() if q and q.get("price") is not None}, DEFAULT_DB)
+        except Exception:
+            pass
+    return out
+
+
 def series_last_n(closes, n: int = 63) -> list:
     """종가 시리즈의 최근 n개 → float 리스트(스파크라인용). 비거나 None이면 []."""
     if closes is None or getattr(closes, "empty", True):

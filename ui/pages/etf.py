@@ -87,9 +87,9 @@ def _etf_bundle(tickers_key: str) -> dict:
 @st.cache_data(ttl=86400, show_spinner=False)
 def _etf_turnover(tickers_key: str) -> dict:
     """거래대금(Close×Volume 최근 20일 평균) — ETF 규모 랭킹용. 일 단위라 24h 캐시.
-    최근 3개월 OHLCV면 tail(20) 충분(라이브 다운로드 최소화)."""
+    1개월(~22거래일) OHLCV면 tail(20) 충분 — 휴장 여유 포함, 라이브 다운로드 최소화."""
     turnover = {}
-    for tk, df in batch_history(tickers_key, "3mo").items():
+    for tk, df in batch_history(tickers_key, "1mo").items():
         try:
             tv = (df["Close"] * df["Volume"]).dropna()
             if not tv.empty:

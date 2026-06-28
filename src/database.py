@@ -299,13 +299,18 @@ def save_quotes(prices: dict, db_path: str = DEFAULT_DB) -> int:
     return len(rows)
 
 
-def load_quotes(max_age_sec: int = 7 * 86400, db_path: str = DEFAULT_DB) -> dict:
-    """{ticker: quote dict} — max_age_sec 보다 오래된 행은 제외. fetch_prices_bulk 동일 형태(source 'db')."""
+def load_quotes(max_age_sec: int = 7 * 86400, db_path: str = DEFAULT_DB,
+                tickers: list[str] | None = None) -> dict:
+    """{ticker: quote dict} — max_age_sec 보다 오래된 행은 제외. fetch_prices_bulk 동일 형태(source 'db').
+    tickers 지정 시 해당 티커만 SQL(WHERE IN)로 조회 → 전체 테이블 스캔 회피(보유 보강 등 소수 조회용)."""
+    sql = "SELECT ticker, price, prev_close, change, change_pct, currency, updated_at FROM quotes"
     try:
         with _conn(db_path) as conn:
-            rows = conn.execute(
-                "SELECT ticker, price, prev_close, change, change_pct, currency, updated_at FROM quotes"
-            ).fetchall()
+            if tickers:
+                ph = ",".join("?" * len(tickers))
+                rows = conn.execute(f"{sql} WHERE ticker IN ({ph})", tuple(tickers)).fetchall()
+            else:
+                rows = conn.execute(sql).fetchall()
     except Exception:
         return {}
     cutoff = _dt.now() - _td(seconds=max_age_sec)
