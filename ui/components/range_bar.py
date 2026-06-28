@@ -36,8 +36,9 @@ def fetch_52w_ranges(tickers_key: str) -> dict:
         return {}
     out: dict[str, tuple] = {}
     try:
-        from data import price_source
-        hist = price_source.fetch_close_history(tickers, "1y")
+        # DB-우선 종가 히스토리(loader.batch_close_history) 경유 → 토스 캔들 직접호출(throttle ~11s) 제거.
+        from data.loader import batch_close_history
+        hist = batch_close_history(tickers_key, "1y")
         for tk, c in hist.items():
             try:
                 c = c.dropna()
