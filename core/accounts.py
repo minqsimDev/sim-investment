@@ -68,6 +68,25 @@ def create_account(username: str, password: str) -> str | None:
     return None
 
 
+def set_password(username: str, new_password: str) -> str | None:
+    """기존 계정 비밀번호 변경(새 솔트 재생성). 성공 None, 실패 메시지.
+    변경 시엔 8자 이상 권장(생성은 4자 허용이지만 노출 사고 대응 등 변경은 강화)."""
+    username = username.strip()
+    if len(new_password) < 8:
+        return "비밀번호는 8자 이상으로 설정해 주세요."
+    with _locked():
+        data = _load()
+        acc = data["accounts"].get(username)
+        if not acc:
+            return "계정을 찾을 수 없습니다."
+        salt = _new_salt()
+        acc["salt"] = salt
+        acc["password_hash"] = _hash(new_password, salt)
+        acc["password_changed_at"] = datetime.now().isoformat()
+        _save(data)
+    return None
+
+
 def authenticate(username: str, password: str) -> dict | None:
     """인증 성공 시 account dict 반환, 실패 시 None."""
     data = _load()
