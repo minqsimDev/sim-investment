@@ -253,16 +253,22 @@ div[data-testid="stTopNav"] {{
     font-weight:700 !important;
     letter-spacing:.01em !important;
 }}
+.sv-actions {{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    flex:0 0 auto;
+}}
 .sv-nav {{
     display:inline-flex;
     align-items:center;
     gap:6px;
     padding:6px 8px;
+    margin-top:12px;
     background:rgba(22,24,31,0.90);
     border:1px solid rgba(38,42,51,0.95);
-    border-radius:18px;
+    border-radius:16px;
     box-shadow:0 12px 30px rgba(66,87,107,0.10);
-    flex:0 0 auto;
 }}
 .sv-nav a {{
     display:inline-flex;
@@ -315,9 +321,9 @@ div[data-testid="stTopNav"] {{
 .sv-acct:hover {{ border-color:{ACCENT};color:{ACCENT} !important; }}
 @media(max-width:920px) {{
     .sv-shell {{ padding:18px 16px 10px; }}
-    .sv-app-header {{ flex-direction:column; align-items:flex-start; }}
-    /* 가로 스크롤(잘림) 대신 줄바꿈 → 핀·새로고침·계정 전부 보이게 */
-    .sv-nav {{ width:100%; flex-wrap:wrap; box-sizing:border-box; }}
+    /* 브랜드+계정/새로고침은 한 줄 유지, 네비 핀은 아래 한 줄에 균등 분할(잘림 없음) */
+    .sv-nav {{ display:flex; width:100%; box-sizing:border-box; }}
+    .sv-nav a {{ flex:1 1 0; padding:0 6px; }}
     .sv-nav-sep {{ display:none; }}
     [data-testid="stTopNav"], div[data-testid="stTopNav"] {{ padding:0 16px 10px !important; }}
     [data-testid="stToolbar"] {{ padding:8px 16px 0 !important; }}
@@ -325,9 +331,14 @@ div[data-testid="stTopNav"] {{
 }}
 @media(max-width:560px) {{
     .sv-shell {{ padding:12px 12px 8px; }}
-    .sv-brand {{ gap:10px; }}
-    .sv-nav a {{ min-height:32px; padding:0 10px; font-size:12px; }}
+    .sv-brand {{ gap:9px; min-width:0; }}
+    .sv-brand > div {{ min-width:0; }}
+    .sv-brand h1 {{ font-size:16px !important; white-space:nowrap; }}
+    .sv-brand p {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+    .sv-logo {{ width:38px !important; height:38px !important; }}
+    .sv-nav a {{ min-height:32px; padding:0 6px; font-size:12px; }}
     .sv-nav-refresh {{ width:32px; height:32px; border-radius:12px; }}
+    .sv-acct {{ padding:0 10px; }}
 }}
 
 [data-testid="stToolbar"],
@@ -978,14 +989,14 @@ def render_shell_header(pages=None):
         <p>{APP_TAGLINE}</p>
       </div>
     </a>
-    <nav class="sv-nav" aria-label="주요 메뉴">
-      {nav_html}
-      <span class="sv-nav-sep" aria-hidden="true"></span>
+    <div class="sv-actions">
       <a class="sv-nav-refresh" href="{html_escape(refresh_href)}" target="_top" title="새로고침">↻</a>
-      {acct_sep}
       {acct_html}
-    </nav>
+    </div>
   </div>
+  <nav class="sv-nav" aria-label="주요 메뉴">
+    {nav_html}
+  </nav>
 </div>
 """,
         unsafe_allow_html=True,
