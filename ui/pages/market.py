@@ -1283,7 +1283,7 @@ def _market_glance_html(data: dict, suffix: str = "") -> str:
         rep_s = f"{rep:+.2f}%" if rep is not None else "—"
         lead = f"리더 {ln} {lc:+.1f}%" if ln and lc is not None else "리더 —"
         href = f"?market_tab={_slug.get(region, 'summary')}{suffix}"
-        html += (f'<a class="mg-card" href="{href}" target="_self">'
+        html += (f'<a class="mg-card" href="{href}" data-mkt-tab="{region}" target="_self">'
                  f'<div class="mg-region">{region} <span class="mg-go">자세히 →</span></div>'
                  f'<div class="mg-rep"><span class="mg-replbl">{lbl}</span>'
                  f'<span class="mg-pct {cls}">{rep_s}</span></div>'
@@ -1460,11 +1460,46 @@ def render() -> None:
 
     from ui.pages import us_stocks, kr_stocks, commodities, fx_rates, crypto, etf  # major_movers 는 _market_summary_all fragment 내부에서 import
 
-    # 쿼리파라미터 기반 서브탭 — st.tabs 대신(딥링크·시장 한눈 카드 클릭 이동 지원)
+    # 자산군 탭 — 클라이언트사이드 st.radio(인세션 리런). 과거 <a href=?market_tab=> 하드네비는
+    # 리버스 프록시 뒤에서 /market 풀로드가 홈으로 오라우팅돼 멈췄다(Streamlit 멀티페이지 딥링크 한계).
+    # 라디오는 풀 리로드 없이 이 세션에서 다시 그려 정상 동작. 요약/전체비교 토글과 동일 양식.
     _asset_tabs = {s for _, s in _MARKET_TABS}
-    active = st.query_params.get("market_tab", "")
+    _tab_labels = ["요약"] + [l for l, _ in _MARKET_TABS]
+    _tab_slugs  = [""]     + [s for _, s in _MARKET_TABS]
+    _entry = st.query_params.get("market_tab", "")     # 딥링크 진입(가능 시)용 초기값
+    _idx = _tab_slugs.index(_entry) if _entry in _tab_slugs else 0
+    _sel = st.radio(
+        "시장 자산군", _tab_labels, index=_idx, horizontal=True,
+        key="mkt_asset_tab", label_visibility="collapsed",
+    ) or "요약"
+    active = _tab_slugs[_tab_labels.index(_sel)]
     suffix = _market_suffix()
-    st.markdown(_market_tab_bar(active, suffix), unsafe_allow_html=True)
+
+    # 시장한눈 카드(.mg-card)의 '자세히' 클릭을 위 라디오 선택으로 위임(하드네비 풀리로드 회피).
+    # 카드 data-mkt-tab(미국/한국/원자재) == 라디오 라벨 텍스트라 그대로 매칭해 클릭.
+    import streamlit.components.v1 as _components
+    _components.html(
+        """
+<script>
+(function(){
+  var pdoc=window.parent.document, pwin=window.parent;
+  if(pwin.__svMktCardBridge) return; pwin.__svMktCardBridge=true;
+  pdoc.addEventListener('click', function(e){
+    var card=e.target.closest('.mg-card[data-mkt-tab]');
+    if(!card) return;
+    if(e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey) return;
+    e.preventDefault(); e.stopPropagation();
+    var tab=card.getAttribute('data-mkt-tab');
+    var rg=pdoc.querySelector('[role=radiogroup]');
+    if(!rg) return;
+    var lbl=[].slice.call(rg.querySelectorAll('label')).filter(function(l){return l.textContent.trim()===tab;})[0];
+    if(lbl) lbl.click();
+  }, true);
+})();
+</script>
+""",
+        height=0,
+    )
 
     if active in _asset_tabs:
         # 자산군 7개 탭
