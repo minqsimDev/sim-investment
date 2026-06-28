@@ -37,7 +37,14 @@ def batch_close_history(tickers_key: str, period: str = "6mo", _bucket: int = 0)
         missing = [t for t in tickers if t not in out]
         if missing:
             from data import price_source
-            out.update(price_source.fetch_close_history(missing, period) or {})
+            live = price_source.fetch_close_history(missing, period) or {}
+            out.update(live)
+            # 라이브로 가져온 종목은 DB에 적재 → 다음 조회부터 DB 히트(자가 치유, 배치 미백필분 흡수)
+            try:
+                from src.database import save_close_history
+                save_close_history(live, DEFAULT_DB)
+            except Exception:
+                pass
         return out
     except Exception:
         try:
