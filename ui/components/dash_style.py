@@ -195,15 +195,17 @@ div[data-testid="stTopNav"] {{
 }}
 .sv-app-header {{
     display:flex;
-    justify-content:space-between;
     align-items:center;
-    gap:18px;
+    gap:14px;
+    flex-wrap:wrap;
 }}
 .sv-brand {{
     display:flex;
     gap:14px;
     align-items:center;
     min-width:0;
+    flex:1 1 auto;            /* 브랜드가 남는 공간 채워 네비·계정을 우측으로 민다 */
+    order:1;
     color:inherit !important;
     text-decoration:none !important;
 }}
@@ -258,13 +260,14 @@ div[data-testid="stTopNav"] {{
     align-items:center;
     gap:8px;
     flex:0 0 auto;
+    order:3;
 }}
 .sv-nav {{
     display:inline-flex;
     align-items:center;
     gap:6px;
     padding:6px 8px;
-    margin-top:12px;
+    order:2;            /* 데스크톱: 브랜드(좌) 다음 우측에 핀 바, 그 뒤 계정 */
     background:rgba(22,24,31,0.90);
     border:1px solid rgba(38,42,51,0.95);
     border-radius:16px;
@@ -321,8 +324,9 @@ div[data-testid="stTopNav"] {{
 .sv-acct:hover {{ border-color:{ACCENT};color:{ACCENT} !important; }}
 @media(max-width:920px) {{
     .sv-shell {{ padding:18px 16px 10px; }}
-    /* 브랜드+계정/새로고침은 한 줄 유지, 네비 핀은 아래 한 줄에 균등 분할(잘림 없음) */
-    .sv-nav {{ display:flex; width:100%; box-sizing:border-box; }}
+    /* 모바일: 브랜드+계정/새로고침은 한 줄(계정 order 2), 핀은 다음 줄 전체폭 균등(order 3) */
+    .sv-actions {{ order:2; }}
+    .sv-nav {{ order:3; display:flex; flex:0 0 100%; width:100%; margin-top:10px; box-sizing:border-box; }}
     .sv-nav a {{ flex:1 1 0; padding:0 6px; }}
     .sv-nav-sep {{ display:none; }}
     [data-testid="stTopNav"], div[data-testid="stTopNav"] {{ padding:0 16px 10px !important; }}
@@ -989,14 +993,14 @@ def render_shell_header(pages=None):
         <p>{APP_TAGLINE}</p>
       </div>
     </a>
+    <nav class="sv-nav" aria-label="주요 메뉴">
+      {nav_html}
+    </nav>
     <div class="sv-actions">
       <a class="sv-nav-refresh" href="{html_escape(refresh_href)}" target="_top" title="새로고침">↻</a>
       {acct_html}
     </div>
   </div>
-  <nav class="sv-nav" aria-label="주요 메뉴">
-    {nav_html}
-  </nav>
 </div>
 """,
         unsafe_allow_html=True,
