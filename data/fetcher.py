@@ -75,7 +75,14 @@ def fetch_all(config: dict | None = None, force: bool = False, prefer_db: bool =
     prices = _db_prices(all_tickers) if (prefer_db and not force) else None
     if prices is not None:
         # DB 즉시 서빙(앱 경로) — 라이브 API 안 침. 신선도는 배치 스냅샷이 책임.
-        macro = _fetch_macro(config)
+        # macro(채권금리 등)도 DB-우선 — 라이브 FRED(~9s) 제거. 콜드(빈 DB)면 라이브 폴백.
+        try:
+            from src.database import load_macro, DEFAULT_DB as _DDB
+            macro = load_macro(_DDB)
+            if macro is None or macro.empty:
+                macro = _fetch_macro(config)
+        except Exception:
+            macro = _fetch_macro(config)
     else:
         # 라이브 경로(배치/강제/ DB 미충족) — fetch 후 DB 적재.
         with ThreadPoolExecutor(max_workers=4) as ex:

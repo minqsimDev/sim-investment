@@ -58,13 +58,15 @@ CREATE TABLE IF NOT EXISTS indicator_summary (
 );
 
 CREATE TABLE IF NOT EXISTS macro_indicators (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    date       TEXT NOT NULL,
-    series_id  TEXT NOT NULL,
-    name       TEXT,
-    value      REAL,
-    source     TEXT DEFAULT 'FRED',
-    created_at TEXT DEFAULT (datetime('now')),
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    date           TEXT NOT NULL,
+    series_id      TEXT NOT NULL,
+    name           TEXT,
+    value          REAL,
+    prev_value     REAL,
+    year_ago_value REAL,
+    source         TEXT DEFAULT 'FRED',
+    created_at     TEXT DEFAULT (datetime('now')),
     UNIQUE(date, series_id)
 );
 
@@ -166,6 +168,11 @@ def init_db(db_path: str = DEFAULT_DB) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _conn(db_path) as conn:
         conn.executescript(_DDL)
+        # 기존 DB 마이그레이션 — macro_indicators 변동 컬럼 추가(없을 때만, 멱등).
+        have = {r[1] for r in conn.execute("PRAGMA table_info(macro_indicators)").fetchall()}
+        for col in ("prev_value", "year_ago_value"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE macro_indicators ADD COLUMN {col} REAL")
 
 
 def save_prices(df: pd.DataFrame, db_path: str = DEFAULT_DB) -> int:
@@ -224,18 +231,39 @@ def save_risk_signals(signals: list[dict], db_path: str = DEFAULT_DB) -> int:
 
 
 def save_macro(df: pd.DataFrame, db_path: str = DEFAULT_DB) -> int:
-    """Save FRED macro data. df must have columns: key, series_id, value, date."""
+    """Save FRED macro data. df must have columns: key, series_id, value, date.
+    prev_value·year_ago_value(변동 표시용)도 함께 적재 — 앱이 load_macro로 DB-우선 읽음."""
     if df.empty:
         return 0
-    sql = ("INSERT OR REPLACE INTO macro_indicators (date, series_id, name, value) "
-           "VALUES (?,?,?,?)")
+    sql = ("INSERT OR REPLACE INTO macro_indicators "
+           "(date, series_id, name, value, prev_value, year_ago_value) "
+           "VALUES (?,?,?,?,?,?)")
     rows = [(str(r.get("date", "")), str(r.get("series_id", "")),
-             str(r.get("key", "")), _f(r.get("value")))
+             str(r.get("key", "")), _f(r.get("value")),
+             _f(r.get("prev_value")), _f(r.get("year_ago_value")))
             for _, r in df.iterrows()
             if r.get("value") not in (None, "N/A")]
     with _conn(db_path) as conn:
         conn.executemany(sql, rows)
     return len(rows)
+
+
+def load_macro(db_path: str = DEFAULT_DB) -> pd.DataFrame:
+    """매크로(채권금리 등) 시리즈별 최신 관측치 — _fetch_macro 와 동일 컬럼
+    (key, series_id, value, prev_value, year_ago_value, date). 배치가 적재한 DB를 앱이 즉시 읽어
+    라이브 FRED 호출(~9s)을 제거(SSOT). 비거나 컬럼 미마이그레이션 시 빈 DF → 호출부가 라이브 폴백."""
+    cols = ["key", "series_id", "value", "prev_value", "year_ago_value", "date"]
+    try:
+        with _conn(db_path) as conn:
+            rows = conn.execute(
+                "SELECT m.name, m.series_id, m.value, m.prev_value, m.year_ago_value, m.date "
+                "FROM macro_indicators m "
+                "JOIN (SELECT series_id, MAX(date) AS md FROM macro_indicators GROUP BY series_id) x "
+                "  ON m.series_id = x.series_id AND m.date = x.md"
+            ).fetchall()
+    except Exception:
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(rows, columns=cols)
 
 
 def save_consensus(df: pd.DataFrame, db_path: str = DEFAULT_DB) -> int:
