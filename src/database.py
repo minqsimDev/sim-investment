@@ -133,6 +133,15 @@ CREATE TABLE IF NOT EXISTS quotes (
     source     TEXT,
     updated_at TEXT
 );
+
+-- 종가 히스토리(차트·스파크라인용). 배치가 1년치 백필·일 갱신, 앱은 DB-우선 읽기.
+CREATE TABLE IF NOT EXISTS price_history (
+    symbol TEXT NOT NULL,
+    date   TEXT NOT NULL,
+    close  REAL,
+    PRIMARY KEY (symbol, date)
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_symbol ON price_history(symbol, date);
 """
 
 
@@ -309,6 +318,47 @@ def load_quotes(max_age_sec: int = 7 * 86400, db_path: str = DEFAULT_DB) -> dict
             pass
         out[tk] = {"price": price, "prev_close": prev, "change": chg,
                    "change_pct": chgp, "currency": cur or None, "source": "db"}
+    return out
+
+
+def save_close_history(hist: dict, db_path: str = DEFAULT_DB) -> int:
+    """{ticker: Close Series(index=날짜)} → price_history 일괄 적재(INSERT OR REPLACE). 반환 행수."""
+    rows = []
+    for sym, s in (hist or {}).items():
+        if s is None or getattr(s, "empty", True):
+            continue
+        for idx, val in s.dropna().items():
+            d = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+            rows.append((sym, d, float(val)))
+    if not rows:
+        return 0
+    with _conn(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO price_history (symbol, date, close) VALUES (?,?,?)", rows)
+    return len(rows)
+
+
+def load_close_history(symbols: list[str], since: str, db_path: str = DEFAULT_DB) -> dict:
+    """price_history 에서 {ticker: Close Series(날짜 오름차순)} (since 이후). 없으면 {}."""
+    if not symbols:
+        return {}
+    out: dict = {}
+    try:
+        ph = ",".join("?" * len(symbols))
+        with _conn(db_path) as conn:
+            rows = conn.execute(
+                f"SELECT symbol, date, close FROM price_history "
+                f"WHERE symbol IN ({ph}) AND date >= ? ORDER BY date",
+                (*symbols, since),
+            ).fetchall()
+    except Exception:
+        return {}
+    by_sym: dict = {}
+    for sym, d, close in rows:
+        by_sym.setdefault(sym, []).append((d, close))
+    for sym, pairs in by_sym.items():
+        idx = pd.to_datetime([d for d, _ in pairs])
+        out[sym] = pd.Series([c for _, c in pairs], index=idx, name="Close")
     return out
 
 
