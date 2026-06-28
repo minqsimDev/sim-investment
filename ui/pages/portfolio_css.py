@@ -211,6 +211,13 @@ summary.hold-neu-bg{background:rgba(22,24,31,0.56);border-color:rgba(38,42,51,0.
   .pd-header{display:block;margin:18px 0 10px}
   .pd-header h3{font-size:19px}  /* 헤더 크기(모바일) */
   .pd-header p{font-size:11.5px}
+  /* 헤더 부제·배지: 우측정렬+줄바꿈으로 '장마감'이 따로 떨어져 지저분 → 좌측정렬 +
+     부제는 독립 줄, 배지 3개는 그 아래 한 줄로 모이게 */
+  .pd-header-sub{justify-content:flex-start;margin-top:7px}
+  .pd-header-sub p{flex:0 0 100%}
+  /* 진단 헤더: 제목 위 / '핵심 원인'+버튼은 아래 한 줄 좌측(버튼 세로 줄바꿈 깨짐 해소) */
+  .pd-diagnosis-head{flex-direction:column;align-items:flex-start;gap:7px}
+  .pd-head-right{justify-content:flex-start;width:100%}
   .pd-source{margin-top:8px}
   .pd-card{padding:12px;border-radius:17px}
   .pd-summary-card{min-height:78px;padding:11px 12px}
