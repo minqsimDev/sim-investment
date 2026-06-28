@@ -225,6 +225,53 @@ def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, di
             price_maps[orig] = dict(q)
 
 
+def _position_eval(category, qty, current, fx_factor, direct_market,
+                   direct_cost, avg_price, direct_gain, direct_gain_pct, direct_today, change):
+    """수량 보유 1건의 (평가금액, 평가금액_현지, 원가, 평가손익, 평가손익_현지, 손익률, 오늘변동금액).
+    값은 모두 원화 환산(fx_factor 반영)이며 *_local 은 현지통화 기준.
+
+    미국·국내 주식은 보유수량×라이브 현재가로 평가금액·손익·오늘변동을 재계산한다 → 스냅샷(추가 시점)
+    평가금액에 고정되지 않고 시세 변동이 즉시 반영. 크립토 등은 USD/원화 기준 차이(김치프리미엄 등)로
+    라이브 재계산이 부정확해 브로커 스냅샷(direct_*)을 그대로 유지. 라이브 현재가가 없으면 주식도 스냅샷 폴백.
+    """
+    live = category in ("미국주식", "국내주식") and bool(qty) and current is not None and current > 0
+
+    cost_basis = direct_cost   # 원가(매입금액)는 시세와 무관 — 항상 스냅샷/평균단가 기준
+    if cost_basis is not None and fx_factor != 1:
+        cost_basis = direct_cost * fx_factor
+    elif cost_basis is None and avg_price is not None:
+        cost_basis = qty * avg_price * fx_factor
+
+    if live:
+        market_value = qty * current * fx_factor
+        gain_loss = (market_value - cost_basis) if cost_basis is not None else None
+        gain_pct = (gain_loss / cost_basis * 100) if (gain_loss is not None and cost_basis) else None
+        today_amount = (qty * change * fx_factor) if change is not None else None
+    else:
+        market_value = direct_market
+        if market_value is not None and fx_factor != 1:
+            market_value = direct_market * fx_factor
+        elif market_value is None and current is not None:
+            market_value = qty * current * fx_factor
+        gain_loss = direct_gain
+        if gain_loss is not None and fx_factor != 1:
+            gain_loss = direct_gain * fx_factor
+        elif gain_loss is None and market_value is not None and cost_basis is not None:
+            gain_loss = market_value - cost_basis
+        gain_pct = direct_gain_pct
+        if gain_pct is None and gain_loss is not None and cost_basis:
+            gain_pct = gain_loss / cost_basis * 100
+        today_amount = direct_today
+        if today_amount is not None and fx_factor != 1:
+            today_amount = direct_today * fx_factor
+        elif today_amount is None and change is not None:
+            today_amount = qty * change * fx_factor
+
+    market_value_local = (market_value / fx_factor) if (fx_factor != 1 and market_value is not None) else market_value
+    gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+    return market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount
+
+
 def _today_label(quote_ticker: str, opens: dict[str, bool]) -> str:
     """오늘 변동 라벨 — 해당 시장 개장 중이면 '오늘', 마감이면 '전일'(마지막 세션 종가 기준).
     시장은 canonical market_of(티커)로 판정(크립토 24h·US/KR 세션). 미국장 마감 시 간밤 세션을
@@ -386,33 +433,10 @@ def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
                 })
             continue
 
-        # USD eval_amount는 KRW로 환산
-        market_value = direct_market
-        if market_value is not None and fx_factor != 1:
-            market_value = direct_market * fx_factor
-        elif market_value is None and current is not None:
-            market_value = qty * current * fx_factor
-        cost_basis = direct_cost
-        if cost_basis is not None and fx_factor != 1:
-            cost_basis = direct_cost * fx_factor
-        elif cost_basis is None and avg_price is not None:
-            cost_basis = qty * avg_price * fx_factor
-        gain_loss = direct_gain
-        if gain_loss is not None and fx_factor != 1:
-            gain_loss = direct_gain * fx_factor
-        elif gain_loss is None and market_value is not None and cost_basis is not None:
-            gain_loss = market_value - cost_basis
-        gain_pct = direct_gain_pct
-        if gain_pct is None and gain_loss is not None and cost_basis:
-            gain_pct = gain_loss / cost_basis * 100
-        today_amount = direct_today
-        if today_amount is not None and fx_factor != 1:
-            today_amount = direct_today * fx_factor
-        elif today_amount is None and change is not None:
-            today_amount = qty * change * fx_factor
-
-        market_value_local = (market_value / fx_factor) if (fx_factor != 1 and market_value is not None) else market_value
-        gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+        # 평가금액·손익·오늘변동 — 주식은 라이브 재계산(스냅샷 평가금액 대체), 크립토 등은 스냅샷 유지.
+        market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount = \
+            _position_eval(category, qty, current, fx_factor, direct_market, direct_cost,
+                           avg_price, direct_gain, direct_gain_pct, direct_today, change)
         positions.append({
             "id": ticker or f"HOLDING-{idx}",
             "category": category,

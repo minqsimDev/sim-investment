@@ -7,8 +7,9 @@ from data import price_source
 from data.providers.fred_provider import FredProvider
 
 
-def _resilient_prices(prices: dict) -> dict:
-    """라이브 시세 → DB 스냅샷 저장 + 실패분 DB 백필. DB 접근 실패해도 라이브 그대로 반환."""
+def resilient_prices(prices: dict) -> dict:
+    """라이브 시세 → DB 스냅샷 저장 + 실패분 DB 백필. DB 접근 실패해도 라이브 그대로 반환.
+    라이브-우선 복원력 계층 — 신선도가 중요한 현재가 경로(보유 보강 등)의 단일 출처."""
     try:
         from src.database import save_quotes, load_quotes, DEFAULT_DB
     except Exception:
@@ -22,7 +23,7 @@ def _resilient_prices(prices: dict) -> dict:
     missing = [tk for tk, q in prices.items() if not (q and q.get("price") is not None)]
     if missing:
         try:
-            db = load_quotes(db_path=DEFAULT_DB)
+            db = load_quotes(db_path=DEFAULT_DB, tickers=missing)   # 실패분만 조회(전체 스캔 회피)
         except Exception:
             db = {}
         for tk in missing:
@@ -84,7 +85,7 @@ def fetch_all(config: dict | None = None, force: bool = False, prefer_db: bool =
             macro  = macro_future.result(timeout=15)
         # 복원력 + DB-서빙: 라이브 성공분은 DB 스냅샷으로 저장(배치·앱이 DB를 따뜻하게 유지),
         # 라이브 실패(None)분은 DB 마지막값(last-known-good)으로 백필 → 소스 장애에도 화면 유지.
-        prices = _resilient_prices(prices)
+        prices = resilient_prices(prices)
 
     results = {
         "fetched_at": datetime.now().isoformat(),
