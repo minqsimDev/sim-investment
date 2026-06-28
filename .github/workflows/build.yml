@@ -111,6 +111,7 @@ jobs:
             cd deploy
             docker compose pull
             docker compose up -d
-            # Caddyfile 은 볼륨 마운트라 up -d 로는 갱신 안 됨 → 무중단 reload(변경 없어도 안전)
-            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+            # Caddyfile 은 볼륨 마운트라 up -d 로 갱신 안 되고, `caddy reload` 도 마운트 파일 변경을
+            # 안정적으로 못 읽었다(실측) → 컨테이너 재시작으로 확실히 새 Caddyfile 적용(~1초).
+            docker compose restart caddy
             docker image prune -f
