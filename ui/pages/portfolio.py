@@ -2359,17 +2359,11 @@ def render():
         data["holdings"] = brokerage_holdings
         cash_balance = st.session_state.get("brokerage_cash_balance", 0.0)
         data["cash_balance"] = cash_balance
-        # USD eval_amount → KRW 환산 후 합산 (환율 실패 시 폴백 — 미국 종목이 안 빠지게)
-        _fx = _usdkrw(data) or _FX_FALLBACK
-        def _to_krw(h: dict, field: str) -> float:
-            val = float(h.get(field) or 0)
-            if val and _holding_currency(h, str(h.get("ticker") or "")) == "USD":  # 단일 출처
-                val *= _fx
-            return val
-        live_holdings_total = sum(_to_krw(h, "평가금액") for h in brokerage_holdings)
-        live_total = live_holdings_total + cash_balance
-        live_cost = sum(_to_krw(h, "매입금액") for h in brokerage_holdings)
-        live_gain = sum(_to_krw(h, "평가손익") for h in brokerage_holdings)
+        # 자산여정 '현재 자산' = 카드와 동일한 보정된 총 평가액(_position_eval 경유: 소수점 누락 보정·
+        # USD 환산 일관). 이전엔 raw 평가금액×환율 합산이라 소수점 누락분이 그대로 들어가 총액이
+        # 폭증(예: 1,380억) → 목표 도달률·연성장률이 개판. 카드(_normalize_holdings)와 단일 출처로 통일.
+        _positions, _meta = _normalize_holdings(data)
+        live_total = _portfolio_summary(_positions, _meta).get("total_market_value") or 0
         st.session_state["portfolio_current_asset"] = live_total
 
         # 출처/종목수 배지는 _render_portfolio_detail 의 '내 투자' 헤더로 통합(중복 바 제거).
