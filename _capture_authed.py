@@ -1,12 +1,15 @@
-"""로그인 상태 전체 캡처(minqsim/0000) — 로그인 화면(Liquid 배경) → 인증 후 전 페이지.
-CDP Page.captureScreenshot 사용. _capture_ui.py 의 인증 버전."""
+"""로그인 상태 전체 캡처 — 로그인 화면(Liquid 배경) → 인증 후 전 페이지.
+CDP Page.captureScreenshot 사용. _capture_ui.py 의 인증 버전.
+자격증명은 env로: CAPTURE_USER=... CAPTURE_PW=... python _capture_authed.py (하드코딩 금지)."""
 import base64, os
 from playwright.sync_api import sync_playwright
 
 OUT = "/Users/min/Downloads/siminvest_ui_authed"
 os.makedirs(OUT, exist_ok=True)
 BASE = "http://localhost:8501"
-USER, PW = "minqsim", "0000"
+USER, PW = os.environ.get("CAPTURE_USER", ""), os.environ.get("CAPTURE_PW", "")
+if not (USER and PW):
+    raise SystemExit("자격증명을 env로 지정하세요: CAPTURE_USER / CAPTURE_PW")
 
 # 로그인 후(인증 세션) 캡처할 페이지 — 게스트 파라미터 없음
 AUTHED_PAGES = [

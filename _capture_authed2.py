@@ -1,14 +1,17 @@
-"""로그인 상태 전체 캡처(minqsim) — 세션복원 파라미터 ?_user=minqsim 사용.
+"""로그인 상태 전체 캡처 — 세션복원 파라미터 ?_user=<USER> 사용.
 하드 nav 시 Streamlit 세션이 끊겨 본문이 비는 문제를 app.py의 _user 복원 경로로 해결.
-로그인 랜딩/폼은 keep_bg로, 인증 후 페이지는 풀높이 UNCLIP으로 캡처."""
+로그인 랜딩/폼은 keep_bg로, 인증 후 페이지는 풀높이 UNCLIP으로 캡처.
+자격증명은 env로: CAPTURE_USER=... CAPTURE_PW=... python _capture_authed2.py (하드코딩 금지)."""
 import base64, os
 from playwright.sync_api import sync_playwright
 
 OUT = "/Users/min/Downloads/siminvest_ui_authed"
 os.makedirs(OUT, exist_ok=True)
 BASE = "http://localhost:8501"
-USER, PW = "minqsim", "0000"
-U = "_user=minqsim"  # app.py 세션복원 파라미터
+USER, PW = os.environ.get("CAPTURE_USER", ""), os.environ.get("CAPTURE_PW", "")
+if not (USER and PW):
+    raise SystemExit("자격증명을 env로 지정하세요: CAPTURE_USER / CAPTURE_PW")
+U = f"_user={USER}"  # app.py 세션복원 파라미터
 
 AUTHED_PAGES = [
     ("03_home",               f"{BASE}/?{U}"),

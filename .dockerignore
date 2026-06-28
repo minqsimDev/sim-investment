@@ -24,3 +24,11 @@ deploy/appdata/
 .playwright-mcp/
 docs/
 tests/
+# 개발/QA 스크립트(런타임 미사용 — 이미지에 굽지 않는다)
+_capture_authed.py
+_capture_authed2.py
+_capture_ui.py
+verify_price_source.py
+verify_single_source.py
+verify_toss_coverage.py
+check_toss_fields.py
