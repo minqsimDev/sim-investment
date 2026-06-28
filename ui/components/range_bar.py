@@ -2,7 +2,8 @@
 52주 레인지 바 (공용) — 막대(저~고) · 점(현재) · 우측 라벨(고점 근접/중간/바닥 근접).
 
 원자재·지수·환율 등에서 52주 내 현재 위치를 한눈에 보여주는 동일 컴포넌트.
-52주 범위는 yfinance 1년 일봉에서 계산한다(DB indicator_summary에는 52주 최저/최고 컬럼이 없음).
+52주 범위는 1년 일봉 종가에서 계산한다 — DB-우선(loader.batch_close_history, price_history 적재분)
+경유라 라이브 다운로드 없음(DB indicator_summary에는 52주 최저/최고 컬럼이 없음).
 
 - fetch_52w_range(ticker): (low, high, current) 또는 None
 - range_bar_html(items):   items=[{name, unit?, low, high, current, d1?}]
@@ -14,16 +15,8 @@ import streamlit as st
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_52w_range(ticker: str):
-    """52주(1년) 최저·최고·현재가 → (low, high, current) 또는 None."""
-    try:
-        from data import price_source
-        c = price_source.fetch_close_history([ticker], "1y").get(ticker)
-        if c is None or len(c.dropna()) < 2:
-            return None
-        c = c.dropna()
-        return float(c.min()), float(c.max()), float(c.iloc[-1])
-    except Exception:
-        return None
+    """52주(1년) 최저·최고·현재가 → (low, high, current) 또는 None. DB-우선(fetch_52w_ranges 단일 위임)."""
+    return fetch_52w_ranges(ticker).get(ticker)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)

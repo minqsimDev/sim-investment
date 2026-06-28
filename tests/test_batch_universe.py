@@ -40,4 +40,5 @@ def test_universe_includes_config_and_accounts(tmp_path, monkeypatch):
     uni = set(universe_tickers(include_accounts=True))
     assert cfg_tks <= uni                  # config 전부 포함
     assert {"BTC-USD", "005930.KS"} <= uni  # 계정 보유도 포함
+    assert {"IEF", "SHY", "LQD", "HYG"} <= uni  # 채권 ETF(고정 표시)도 DB 적재 대상
     assert len(uni) == len(set(uni))        # 중복 없음

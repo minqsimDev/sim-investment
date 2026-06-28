@@ -346,12 +346,12 @@ _BND_CSS = """<style>
 </style>"""
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def _bond_etf_quotes() -> dict:
-    """채권 ETF 현재가·1D% — 시세 SSOT(price_source.fetch_prices_bulk) 경유(5종 모두 표시)."""
-    from data.price_source import fetch_prices_bulk
+    """채권 ETF 현재가·1D% — DB-우선(loader.batch_quotes). 배치가 _EXTRA_TICKERS로 적재하므로
+    마감·주말엔 DB(종가), 장중 미존재만 라이브 폴백. 라이브 직호출(fetch_prices_bulk) 제거."""
+    from data.loader import batch_quotes
     out: dict[str, tuple] = {}
-    for tk, q in fetch_prices_bulk(list(_BOND_ETFS.keys())).items():
+    for tk, q in batch_quotes(",".join(_BOND_ETFS.keys())).items():
         if q and q.get("price") is not None:
             out[tk] = (float(q["price"]), q.get("change_pct"))
     return out

@@ -64,10 +64,14 @@ def _config_tickers(config: dict) -> list[str]:
     return list(dict.fromkeys(tks))
 
 
+# config 밖이지만 페이지에 고정 표시돼 DB에 있어야 하는 종목(환율 페이지 채권 ETF 등) — 배치가 적재.
+_EXTRA_TICKERS = ["TLT", "IEF", "SHY", "LQD", "HYG"]
+
+
 def universe_tickers(config: dict | None = None, include_accounts: bool = True) -> list[str]:
-    """배치 스냅샷 대상 티커 — config 유니버스 + (옵션) 전 계정 보유. 중복 제거."""
+    """배치 스냅샷 대상 티커 — config 유니버스 + 고정 표시 종목 + (옵션) 전 계정 보유. 중복 제거."""
     config = config or load_config()
-    tks = _config_tickers(config)
+    tks = _config_tickers(config) + _EXTRA_TICKERS
     if include_accounts:
         try:
             from core.accounts import all_holding_tickers
