@@ -135,16 +135,22 @@ def fetch_prices_bulk(tickers: list[str], force: bool = False,
                     _need_prev.append(o)
 
     # 전일종가 일괄 보강 — 토스가 prevClose=null 을 줘서 종목당 캔들(throttle, ~17s/52종목)로
-    # 빠지던 것을 yfinance 1배치(~2s)로 대체. 현재가=토스(신선) + 전일=yfinance(일 단위 안정).
+    # 빠지던 것을 yfinance 1배치로 대체. 전일종가는 일 단위로 안 변하므로 (티커,날짜) 캐시 →
+    # 장중 60초 자동새로고침은 토스 현재가(~2s)만 재호출, 전일은 그날 1회만 yfinance.
     if _need_prev:
-        try:
-            _yprev = _yf.fetch_prices_bulk(_need_prev, force)
-        except Exception:
-            _yprev = {}
+        _today = date.today()
+        _uncached = [o for o in _need_prev if (o, _today) not in _prev_close_cache]
+        if _uncached:
+            try:
+                _yprev = _yf.fetch_prices_bulk(_uncached, force)
+            except Exception:
+                _yprev = {}
+            for o in _uncached:
+                pr = (_yprev or {}).get(o)
+                _prev_close_cache[(o, _today)] = pr.get("prev_close") if pr else None
         for o in _need_prev:
+            prevc = _prev_close_cache.get((o, _today))
             r = results.get(o)
-            pr = (_yprev or {}).get(o)
-            prevc = pr.get("prev_close") if pr else None
             if r and prevc:
                 results[o] = _quote(r["price"], prevc, r["currency"], "toss")
 
