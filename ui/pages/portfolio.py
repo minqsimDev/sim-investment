@@ -226,27 +226,33 @@ def _supplement_holding_quotes(raw_records: list[dict], price_maps: dict[str, di
 
 
 def _position_eval(category, qty, current, fx_factor, direct_market,
-                   direct_cost, avg_price, direct_gain, direct_gain_pct, direct_today, change):
+                   direct_cost, avg_price, direct_gain, direct_gain_pct, direct_today, change, fx=1):
     """수량 보유 1건의 (평가금액, 평가금액_현지, 원가, 평가손익, 평가손익_현지, 손익률, 오늘변동금액).
-    값은 모두 원화 환산(fx_factor 반영)이며 *_local 은 현지통화 기준.
+    값은 모두 원화 환산이며 *_local 은 현지통화 기준. fx=USD/KRW 환율(raw).
 
     미국·국내 주식은 보유수량×라이브 현재가로 평가금액·손익·오늘변동을 재계산한다 → 스냅샷(추가 시점)
     평가금액에 고정되지 않고 시세 변동이 즉시 반영. 크립토 등은 USD/원화 기준 차이(김치프리미엄 등)로
     라이브 재계산이 부정확해 브로커 스냅샷(direct_*)을 그대로 유지. 라이브 현재가가 없으면 주식도 스냅샷 폴백.
+
+    라이브 재계산의 현재가 통화는 **카테고리 기준**(미국주식=USD→환율, 그 외=원화)으로 판정한다.
+    저장 currency 가 'KRW'로 잘못 들어간 미국주식(구 파싱 버그)에 휘둘리면 USD 현재가를 원화로 오인해
+    평가금액이 1/환율로 축소되므로, 시세 환산은 fx_factor(보유 currency 기준)가 아닌 price_fx 를 쓴다.
     """
     live = category in ("미국주식", "국내주식") and bool(qty) and current is not None and current > 0
 
-    cost_basis = direct_cost   # 원가(매입금액)는 시세와 무관 — 항상 스냅샷/평균단가 기준
+    cost_basis = direct_cost   # 원가(매입금액)는 시세와 무관 — 보유 currency(fx_factor) 기준 환산
     if cost_basis is not None and fx_factor != 1:
         cost_basis = direct_cost * fx_factor
     elif cost_basis is None and avg_price is not None:
         cost_basis = qty * avg_price * fx_factor
 
     if live:
-        market_value = qty * current * fx_factor
+        price_fx = fx if (category == "미국주식" and fx) else 1   # 현재가(시세) 통화 기준 환율
+        market_value = qty * current * price_fx
         gain_loss = (market_value - cost_basis) if cost_basis is not None else None
         gain_pct = (gain_loss / cost_basis * 100) if (gain_loss is not None and cost_basis) else None
-        today_amount = (qty * change * fx_factor) if change is not None else None
+        today_amount = (qty * change * price_fx) if change is not None else None
+        local_fx = price_fx
     else:
         market_value = direct_market
         if market_value is not None and fx_factor != 1:
@@ -266,9 +272,10 @@ def _position_eval(category, qty, current, fx_factor, direct_market,
             today_amount = direct_today * fx_factor
         elif today_amount is None and change is not None:
             today_amount = qty * change * fx_factor
+        local_fx = fx_factor
 
-    market_value_local = (market_value / fx_factor) if (fx_factor != 1 and market_value is not None) else market_value
-    gain_loss_local = (gain_loss / fx_factor) if (fx_factor != 1 and gain_loss is not None) else gain_loss
+    market_value_local = (market_value / local_fx) if (local_fx != 1 and market_value is not None) else market_value
+    gain_loss_local = (gain_loss / local_fx) if (local_fx != 1 and gain_loss is not None) else gain_loss
     return market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount
 
 
@@ -436,7 +443,7 @@ def _normalize_holdings(data: dict) -> tuple[list[dict], dict]:
         # 평가금액·손익·오늘변동 — 주식은 라이브 재계산(스냅샷 평가금액 대체), 크립토 등은 스냅샷 유지.
         market_value, market_value_local, cost_basis, gain_loss, gain_loss_local, gain_pct, today_amount = \
             _position_eval(category, qty, current, fx_factor, direct_market, direct_cost,
-                           avg_price, direct_gain, direct_gain_pct, direct_today, change)
+                           avg_price, direct_gain, direct_gain_pct, direct_today, change, fx=fx)
         positions.append({
             "id": ticker or f"HOLDING-{idx}",
             "category": category,
