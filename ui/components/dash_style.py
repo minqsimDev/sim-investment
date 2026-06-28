@@ -544,12 +544,12 @@ h1,h2,h3,h4,h5,h6,p,span,b,strong,small,div {{
 
 /* ── 세그먼트 토글 (st.radio horizontal 커스텀) — 선택 칸만 골드 ───────────── */
 div[role="radiogroup"] {{
-    display:inline-flex !important; flex-wrap:wrap; gap:0 !important;
-    background:#16181F; border:1px solid {BORDER}; border-radius:10px; padding:3px;
+    display:inline-flex !important; flex-wrap:wrap; gap:3px !important;
+    background:#15171E; border:1px solid {BORDER}; border-radius:12px; padding:4px;
     margin:2px 0 14px;
 }}
 div[role="radiogroup"] > label {{
-    margin:0 !important; padding:7px 16px !important; border-radius:7px;
+    margin:0 !important; padding:7px 16px !important; border-radius:9px;
     cursor:pointer; transition:background .12s, color .12s; min-height:0 !important;
     display:flex !important; align-items:center; justify-content:center; text-align:center;
 }}
@@ -567,27 +567,12 @@ div[role="radiogroup"] > label div, div[role="radiogroup"] > label p {{
   .st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:0 0 auto; }}
 }}
 div[role="radiogroup"] > label:hover div, div[role="radiogroup"] > label:hover p {{ color:#E7E9EE; }}
-/* 선택 칸 = 골드 배경 + 다크 텍스트 */
-div[role="radiogroup"] > label:has(input:checked) {{ background:{ACCENT}; }}
+/* 토스식 세그먼트: 선택칸 = 중립 elevated thumb(은은한 그림자) + 골드 텍스트(브랜드 유지, 안 시끄럽게) */
+div[role="radiogroup"] > label:has(input:checked) {{
+    background:#2C313C; box-shadow:0 1px 3px rgba(0,0,0,0.35);
+}}
 div[role="radiogroup"] > label:has(input:checked) div,
-div[role="radiogroup"] > label:has(input:checked) p {{ color:#0E0F13 !important; font-weight:900; }}
-/* 시장 자산군 탭만 골드칩 대신 '언더라인 탭'(칩이 구리다는 피드백 반영) */
-.st-key-mkt_asset_tab div[role="radiogroup"] {{
-    background:transparent !important; border:0 !important;
-    border-bottom:1px solid {BORDER} !important; border-radius:0 !important;
-    padding:0 !important; gap:2px !important; margin:2px 0 14px !important;
-}}
-.st-key-mkt_asset_tab div[role="radiogroup"] > label {{
-    border-radius:0 !important; padding:9px 12px !important;
-    border-bottom:2px solid transparent !important;
-}}
-.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) {{
-    background:transparent !important; border-bottom-color:{ACCENT} !important;
-}}
-.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) div,
-.st-key-mkt_asset_tab div[role="radiogroup"] > label:has(input:checked) p {{
-    color:{ACCENT} !important;
-}}
+div[role="radiogroup"] > label:has(input:checked) p {{ color:{ACCENT} !important; font-weight:900; }}
 
 /* ── Misc ────────────────────────────────────────────────────── */
 hr {{ border-color:{BORDER} !important; margin:.8rem 0 !important; }}
