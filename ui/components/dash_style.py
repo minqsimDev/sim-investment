@@ -316,7 +316,9 @@ div[data-testid="stTopNav"] {{
 @media(max-width:920px) {{
     .sv-shell {{ padding:18px 16px 10px; }}
     .sv-app-header {{ flex-direction:column; align-items:flex-start; }}
-    .sv-nav {{ width:100%; overflow-x:auto; box-sizing:border-box; }}
+    /* 가로 스크롤(잘림) 대신 줄바꿈 → 핀·새로고침·계정 전부 보이게 */
+    .sv-nav {{ width:100%; flex-wrap:wrap; box-sizing:border-box; }}
+    .sv-nav-sep {{ display:none; }}
     [data-testid="stTopNav"], div[data-testid="stTopNav"] {{ padding:0 16px 10px !important; }}
     [data-testid="stToolbar"] {{ padding:8px 16px 0 !important; }}
     [data-testid="stToolbar"] .rc-overflow {{ max-width:100%; overflow-x:auto !important; }}
@@ -1017,15 +1019,24 @@ def render_shell_header(pages=None):
 (function(){
   var pdoc = window.parent.document, pwin = window.parent;
   if (pwin.__svNavBridge) return; pwin.__svNavBridge = true;
+  // 절대경로 페이지 링크(/, /overview, /portfolio, /market, /risk)를 클릭하면 풀 리로드 대신
+  // 숨긴 st.page_link(클라이언트사이드)로 위임 → 프록시 뒤 딥링크 오라우팅(홈으로 빠짐) 회피.
+  // 숨은 page_link 순서: [home(0), portfolio(1), market(2), risk(3)].
+  var MAP = {'/':0, '/overview':0, '/portfolio':1, '/market':2, '/risk':3};
   pdoc.addEventListener('click', function(e){
-    var a = e.target.closest('.sv-nav a[data-nav]');
-    if (!a) return;
-    // 새 탭/모디파이어·휠 클릭은 기본 동작(폴백 href)으로 둔다
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest('a[href]');
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    if (href.charAt(0) !== '/') return;                       // 상대 ?쿼리 링크(탭 등)는 전용 브리지에 맡김
+    if (/[?&](logout|refresh|_login|_register)=/.test(href)) return;  // 인증/새로고침은 풀 리로드 유지
+    var path;
+    try { path = new URL(href, pwin.location.origin).pathname; } catch (_) { return; }
+    if (!(path in MAP)) return;                               // /stock 등 미매핑은 통과
     e.preventDefault(); e.stopPropagation();
-    var idx = parseInt(a.getAttribute('data-nav'), 10);
     var links = pdoc.querySelectorAll('[data-testid="stPageLink-NavLink"]');
-    if (links[idx]) links[idx].click();
+    var t = links[MAP[path]];
+    if (t) t.click();
   }, true);
 })();
 </script>
