@@ -100,6 +100,23 @@ def main():
     except Exception as e:
         print(f"  ⚠  Consensus fetch/save failed: {e}", file=sys.stderr)
 
+    # ── 종가 히스토리 1년 백필(차트·스파크라인 DB-우선 서빙용) ───────────────────────
+    # 앱 batch_close_history 가 price_history 를 즉시 읽어 서브탭/스파크라인 첫 진입 지연 제거.
+    # 백필은 yfinance 벌크(1다운로드, 빠름) — 토스 캔들 throttle 회피.
+    try:
+        from data.price_source import _yf_close_history
+        from src.database import save_close_history
+        univ = []
+        for k in ("my_etfs", "benchmark_etfs", "us_stocks", "kr_stocks", "crypto"):
+            univ += [e["ticker"] for e in config.get(k, [])]
+        univ += list(config["commodities"].values()) + [v["ticker"] for v in config["fx"].values()]
+        univ = list(dict.fromkeys(univ))   # 중복 제거
+        hist = _yf_close_history(univ, "1y")
+        n = save_close_history(hist, DEFAULT_DB)
+        print(f"  Price history saved: {n} rows ({len(hist)}/{len(univ)} tickers)")
+    except Exception as e:
+        print(f"  ⚠  Price history backfill failed: {e}", file=sys.stderr)
+
     # ── Print summary ─────────────────────────────────────────────────────────
     if summary.empty:
         print("\nNo indicator data to display.")

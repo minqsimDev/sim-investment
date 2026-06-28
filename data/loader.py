@@ -25,12 +25,26 @@ def batch_close_history(tickers_key: str, period: str = "6mo", _bucket: int = 0)
     tickers = [t for t in tickers_key.split(",") if t]
     if not tickers:
         return {}
+    # DB 우선(배치가 백필한 price_history) → 미존재 종목만 라이브 보강. 차트·스파크라인 가속.
     try:
-        # 토스 covered 종목은 일봉 캔들, 나머지는 yfinance(지시서 — 토스 일원화)
-        from data import price_source
-        return price_source.fetch_close_history(tickers, period)
+        from src.database import load_close_history, DEFAULT_DB
+        from datetime import date, timedelta
+        _days = {"5d": 8, "1mo": 33, "3mo": 96, "6mo": 190, "1y": 372,
+                 "2y": 740, "5y": 1850, "ytd": 372, "max": 3000}.get(period, 190)
+        since = (date.today() - timedelta(days=_days)).isoformat()
+        out = {t: s for t, s in load_close_history(tickers, since, DEFAULT_DB).items()
+               if s is not None and len(s) >= 2}
+        missing = [t for t in tickers if t not in out]
+        if missing:
+            from data import price_source
+            out.update(price_source.fetch_close_history(missing, period) or {})
+        return out
     except Exception:
-        return {}
+        try:
+            from data import price_source
+            return price_source.fetch_close_history(tickers, period)
+        except Exception:
+            return {}
 
 
 @st.cache_data(ttl=900, show_spinner=False)
