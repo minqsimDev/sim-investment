@@ -2256,6 +2256,9 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
         _persist_holdings(final_holdings)
         st.session_state.pop(cache_key, None)
         st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
+        # 적용 후 '전체 보유종목' 뷰로 — 새로 추가/병합된 종목이 메인 상위5 컷오프에 가려 안 보이는
+        # 혼동 방지(추가했는데 안 나타나 보이는 문제). 사용자가 방금 반영분을 바로 확인.
+        st.query_params["pf"] = "holdings"
         st.rerun()
 
     def _clear() -> None:
