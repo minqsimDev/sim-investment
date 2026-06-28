@@ -68,20 +68,43 @@ def batch_history(tickers_key: str, period: str = "1y", _bucket: int = 0) -> dic
         return {}
 
 
+def _live_eligible(tickers: list[str], now=None) -> list[str]:
+    """라이브 호출 적격 티커 — '개장 중인 비크립토 시장'만. 크립토는 09:00 스냅샷 고정(앱 라이브 X),
+    마감 시장은 DB(종가)만 → 마감-인지 DB-우선. 배치가 DB를 따뜻하게 유지하므로 앱 라이브는 최소."""
+    from core.market_hours import market_of, is_open
+    out = []
+    for t in tickers:
+        m = market_of(t)
+        if m == "CRYPTO":          # 크립토는 일배치 09:00 스냅샷으로 하루 고정
+            continue
+        if is_open(m, now):
+            out.append(t)
+    return out
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def batch_quotes(tickers_key: str, _bucket: int = 0) -> dict:
-    """보유 보강 현재가 — 라이브 우선(60초 캐시) → 라이브 실패분만 DB last-known-good 폴백 + 자가 적재.
-    현재가/오늘변동은 신선도가 중요해 종가 히스토리(batch_close_history)와 달리 DB-우선이 아닌 라이브-우선.
-    복원력 로직은 data.fetcher.resilient_prices 단일 출처. 60초 캐시로 렌더마다 네트워크 재호출 방지."""
+    """보유 보강 현재가 — 마감-인지 DB-우선. 기본은 DB(배치 적재: 장중 스냅샷·마감 종가·크립토 09:00).
+    DB에 없는 종목 중 '개장 중 비크립토'만 라이브로 보강 + 자가 적재(신규/계정 비주류 보유 콜드 케이스).
+    마감·크립토는 라이브 안 침(일요일이면 전부 DB) → 불필요한 라이브 호출 제거. 60초 캐시."""
     tickers = [t for t in tickers_key.split(",") if t]
     if not tickers:
         return {}
     try:
-        from data import price_source
-        from data.fetcher import resilient_prices
-        return resilient_prices(price_source.fetch_prices_bulk(tickers) or {})
+        from src.database import load_quotes, DEFAULT_DB
+        out = {t: q for t, q in load_quotes(db_path=DEFAULT_DB, tickers=tickers).items()
+               if q.get("price") is not None}
     except Exception:
-        return {}
+        out = {}
+    live_targets = _live_eligible([t for t in tickers if t not in out])
+    if live_targets:
+        try:
+            from data import price_source
+            from data.fetcher import resilient_prices
+            out.update(resilient_prices(price_source.fetch_prices_bulk(live_targets) or {}))
+        except Exception:
+            pass
+    return out
 
 
 def series_last_n(closes, n: int = 63) -> list:

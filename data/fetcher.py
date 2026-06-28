@@ -48,26 +48,56 @@ def _db_prices(all_tickers: list[str]) -> dict | None:
     return {t: dbq.get(t) for t in all_tickers}
 
 
+def _config_tickers(config: dict) -> list[str]:
+    """config 의 전 자산군 티커(현금 제외) — fetch_all·배치 스냅샷 공용 유니버스."""
+    tks = (
+        [e["ticker"] for e in config["my_etfs"]]
+        + [e["ticker"] for e in config["benchmark_etfs"]]
+        + [s["ticker"] for s in config["us_stocks"]]
+        + [s["ticker"] for s in config.get("kr_stocks", [])]
+        + list(config["commodities"].values())
+        + [v["ticker"] for v in config["fx"].values()]
+        + [c["ticker"] for c in config.get("crypto", [])]
+        + [h["ticker"] for h in config.get("holdings", [])
+           if h.get("ticker") and h.get("asset_class", h.get("category", "")).lower() != "cash"]
+    )
+    return list(dict.fromkeys(tks))
+
+
+def universe_tickers(config: dict | None = None, include_accounts: bool = True) -> list[str]:
+    """배치 스냅샷 대상 티커 — config 유니버스 + (옵션) 전 계정 보유. 중복 제거."""
+    config = config or load_config()
+    tks = _config_tickers(config)
+    if include_accounts:
+        try:
+            from core.accounts import all_holding_tickers
+            tks = tks + all_holding_tickers()
+        except Exception:
+            pass
+    return list(dict.fromkeys(tks))
+
+
+def snapshot_quotes(tickers: list[str], force: bool = True) -> int:
+    """주어진 티커의 라이브 시세를 받아 DB(quotes)에 적재(resilient). 배치 라이터 전용.
+    반환=적재 성공(가격 있는) 종목 수. 빈 입력/실패는 0."""
+    tickers = [t for t in dict.fromkeys(tickers) if t]
+    if not tickers:
+        return 0
+    try:
+        live = price_source.fetch_prices_bulk(tickers, force) or {}
+    except Exception:
+        return 0
+    resilient_prices(live)   # 가격 있는 것 DB 저장 + 실패분 DB 백필
+    return sum(1 for q in live.values() if q and q.get("price") is not None)
+
+
 def fetch_all(config: dict | None = None, force: bool = False, prefer_db: bool = False) -> dict:
     """prefer_db=True(앱 요청 경로): DB quotes 우선 읽기(즉시). 미충족 시에만 라이브.
     prefer_db=False(배치/강제): 라이브 fetch → DB 적재(앱이 읽을 SSOT를 따뜻하게 유지)."""
     if config is None:
         config = load_config()
 
-    etf_tickers    = [e["ticker"] for e in config["my_etfs"]]
-    bench_tickers  = [e["ticker"] for e in config["benchmark_etfs"]]
-    stock_tickers  = [s["ticker"] for s in config["us_stocks"]]
-    kr_tickers     = [s["ticker"] for s in config.get("kr_stocks", [])]
-    comm_tickers   = list(config["commodities"].values())
-    fx_tickers     = [v["ticker"] for v in config["fx"].values()]
-    crypto_tickers = [c["ticker"] for c in config.get("crypto", [])]
-    holding_tickers = [
-        h["ticker"]
-        for h in config.get("holdings", [])
-        if h.get("ticker") and h.get("asset_class", h.get("category", "")).lower() != "cash"
-    ]
-
-    all_tickers = etf_tickers + bench_tickers + stock_tickers + kr_tickers + comm_tickers + fx_tickers + crypto_tickers + holding_tickers
+    all_tickers = _config_tickers(config)
 
     # Run yfinance bulk download and FRED macro fetch in parallel
     # 토스 우선 + yfinance 폴백(지시서 3장). 토스 전일대비는 캔들 조회라

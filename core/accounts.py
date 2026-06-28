@@ -85,6 +85,26 @@ def get_portfolios(username: str) -> list[dict]:
     return _load()["accounts"].get(username.strip(), {}).get("portfolios", [])
 
 
+def all_holding_tickers() -> list[str]:
+    """전 계정·전 포트폴리오 보유의 시세 조회용 티커(중복 제거, 현금 제외). 배치 스냅샷 유니버스용 —
+    config 밖 계정 비주류 보유까지 DB에 적재해 마감·주말에도 현재가가 존재하게 한다.
+    크립토는 -USD 보정(ui.pages.portfolio._quote_ticker 와 동일 규칙 — DB 키 정합)."""
+    out: list[str] = []
+    for acc in _load().get("accounts", {}).values():
+        for pf in acc.get("portfolios", []):
+            for h in pf.get("holdings", []):
+                tk = str(h.get("ticker") or "").strip().upper()
+                if not tk or tk in ("CASH", "KRW", "USD"):
+                    continue
+                ac = str(h.get("asset_class") or h.get("category") or "").lower()
+                if "cash" in ac or "현금" in ac:
+                    continue
+                if ("crypto" in ac or tk.endswith("-USD")) and not tk.endswith("-USD"):
+                    tk += "-USD"
+                out.append(tk)
+    return list(dict.fromkeys(out))
+
+
 def get_setting(username: str, key: str, default=None):
     """사용자별 설정값 조회 (목표금액 등 — 새로고침에도 유지)."""
     acc = _load()["accounts"].get(username.strip())

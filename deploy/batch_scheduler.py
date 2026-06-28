@@ -44,30 +44,48 @@ def _markets_open() -> bool:
         return False
 
 
-def _snapshot() -> None:
-    """장중 시세 스냅샷 — fetch_all 호출로 quotes 테이블을 따뜻하게 유지(소스 장애 복원력)."""
+def _snapshot(include_crypto: bool, label: str) -> None:
+    """quotes 스냅샷 — config 유니버스 + 전 계정 보유를 라이브로 받아 DB 적재(복원력).
+    include_crypto=True 면 크립토만(09:00 고정용), False 면 비크립토만(장중·마감 종가용)."""
     try:
-        from data.fetcher import fetch_all
-        fetch_all()
-        _log("장중 시세 스냅샷 갱신(quotes)")
+        from data.fetcher import universe_tickers, snapshot_quotes
+        from core.market_hours import market_of
+        tks = [t for t in universe_tickers(include_accounts=True)
+               if (market_of(t) == "CRYPTO") == include_crypto]
+        n = snapshot_quotes(tks)
+        _log(f"{label} 스냅샷 — {n}/{len(tks)} 적재(quotes)")
     except Exception as e:
-        _log(f"스냅샷 예외: {e}")
+        _log(f"{label} 스냅샷 예외: {e}")
 
 
 def main() -> None:
-    _log(f"스케줄러 기동 — 일배치 KST {_HOUR:02d}:00 · 장중 스냅샷 {_SNAPSHOT_SEC}s")
-    last_full = None  # 일배치 중복 방지(날짜)
+    _log(f"스케줄러 기동 — 일배치 KST {_HOUR:02d}:00 · 크립토 09:00 · 장중/마감 스냅샷 {_SNAPSHOT_SEC}s")
+    last_full = None     # 일배치 중복 방지(날짜)
+    crypto_date = None   # 크립토 09:00 스냅샷 중복 방지(날짜)
+    was_open = False     # 직전 틱 개장 여부 — open→closed 전환 시 종가 확정
+    now = datetime.now(_KST)
     if os.getenv("BATCH_RUN_ON_START", "1").strip().lower() in ("1", "true", "yes", "on"):
         _run()
-        last_full = datetime.now(_KST).date()
+        last_full = now.date()
+        _snapshot(include_crypto=True, label="크립토(기동)")   # 기동 즉시 크립토 1회
+        if now.hour >= 9:
+            crypto_date = now.date()                          # 9시 이후 기동이면 오늘분 완료로 간주
     while True:
         time.sleep(_SNAPSHOT_SEC)
         now = datetime.now(_KST)
-        if now.hour == _HOUR and last_full != now.date():
-            _run()                 # 매일 1회 풀 배치(지표·리스크·컨센서스)
-            last_full = now.date()
-        elif _markets_open():
-            _snapshot()            # 장중 시세 스냅샷(quotes 갱신)
+        today = now.date()
+        open_now = _markets_open()
+        if now.hour == _HOUR and last_full != today:
+            _run()                                   # 매일 1회 풀 배치(지표·리스크·컨센서스·종가)
+            last_full = today
+        if now.hour >= 9 and crypto_date != today:
+            _snapshot(include_crypto=True, label="크립토 09:00")   # 매일 09:00 크립토 하루 고정
+            crypto_date = today
+        if open_now:
+            _snapshot(include_crypto=False, label="장중")          # 장중 비크립토
+        elif was_open:
+            _snapshot(include_crypto=False, label="마감 종가")      # open→closed 전환 시 그날 종가 확정
+        was_open = open_now
 
 
 if __name__ == "__main__":
