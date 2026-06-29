@@ -1501,11 +1501,11 @@ def _estimate_start_value(positions: list[dict] | None, total: float) -> float:
     return cost if (ok and cost > 0) else max(1.0, total * 0.62)
 
 
-def _journey_gear_popover(target: int, start_date, username: str | None, is_guest: bool) -> None:
-    """여정 설정 팝오버(목표 금액·시작일) — 헤더/카드 상단 어디서든 재사용."""
+def _journey_settings_panel(target: int, start_date, username: str | None, is_guest: bool) -> None:
+    """여정 설정(목표 금액·시작일) — 인라인 expander(전폭). 기존 st.popover는 모바일에서 톱니가
+    배지 아래로 떨어지고 열고닫을 때 화면이 떨려서 안정적인 expander 로 교체."""
     from datetime import date as _date
-    with st.popover(":material/settings:", use_container_width=False, help="목표 수정"):
-        st.markdown("<div class='aj-pop-t'>여정 설정</div>", unsafe_allow_html=True)
+    with st.expander("⚙️ 목표·시작일 설정", expanded=False):
         # 목표 금액(억원). 초기투자금은 보유 원가로 자동 산출(stale 세션값 오염 방지).
         _TGT_MIN, _EOK_MAX = 0.1, 2000.0
         _target_eok = min(_EOK_MAX, max(_TGT_MIN, round(target / 1e8, 1)))
@@ -1586,8 +1586,6 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
         if positions is None:
             with badge_col:
                 st.markdown(_badge_html, unsafe_allow_html=True)
-            with gear_col:
-                _journey_gear_popover(target, start_date, username, is_guest)
         # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
         open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
         chart_svg = _hl_label = _hl_val = None
@@ -1621,14 +1619,12 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                     st.session_state["journey_trend_open"] = not open_
                     st.rerun(scope="fragment")
             with _rc:
-                # 배지(초반 구간 등) + 설정 톱니를 카드 바로 위에 우측 정렬로 — 카드 윗부분에 맞춤.
-                _bcol, _gcol = st.columns([5, 1], gap="small")
-                with _bcol:
-                    st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
-                with _gcol:
-                    _journey_gear_popover(target, start_date, username, is_guest)
+                # 배지(초반 구간 등)는 카드 바로 위 우측 정렬 — 설정은 아래 전폭 expander로 분리(모바일 안정).
+                st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
                 st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
                             unsafe_allow_html=True)
+        # 목표·시작일 설정 — 전폭 인라인 expander(헤더 톱니 popover 대체: 모바일 위치/떨림 해결)
+        _journey_settings_panel(target, start_date, username, is_guest)
 
 
 # _ASEC_CSS → ui.pages.portfolio_css 로 이동
