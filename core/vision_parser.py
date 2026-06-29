@@ -144,6 +144,41 @@ def _build_gemini_call(images: list[tuple[bytes, str]]):
     return _call
 
 
+def _image_mime(data: bytes) -> str:
+    """이미지 바이트의 매직넘버로 실제 포맷 판정. 업로드 MIME(안드로이드 '파일' 피커에서
+    application/octet-stream 등으로 틀리게 옴)에 의존하지 않게 — 모바일 업로드 인식 실패의 주원인.
+    Claude/Gemini 지원: png/jpeg/webp/gif. 미지원(HEIC 등)이면 ''."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return ""
+
+
+def _to_supported(data: bytes) -> tuple[bytes, str]:
+    """지원 포맷 + 정확한 MIME 보장. 미지원(HEIC 등)이면 Pillow로 JPEG 변환 시도, 실패 시 에러."""
+    mt = _image_mime(data)
+    if mt:
+        return data, mt
+    try:
+        import io
+        from PIL import Image
+        try:
+            import pillow_heif  # HEIC 지원(있으면)
+            pillow_heif.register_heif_opener()
+        except Exception:
+            pass
+        buf = io.BytesIO()
+        Image.open(io.BytesIO(data)).convert("RGB").save(buf, format="JPEG", quality=90)
+        return buf.getvalue(), "image/jpeg"
+    except Exception as e:
+        raise ValueError("지원하지 않는 이미지 형식입니다. PNG 또는 JPG 스크린샷을 사용해 주세요.") from e
+
+
 def parse_portfolio_image(
     image_bytes: bytes,
     media_type: str = "image/png",
@@ -151,8 +186,10 @@ def parse_portfolio_image(
 ) -> list[dict]:
     """이미지 바이트 → 보유 종목 리스트. 여러 장 전달 시 단일 API 호출로 합산.
     extra_images: [(bytes, media_type), ...] 추가 이미지 목록.
-    Claude 키가 있으면 Claude(주력), 없으면 gemini-2.5-flash(폴백)."""
-    images = [(image_bytes, media_type)] + list(extra_images or [])
+    Claude 키가 있으면 Claude(주력), 없으면 gemini-2.5-flash(폴백).
+    MIME은 바이트에서 재판정(업로드 MIME 무시) — 모바일 '파일' 피커의 잘못된 MIME 대응."""
+    raw = [image_bytes] + [b for b, _ in (extra_images or [])]
+    images = [_to_supported(b) for b in raw]
     if _has_claude_key():
         build = _build_claude_call
     elif os.getenv("GEMINI_API_KEY"):

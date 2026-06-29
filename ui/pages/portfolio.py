@@ -2190,7 +2190,7 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     nonce_key = f"_scr_nonce_{key}"
     uploaded = st.file_uploader(
         "보유 종목 화면 스크린샷",
-        type=["png", "jpg", "jpeg"],
+        type=["png", "jpg", "jpeg", "webp", "heic", "heif"],   # 모바일 갤러리/파일 피커 호환(webp·heic 포함)
         accept_multiple_files=True,   # 여러 장(스크롤 캡처·계좌 분할 등) 한 번에 분석
         key=f"{key}_{st.session_state.get(nonce_key, 0)}",
         label_visibility="collapsed",
