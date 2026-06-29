@@ -1586,8 +1586,10 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
         if positions is None:
             with badge_col:
                 st.markdown(_badge_html, unsafe_allow_html=True)
-        # 진행률 바 ↔ 자산 추이 in-place 교체(같은 .aj-chart 슬롯 = 동일 위치·크기). positions 있을 때만.
-        open_ = bool(st.session_state.get("journey_trend_open", False)) and positions is not None
+        # 자산 추이(투자 시작 이후 %) 비활성: 과거 시계열을 '현재 수량을 줄곧 보유했다'고 가정해 재구성하는
+        # 근사라, 수량 변동·불완전 이력에 +5407% 같은 왜곡이 나옴. 정확한 진행바·카드만 표시.
+        # (정확한 추이는 일별 스냅샷 적재가 전제 — 별도 작업.)
+        open_ = False
         chart_svg = _hl_label = _hl_val = None
         if open_:
             _si = start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
@@ -1612,12 +1614,8 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             _lc, _rc = st.columns([1.5, 1], gap="medium", vertical_alignment="center")
             with _lc:
                 st.markdown(_AJ_CSS + _journey_leftcell_html(current_value, target, m, chart_svg=chart_svg,
-                            headline_label=_hl_label, headline_val_html=_hl_val, clickable=True),
+                            headline_label=_hl_label, headline_val_html=_hl_val, clickable=False),
                             unsafe_allow_html=True)
-                st.markdown('<span class="aj-barclick-anchor"></span>', unsafe_allow_html=True)
-                if st.button(" ", key="journey_trend_toggle", use_container_width=True):
-                    st.session_state["journey_trend_open"] = not open_
-                    st.rerun(scope="fragment")
             with _rc:
                 # 배지(초반 구간 등)는 카드 바로 위 우측 정렬 — 설정은 아래 전폭 expander로 분리(모바일 안정).
                 st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
