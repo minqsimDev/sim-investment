@@ -2200,6 +2200,15 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
         '보유 정보만 내 계정에 로컬 저장 · 거래 기능 없음</span></div>',
         unsafe_allow_html=True,
     )
+    # 모바일(안드로이드) 갤러리 피커 바로 뜨게 — 파일 입력 accept를 image/* 로 강제(확장자 기반이면
+    # 안드로이드가 '파일' 앱을 열어 갤러리까지 들어가야 함). 서버측 type 검증·MIME 재판정은 그대로 동작.
+    import streamlit.components.v1 as _components
+    _components.html(
+        "<script>(function(){var d=window.parent.document;"
+        "function s(){d.querySelectorAll('input[type=file]').forEach(function(i){i.setAttribute('accept','image/*');});}"
+        "s();setTimeout(s,300);setTimeout(s,1200);})();</script>",
+        height=0,
+    )
 
     if not uploaded:   # None 또는 빈 리스트
         return
