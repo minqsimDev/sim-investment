@@ -124,8 +124,10 @@ if _auth_param == "guest":
     st.session_state.auth_role = "guest"
     # _auth=guest를 URL에 유지 — nav 이동 후 세션 복원에 사용됨
 
-# 로그인 유저 — ?_user=<username> 파라미터로 하드 nav 후 세션 복원
-_url_user = st.query_params.get("_user", "").strip()
+# 로그인 유저 — ?_user=<서명토큰> 으로 하드 nav 후 세션 복원.
+# 토큰은 서버 시크릿 HMAC 서명이라 위조 불가(과거 평문 username 신뢰 = 인증 우회였음).
+from core.auth_token import verify_token as _verify_token
+_url_user = _verify_token(st.query_params.get("_user", "").strip())
 if _url_user and not st.session_state.get("authenticated"):
     from core.accounts import has_account, get_portfolios
     if has_account(_url_user):

@@ -3,6 +3,7 @@
 저장 위치: ~/.siminvest_accounts.json
 """
 import hashlib
+import hmac
 import json
 import os
 from contextlib import contextmanager
@@ -15,12 +16,39 @@ _FILE = Path.home() / ".siminvest_accounts.json"
 _LOCK = Path.home() / ".siminvest_accounts.lock"
 
 
-def _hash(pw: str, salt: str) -> str:
+# 비밀번호 해싱 — 느린 KDF(PBKDF2-HMAC-SHA256)가 기본. 옛 계정(빠른 sha256)은
+# 로그인 성공 시 자동으로 재해시(업그레이드)된다. 빠른 해시는 파일 유출 시 무차별 대입에 약함.
+_PBKDF2_ROUNDS = 200_000
+
+
+def _hash_legacy(pw: str, salt: str) -> str:
+    """레거시 sha256(salt+pw) — 검증·하위호환 전용(신규 저장엔 안 씀)."""
     return hashlib.sha256(f"{salt}{pw}".encode()).hexdigest()
+
+
+def _hash_pbkdf2(pw: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), _PBKDF2_ROUNDS).hex()
 
 
 def _new_salt() -> str:
     return os.urandom(16).hex()
+
+
+def _verify_password(pw: str, acc: dict) -> bool:
+    """계정의 저장 스킴(pbkdf2/레거시 sha256)에 맞춰 constant-time 검증."""
+    salt = acc.get("salt", "")
+    expected = acc.get("password_hash", "")
+    if acc.get("hash_scheme") == "pbkdf2":
+        return hmac.compare_digest(_hash_pbkdf2(pw, salt), expected)
+    return hmac.compare_digest(_hash_legacy(pw, salt), expected)
+
+
+def _set_password_hash(acc: dict, pw: str) -> None:
+    """계정 dict 에 새 자격증명(pbkdf2 + 새 솔트) 기록."""
+    salt = _new_salt()
+    acc["salt"] = salt
+    acc["password_hash"] = _hash_pbkdf2(pw, salt)
+    acc["hash_scheme"] = "pbkdf2"
 
 
 def _load() -> dict:
@@ -35,6 +63,10 @@ def _save(data: dict) -> None:
     tmp = _FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, _FILE)
+    try:
+        os.chmod(_FILE, 0o600)   # 비번해시·보유·텔레그램 chat_id 포함 — 소유자만 읽기
+    except OSError:
+        pass
 
 
 @contextmanager
@@ -51,19 +83,18 @@ def create_account(username: str, password: str) -> str | None:
         return "아이디와 비밀번호를 입력해 주세요."
     if len(username) < 2:
         return "아이디는 2자 이상이어야 합니다."
-    if len(password) < 4:
-        return "비밀번호는 4자 이상이어야 합니다."
+    if len(password) < 8:
+        return "비밀번호는 8자 이상이어야 합니다."
     with _locked():
         data = _load()
         if username in data["accounts"]:
             return "이미 사용 중인 아이디입니다."
-        salt = _new_salt()
-        data["accounts"][username] = {
-            "password_hash": _hash(password, salt),
-            "salt": salt,
+        acc = {
             "created_at": datetime.now().isoformat(),
             "portfolios": [],
         }
+        _set_password_hash(acc, password)
+        data["accounts"][username] = acc
         _save(data)
     return None
 
@@ -79,21 +110,28 @@ def set_password(username: str, new_password: str) -> str | None:
         acc = data["accounts"].get(username)
         if not acc:
             return "계정을 찾을 수 없습니다."
-        salt = _new_salt()
-        acc["salt"] = salt
-        acc["password_hash"] = _hash(new_password, salt)
+        _set_password_hash(acc, new_password)
         acc["password_changed_at"] = datetime.now().isoformat()
         _save(data)
     return None
 
 
 def authenticate(username: str, password: str) -> dict | None:
-    """인증 성공 시 account dict 반환, 실패 시 None."""
-    data = _load()
-    acc = data["accounts"].get(username.strip())
-    if acc and _hash(password, acc["salt"]) == acc["password_hash"]:
-        return acc
-    return None
+    """인증 성공 시 account dict 반환, 실패 시 None.
+    레거시 sha256 계정은 로그인 성공 시 pbkdf2 로 자동 재해시(업그레이드)한다."""
+    username = username.strip()
+    acc = _load()["accounts"].get(username)
+    if not acc or not _verify_password(password, acc):
+        return None
+    if acc.get("hash_scheme") != "pbkdf2":
+        with _locked():
+            data = _load()
+            a2 = data["accounts"].get(username)
+            if a2 and _verify_password(password, a2):   # 잠금 안에서 재확인 후 업그레이드
+                _set_password_hash(a2, password)
+                _save(data)
+                acc = a2
+    return acc
 
 
 def has_account(username: str) -> bool:

@@ -111,7 +111,8 @@ def _auth_qs() -> str:
     if role == "guest":
         return "_auth=guest"
     user = st.session_state.get("username")
-    return f"_user={user}" if user else ""
+    from core.auth_token import user_param
+    return user_param(user)
 
 
 def render_global_search() -> None:

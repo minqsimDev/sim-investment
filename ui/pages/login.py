@@ -3,6 +3,7 @@ import streamlit as st
 from pathlib import Path
 
 from core.accounts import authenticate, create_account, get_portfolios, save_portfolio
+from core.auth_token import make_token as _make_token
 from core.brand import APP_NAME
 
 _ASSETS = Path(__file__).parent.parent.parent / "assets" / "intro"
@@ -493,7 +494,7 @@ def _render_login() -> None:
                 "brokerage_cash_balance": first.get("cash", 0.0),
                 "login_screen": None,
             })
-            st.query_params["_user"] = username
+            st.query_params["_user"] = _make_token(username)
         else:
             st.session_state.update({
                 "username": username,
@@ -679,7 +680,7 @@ def _render_portfolio_setup() -> None:
                     "brokerage_cash_balance": 0.0,
                     "login_screen": None,
                 })
-                st.query_params["_user"] = username
+                st.query_params["_user"] = _make_token(username)
                 st.rerun()
 
         st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
@@ -698,7 +699,7 @@ def _render_portfolio_setup() -> None:
                     "brokerage_cash_balance": first.get("cash", 0.0),
                     "login_screen": None,
                 })
-                st.query_params["_user"] = username
+                st.query_params["_user"] = _make_token(username)
                 st.rerun()
 
         if st.button("← 돌아가기", key="btn_setup_back"):

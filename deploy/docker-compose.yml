@@ -9,11 +9,11 @@ services:
     image: ghcr.io/minqsimdev/sim-investment:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
-    env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS/USE_TOSS 키
+    env_file: .env            # FRED/FMP/ANTHROPIC/GEMINI/TELEGRAM/TOSS/USE_TOSS · APP_SECRET(세션토큰 서명, 선택)
     environment:
       - HOME=/data
     volumes:
-      - ./state:/data            # ~/.siminvest_accounts.json, alerts.json, auth 등(영속)
+      - ./state:/data            # ~/.siminvest_accounts.json(0600), .siminvest_secret, alerts.json 등(영속)
       - ./appdata:/app/appdata   # market_data.db (DB_PATH=/app/appdata/market_data.db). /app/data 는 패키지 코드라 덮지 않음
     expose:
       - "8520"                # 외부 비공개 — Caddy만 접근

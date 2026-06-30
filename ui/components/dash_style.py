@@ -964,8 +964,10 @@ def render_shell_header(pages=None):
         _suffix = "?_auth=guest"
         refresh_href = "?refresh=1&_auth=guest"
     elif _username:
-        _suffix = f"?_user={_username}"
-        refresh_href = f"?refresh=1&_user={_username}"
+        from core.auth_token import user_param
+        _tok = user_param(_username)
+        _suffix = f"?{_tok}"
+        refresh_href = f"?refresh=1&{_tok}"
     else:
         _suffix = ""
         refresh_href = "?refresh=1"

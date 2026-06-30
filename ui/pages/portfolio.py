@@ -1855,7 +1855,8 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
     # 인증 suffix(세션 보존용 ?_user=/_auth=)를 먼저 계산 — 위험카드 아래 E1 링크에서도 사용
     _role = st.session_state.get("auth_role")
     _u = st.session_state.get("username", "")
-    _auth = "_auth=guest" if _role == "guest" else (f"_user={_u}" if _u else "")
+    from core.auth_token import user_param as _user_param
+    _auth = "_auth=guest" if _role == "guest" else _user_param(_u)
     _sfx = f"&{_auth}" if _auth else ""
     _home = f"?{_auth}" if _auth else "?"
     if _diag:
@@ -2086,7 +2087,8 @@ def _holding_cards_html(items: list[dict]) -> str:
 def _render_onboarding() -> None:
     """첫 사용 온보딩 — 보유 0건(미연결 포함). 환영 + 핵심 개념 1분 안내 + 스크린샷 올리기 CTA."""
     st.markdown(_ONBOARD_CSS, unsafe_allow_html=True)
-    _suf = ("?_user=" + st.session_state["username"]) if st.session_state.get("username") else ""
+    from core.auth_token import user_param as _user_param
+    _suf = ("?" + _user_param(st.session_state["username"])) if st.session_state.get("username") else ""
     st.markdown(
         '<div class="ob-hero"><h2>SIM에 오신 걸 환영합니다 👋</h2>'
         '<p>내 계좌를 올리면 <b style="color:#E7E9EE">가장 큰 리스크부터</b> 짚어드립니다. '

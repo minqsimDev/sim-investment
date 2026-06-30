@@ -172,7 +172,8 @@ def _session_suffix() -> str:
     if role == "guest":
         return "?_auth=guest"
     if user:
-        return f"?_user={user}"
+        from core.auth_token import user_param
+        return f"?{user_param(user)}"
     return ""
 
 def _my_perspective_bundle(data: dict) -> dict:
