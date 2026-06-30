@@ -502,6 +502,11 @@ def render():
     L.inject_responsive_css()   # 페이지당 1회
     inject_css()
     mark_active_nav("/risk")
+    render_risk_body()
+
+
+def render_risk_body() -> None:
+    """리스크 진단 콘텐츠(페이지 크롬 없음) — /risk 라우트와 포트폴리오 '리스크 진단' 탭이 공유."""
     st.markdown(_RISK_LOCAL_CSS, unsafe_allow_html=True)
 
     # 상단 '리스크 모니터링' 배너 제거 — 제목은 네비와 중복, 부제는 아래 점수·신호가 대신 설명.
