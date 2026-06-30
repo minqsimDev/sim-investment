@@ -1536,6 +1536,8 @@ def _journey_settings_panel(target: int, start_date, username: str | None, is_gu
     """여정 설정(목표 금액·시작일) — 인라인 expander(전폭). 기존 st.popover는 모바일에서 톱니가
     배지 아래로 떨어지고 열고닫을 때 화면이 떨려서 안정적인 expander 로 교체."""
     from datetime import date as _date
+    # 카드와 간격 + 차분한 우측 칩 톤다운(아래 expander 를 CSS 형제 선택자로 스타일).
+    st.markdown(_AJ_CSS + '<div class="aj-set-anchor"></div>', unsafe_allow_html=True)
     with st.expander("⚙️ 목표·시작일 설정", expanded=False):
         # 목표 금액(억원). 초기투자금은 보유 원가로 자동 산출(stale 세션값 오염 방지).
         _TGT_MIN, _EOK_MAX = 0.1, 2000.0

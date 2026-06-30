@@ -598,6 +598,29 @@ div[data-testid="stPopover"] > div button{
   margin-left:0!important;margin-top:0!important;box-shadow:none!important;white-space:nowrap!important}
 div[data-testid="stPopover"] > div button:hover{
   background:rgba(217,164,65,.18)!important;border-color:var(--sv-gold)!important;color:var(--sv-gold)!important}
+/* 여정 설정 expander — 카드와 간격(여백) + 차분한 우측 칩 톤다운. 앵커 다음 형제 컨테이너를 잡는다
+   (Streamlit 버전별 testid: element-container / stElementContainer 양쪽 매칭). */
+.aj-set-anchor{height:0;margin:0;padding:0;line-height:0}
+/* 앵커 다음 형제(1.58=stLayoutWrapper, 구버전=element-container) 안에 expander 가 있다.
+   접힘=우측 정렬 차분한 칩(details fit-content + margin-left:auto), 펼침=전폭(폼 가독성). */
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + *,
+[data-testid="element-container"]:has(.aj-set-anchor) + *{margin-top:22px!important}
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"],
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"],
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details,
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details{
+  border:none!important;background:transparent!important;box-shadow:none!important}
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details:not([open]),
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details:not([open]){
+  width:fit-content!important;margin-left:auto!important}
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details[open],
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"] details[open]{
+  width:100%!important;margin-left:0!important}
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"] summary,
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"] summary{
+  font-size:12px!important;font-weight:700!important;color:#7E8694!important;padding:6px 4px!important}
+[data-testid="stElementContainer"]:has(.aj-set-anchor) + * [data-testid="stExpander"] summary:hover,
+[data-testid="element-container"]:has(.aj-set-anchor) + * [data-testid="stExpander"] summary:hover{color:#B9C0CC!important}
 </style>"""
 
 _AT_CSS = """<style>
