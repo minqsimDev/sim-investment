@@ -524,8 +524,8 @@ _AJ_CSS = """<style>
 .aj-pace.ontrack{color:#9AA0AD;background:rgba(255,255,255,.05);border-color:#262A33}
 .aj-pace.behind{color:#E08A3C;background:rgba(224,138,60,.13);border-color:rgba(224,138,60,.38)}
 .aj-top-row{margin-bottom:0}
-/* [순항중][페이스]는 badge_col 우측 정렬. 단계↔페이스 간격(16px) = 컬럼 간격(=페이스↔톱니)과 맞춰 3개 등간격 */
-.aj-badgewrap{display:flex;justify-content:flex-end;align-items:center;gap:13px}
+/* 단일 상태 배지(벤치마크 대비) — 우측 정렬, 아래 카드 그리드 우측 끝선과 정렬. 좁은 폭 줄바꿈 허용 */
+.aj-badgewrap{display:flex;justify-content:flex-end;align-items:center;gap:13px;flex-wrap:wrap;margin-bottom:10px}
 /* 자산 여정 — 카드 밖으로(플랫): 카드 강제 CSS 제거, 헤더·그리드는 페이지에 바로 */
 .aj-marker{display:none}
 /* 목표 수정 톱니 — 배지와 동일 높이(28px)·라운딩 */
@@ -578,6 +578,13 @@ _AJ_CSS = """<style>
 .aj-card .k{font-size:11px;font-weight:800;color:#9AA0AD;display:flex;align-items:center;justify-content:flex-start;text-align:left;gap:6px}
 .aj-card .v{font-size:19px;font-weight:950;color:#E7E9EE;margin-top:5px;text-align:right;
   font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 모바일 — 2×2 유지하되 금액 잘림 방지(폰트·패딩·간격 축소) */
+@media(max-width:480px){
+  .aj-cards{gap:8px}
+  .aj-card{padding:10px 11px;border-radius:12px}
+  .aj-card .v{font-size:16px}
+  .aj-badgewrap{justify-content:flex-start;margin-bottom:8px}
+}
 .aj-auto{font-size:9px;font-weight:800;color:var(--sv-gold);background:rgba(217,164,65,.13);
   border-radius:5px;padding:1px 5px;letter-spacing:.02em}
 .aj-pop-t{font-size:13px;font-weight:900;color:#E7E9EE;margin-bottom:8px}

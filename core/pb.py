@@ -159,9 +159,20 @@ def portfolio_risk_metrics(holdings: list[dict]) -> dict | None:
 # ── 벤치마크 동일 기간 수익률 ────────────────────────────────────────────────
 _BENCH_TICKERS = {"NASDAQ100": "QQQ", "S&P500": "SPY", "KOSPI": "^KS11"}
 
+# 카테고리 → 벤치마크 티커. ETF 는 통화로 분기(_category_bench_ticker), 현금은 0%(_CASH).
+_CATEGORY_BENCH = {
+    "미국주식": "SPY",
+    "국내주식": "^KS11",
+    "원자재": "GC=F",
+    "크립토": "BTC-USD",
+    "코인": "BTC-USD",
+    "채권": "AGG",
+}
+_CASH = "CASH"   # 벤치 없음 — 0% 기여로 블렌드에 희석, 커버는 인정
 
-def bench_returns(start_date: date, today=None) -> dict:
-    """start_date~today 동일 기간 지수 수익률(소수). 실패 종목은 제외."""
+
+def _ticker_returns(tickers, start_date, today=None) -> dict:
+    """주어진 티커들의 start_date~today 동일 기간 누적 수익률(소수). 실패·중복 제외."""
     from datetime import timedelta
     today = today or date.today()
     out = {}
@@ -170,7 +181,7 @@ def bench_returns(start_date: date, today=None) -> dict:
     except Exception:
         return out
     start = (start_date - timedelta(days=4)).isoformat()
-    for label, tk in _BENCH_TICKERS.items():
+    for tk in dict.fromkeys(tickers):   # 중복 제거, 순서 유지
         try:
             raw = cached_download(tk, start=start, interval="1d", progress=False, auto_adjust=True)
             if raw is None or raw.empty:
@@ -180,10 +191,63 @@ def bench_returns(start_date: date, today=None) -> dict:
                 c = c.iloc[:, 0]
             c = c.dropna()
             if len(c) >= 2 and c.iloc[0]:
-                out[label] = float(c.iloc[-1] / c.iloc[0] - 1)
+                out[tk] = float(c.iloc[-1] / c.iloc[0] - 1)
         except Exception:
             continue
     return out
+
+
+def bench_returns(start_date: date, today=None) -> dict:
+    """start_date~today 동일 기간 지수 수익률(소수). 실패 종목은 제외."""
+    by_tk = _ticker_returns(_BENCH_TICKERS.values(), start_date, today)
+    return {label: by_tk[tk] for label, tk in _BENCH_TICKERS.items() if tk in by_tk}
+
+
+def _category_bench_ticker(category: str, currency: str | None) -> str | None:
+    """카테고리(+통화)→벤치마크 티커. 현금=_CASH, 미매핑=None(블렌드에서 제외)."""
+    cat = (category or "").strip()
+    if cat == "현금":
+        return _CASH
+    if cat == "ETF":
+        return "^KS11" if (currency or "").upper() == "KRW" else "SPY"
+    return _CATEGORY_BENCH.get(cat)
+
+
+def blended_benchmark_return(positions, start_date, today=None) -> dict:
+    """보유 카테고리별 벤치마크를 평가금액 비중으로 가중 블렌드한 동일 기간 수익률.
+
+    '내 자산배분 그대로 지수만 들었으면' 의 기준선. 반환:
+      {"blended": 소수, "coverage": 벤치 커버된 비중(0~1), "by_cat": {cat: 소수}}.
+    현금은 0% 기여로 커버 인정(희석). 미매핑·다운로드 실패 비중은 제외 후 커버 비중으로 재정규화.
+    coverage 가 낮으면(데이터 부족) 호출부에서 배지를 숨긴다.
+    """
+    empty = {"blended": 0.0, "coverage": 0.0, "by_cat": {}}
+    if not positions:
+        return empty
+    rows, total = [], 0.0
+    for p in positions:
+        mv = p.get("market_value")
+        if mv is None or mv <= 0:
+            continue
+        total += float(mv)
+        rows.append((_category_bench_ticker(p.get("category", ""), p.get("currency")),
+                     float(mv), p.get("category", "")))
+    if total <= 0:
+        return empty
+    rets = _ticker_returns([tk for tk, _, _ in rows if tk and tk != _CASH], start_date, today)
+    weighted = covered = 0.0
+    by_cat: dict = {}
+    for tk, mv, cat in rows:
+        w = mv / total
+        if tk == _CASH:          # 현금 — 0% 기여, 커버 인정
+            covered += w
+        elif tk and tk in rets:  # 정상 벤치마크
+            weighted += w * rets[tk]
+            covered += w
+            by_cat[cat] = rets[tk]
+        # tk None(미매핑) 또는 다운로드 실패 → 제외(커버에서 빠져 재정규화됨)
+    blended = (weighted / covered) if covered > 0 else 0.0
+    return {"blended": blended, "coverage": covered, "by_cat": by_cat}
 
 
 # ── 시장 신호 → 보유 노출 매핑 (리스크 B) ─────────────────────────────────────

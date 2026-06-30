@@ -1420,6 +1420,37 @@ def _journey_eta_display(m: dict, current: float, target: float) -> str:
     return eta_label(m.get("years_to_goal"))
 
 
+_AJ_BAND, _AJ_BIG = 5.0, 20.0   # 순항(±5%p) / 크게(±20%p) 임계 — 벤치마크 대비 격차(%p)
+
+
+def _journey_bench_badge_html(positions: list[dict] | None, current: float,
+                              start_value: float, start_date) -> str:
+    """상태 배지 — '같은 기간 시장(내 카테고리 벤치마크 비중블렌드) 대비' 단일 평가.
+    내 수익률 > 벤치=상회(골드) / ≈벤치=순항(중립) / < 벤치=하회(주황). 격차 ±N.N%p 병기.
+    데이터/커버리지 부족 시 빈 문자열(배지 숨김)."""
+    if not positions or not start_value:
+        return ""
+    try:
+        from core.pb import blended_benchmark_return
+        b = blended_benchmark_return(positions, start_date)
+    except Exception:
+        return ""
+    if b["coverage"] < 0.5:
+        return ""
+    excess = ((current / start_value - 1) - b["blended"]) * 100   # %p
+    if excess >= _AJ_BIG:
+        cls, txt = "ahead", f'시장 크게 상회 +{excess:.1f}%p'
+    elif excess >= _AJ_BAND:
+        cls, txt = "ahead", f'시장 상회 +{excess:.1f}%p'
+    elif excess > -_AJ_BAND:
+        cls, txt = "ontrack", "순항 · 시장 수준"
+    elif excess > -_AJ_BIG:
+        cls, txt = "behind", f'목표 페이스 하회 −{abs(excess):.1f}%p'
+    else:
+        cls, txt = "behind", f'목표 페이스 크게 하회 −{abs(excess):.1f}%p'
+    return f'<div class="aj-badgewrap"><span class="aj-pace {cls}">{txt}</span></div>'
+
+
 def _journey_cards_html(current: float, m: dict, target: float = 0.0) -> str:
     from core.journey import krw_compact
     eta = _journey_eta_display(m, current, target)
@@ -1538,7 +1569,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
     positions/fx 가 주어지면 진행률 바 자리에서 '자산 추이'로 in-place 교체(같은 위치·크기) 토글을 제공.
     """
     from datetime import date as _date
-    from core.journey import journey_metrics, krw_compact, stage_label
+    from core.journey import journey_metrics
 
     username = st.session_state.get("username")
     target = int(_journey_get("target_value", username, is_guest, 1_500_000_000))
@@ -1556,28 +1587,9 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
 
         target_date = st.session_state.get("portfolio_target_date") or (_date.today() + timedelta(days=365 * 5))
         m = journey_metrics(start_date, start_value, current_value, target, target_date)
-        pace = m["pace_months"]
-        # 페이스 배지(평가) — 앞섬=골드 / 부합=중립회색 / 뒤처짐=주황 경고. 12개월↑은 정성 평가.
-        if pace is None:
-            pace_html = ""
-        elif pace >= 12:
-            pace_html = '<span class="aj-pace ahead">목표 페이스 크게 상회</span>'
-        elif pace > 0:
-            pace_html = f'<span class="aj-pace ahead">예정보다 {pace}개월 빠름</span>'
-        elif pace == 0:
-            pace_html = '<span class="aj-pace ontrack">예정 페이스에 부합</span>'
-        elif pace > -12:
-            pace_html = f'<span class="aj-pace behind">예정보다 {abs(pace)}개월 늦음</span>'
-        else:
-            pace_html = '<span class="aj-pace behind">목표 페이스 크게 하회</span>'
-
-        # 단계 배지(정보) — 진행 phase 별 초록 계열(초반=중립 → 순항=초록 → 막바지=진초록 → 도달=초록 강조)
-        _stage = stage_label(m["progress_pct"])
-        _stage_cls = {"초반 구간": "s-early", "순항 중": "s-cruise",
-                      "막바지 구간": "s-final", "목표 도달": "s-reached"}.get(_stage, "s-cruise")
-
-        _badge_html = (f'<div class="aj-badgewrap"><span class="aj-stage {_stage_cls}">'
-                       f'{_escape(_stage)}</span>{pace_html}</div>')
+        # 상태 배지 = '같은 기간 시장(내 카테고리 벤치마크 비중블렌드) 대비' 단일 평가.
+        # (이전: phase '순항 중'(진행률) + pace '목표 페이스 하회'(목표 CAGR) 2배지 → 서로 모순돼 보임.)
+        _badge_html = _journey_bench_badge_html(positions, current_value, start_value, start_date)
         with title_col:
             st.markdown(_AJ_CSS + '<div class="aj-top aj-top-row"><h3>자산 여정</h3></div>',
                         unsafe_allow_html=True)
