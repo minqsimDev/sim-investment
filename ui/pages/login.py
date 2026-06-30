@@ -476,11 +476,22 @@ def _render_login() -> None:
             with col:
                 st.error("아이디와 비밀번호를 입력해 주세요.")
             return
+        from core.login_guard import check_locked, record_failure, record_success
+        locked = check_locked(username)
+        if locked:
+            with col:
+                st.error(f"로그인 시도가 너무 많습니다. 약 {locked // 60 + 1}분 후 다시 시도해 주세요.")
+            return
         acc = authenticate(username, password)
         if acc is None:
+            lock = record_failure(username)
             with col:
-                st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+                if lock:
+                    st.error(f"로그인 실패가 반복되어 약 {lock // 60}분간 잠급니다. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
             return
+        record_success(username)
 
         portfolios = get_portfolios(username)
         if portfolios:
