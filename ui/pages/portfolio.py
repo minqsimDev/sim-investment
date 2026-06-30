@@ -2397,30 +2397,36 @@ def render():
     annual_growth_rate = st.session_state.get("portfolio_annual_growth_rate", 0.20)
     progress = min(1.0, max(0.0, current_asset / max(1, target_asset)))
 
-    _render_portfolio_detail(
-        data,
-        journey={
-            "progress": max(0.02, progress),
-            "height": 360,
-            "current_asset": current_asset,
-            "target_asset": target_asset,
-            "annual_growth_rate": annual_growth_rate,
-        },
-    )
+    # ── 서브탭: 내 보유 / 리스크 진단 (segmented control — 비활성 탭은 미실행) ──
+    from ui.pages.risk_signals import render_risk_body
+    _default_tab = "리스크 진단" if st.session_state.pop("_pf_open_risk", False) else "내 보유"
+    _tab = st.segmented_control(
+        "포트폴리오 보기", ["내 보유", "리스크 진단"],
+        default=_default_tab, key="pf_subtab", label_visibility="collapsed",
+    ) or _default_tab
 
-    # 스크린샷 업로더 — 요약 뷰에서 드롭존을 바로 노출(클릭 1스텝, 사용자 선호).
-    # 기존 사용자에겐 온보딩 3단계 가이드 대신 간결한 섹션 타이틀만(맥락 제공·중복 제거).
-    # (첫 사용자(보유 0건)는 위 _render_onboarding 에서 3단계 가이드로 노출.)
-    if brokerage_connected and st.query_params.get("pf", "") == "":
-        st.markdown(
-            '<div style="margin:18px 2px 8px;color:#E7E9EE;font-size:14px;font-weight:850;'
-            'font-family:-apple-system,BlinkMacSystemFont,\'Helvetica Neue\',sans-serif;">'
-            '📷 스크린샷으로 보유 갱신'
-            '<span style="display:block;color:#9AA0AD;font-size:12px;font-weight:650;margin-top:2px;">'
-            '새 캡처를 올리면 종목·평가금액을 다시 인식해 교체해요</span></div>',
-            unsafe_allow_html=True,
+    if _tab == "리스크 진단":
+        render_risk_body()
+    else:
+        _render_portfolio_detail(
+            data,
+            journey={
+                "progress": max(0.02, progress),
+                "height": 360,
+                "current_asset": current_asset,
+                "target_asset": target_asset,
+                "annual_growth_rate": annual_growth_rate,
+            },
         )
-        _render_screenshot_upload(key="screenshot_update", show_header=False)
+        if brokerage_connected and st.query_params.get("pf", "") == "":
+            st.markdown(
+                '<div style="margin:18px 2px 8px;color:#E7E9EE;font-size:14px;font-weight:850;'
+                'font-family:-apple-system,BlinkMacSystemFont,\'Helvetica Neue\',sans-serif;">'
+                '📷 스크린샷으로 보유 갱신'
+                '<span style="display:block;color:#9AA0AD;font-size:12px;font-weight:650;margin-top:2px;">'
+                '새 캡처를 올리면 종목·평가금액을 다시 인식해 교체해요</span></div>',
+                unsafe_allow_html=True,
+            )
+            _render_screenshot_upload(key="screenshot_update", show_header=False)
 
-    # 푸터는 전 페이지 동일하게 jj_footer() 1개로 통일(포트폴리오 전용 데이터 캡션 제거).
     st.markdown(jj_footer(), unsafe_allow_html=True)
