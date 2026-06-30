@@ -64,6 +64,8 @@ _PROMPT = """이 이미지(들)는 증권사 앱/HTS/MTS의 보유종목 또는 
 - **소수점(.)을 반드시 보존하라. 천단위 쉼표(,)만 제거하고 소수점은 절대 지우거나 무시하지 말 것.**
   예) "$4,500.00" → 4500.00,  "1,234.56" → 1234.56,  "152.30" → 152.30,  "12.5%" → 12.5
   소수점을 천단위 구분으로 착각해 "4,500.00"을 450000 처럼 만들지 말 것(자릿수가 폭증함).
+- **주당 현재가(current_price)와 평균단가(avg_price)는 화면에 보이면 반드시 채워라.**
+  이 값들이 평가/매입금액의 자릿수 교차검증 앵커로 쓰인다(eval≈shares×current_price).
 - 통화 기호·% 기호는 제거하되 숫자 값과 소수점 자릿수는 화면 그대로.
 - 금액은 화면에 보이는 숫자·통화 그대로 적고(환산하지 말 것), 통화는 currency 필드로 표기.
 - 평가금액과 매입금액 컬럼을 혼동하지 말 것. 손익이 마이너스면 부호(-)를 정확히 반영.
@@ -201,7 +203,10 @@ def parse_portfolio_image(
     # 일시적 과부하(503/429/529 등)는 짧은 백오프로 자동 재시도 → 지속되면 VisionBusyError.
     for _attempt in range(3):
         try:
-            return _normalize(_extract_json(call()))
+            # 저장 직전 자릿수(소수점 유실) 결정론적 보정 — 모델이 '$27,543.519'를 27543519로
+            # 부풀려 읽어도 주당가 앵커로 ×10ⁿ 오류를 잡는다(라이브 시세 불필요).
+            from core.holdings_reconcile import reconcile_holdings
+            return reconcile_holdings(_normalize(_extract_json(call())))
         except Exception as e:  # noqa: BLE001 — 일시적/영구 구분만 하고 재던짐
             if _is_transient(e):
                 if _attempt < 2:
