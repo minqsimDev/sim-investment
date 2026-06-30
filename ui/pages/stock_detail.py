@@ -80,7 +80,8 @@ def _auth_qs() -> str:
     if role == "guest":
         return "_auth=guest"
     u = st.session_state.get("username")
-    return f"_user={u}" if u else ""
+    from core.auth_token import user_param
+    return user_param(u)
 
 
 def _resolve(symbol: str, data: dict) -> dict | None:
