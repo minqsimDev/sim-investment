@@ -5,12 +5,11 @@
 from __future__ import annotations
 
 import html as _html
-import pandas as pd
 import streamlit as st
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data
-from ui.components.regime import cached_regime_signals as _cached_regime_signals, compass_model as _compass_model
+from ui.components.regime import regime_verdict
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton,
@@ -40,7 +39,6 @@ _OV_CSS = """<style>
 </style>"""
 
 # ── Cached loaders ─────────────────────────────────────────────────────────────
-# _cached_regime_signals and _compass_model moved to ui/components/regime.py (imported above)
 
 # ── Value helpers ──────────────────────────────────────────────────────────────
 
@@ -301,23 +299,10 @@ def render():
     data = load_market_data()
     ph.empty()
 
-    # 시장 신호(시장 다이제스트·오늘 할 일용) — 시장 데이터에서 산출
-    signals = _cached_regime_signals(data["fetched_at"])
-    sig_map = {s["signal"]: s for s in signals}
-
-    def _safe(v):
-        try:
-            f = float(v)
-            return None if pd.isna(f) else f
-        except (TypeError, ValueError):
-            return None
-
-    _bm = data.get("benchmarks", pd.DataFrame())
-    _cr = data.get("crypto", pd.DataFrame())
-    _bm_chg = {} if _bm.empty else dict(zip(_bm["ticker"], _bm["change_pct"]))
-    _cry_chg = {} if _cr.empty else dict(zip(_cr["ticker"], _cr["change_pct"]))
-    btc_chg, kweb_chg = _safe(_cry_chg.get("BTC-USD")), _safe(_bm_chg.get("KWEB"))
-    direction, compass_note, _, _dir_tone = _compass_model(sig_map, btc_chg, kweb_chg)
+    # 시장 신호(시장 다이제스트·오늘 할 일용) — 공용 regime_verdict 단일 출처(시장 페이지와 동일 판정)
+    _rg = regime_verdict(data)
+    signals, sig_map = _rg["signals"], _rg["sig_map"]
+    direction, compass_note, _dir_tone = _rg["direction"], _rg["note"], _rg["tone"]
 
     # ── 내 관점 데이터(게스트=공유 샘플 / 로그인=실계좌, 소스만 교체) ──
     bundle = _my_perspective_bundle(data)
