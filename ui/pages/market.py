@@ -397,6 +397,10 @@ div[data-testid="stButtonGroup"] button[data-testid="stBaseButton-segmented_cont
 .rg-mid{color:#D9A441;border-color:rgba(217,164,65,.34);background:rgba(217,164,65,.10)}
 .rg-low{color:#9AA0AD}
 @media(max-width:768px){.rg-head .rg-dir{font-size:22px}}
+.rg-bridge{display:inline-flex;align-items:center;margin:8px 0 2px;padding:8px 14px;border-radius:999px;
+  font-size:12.5px;font-weight:800;color:#D9A441;background:rgba(217,164,65,.10);
+  border:1px solid rgba(217,164,65,.40);text-decoration:none}
+.rg-bridge:hover{background:rgba(217,164,65,.18);border-color:#D9A441}
 </style>"""
 
 
@@ -1342,12 +1346,13 @@ _REGIME_TONE = {"good": "rg-good", "watch": "rg-watch", "risk": "rg-risk"}
 
 
 def _regime_headline_html(direction: str, note: str, tone: str) -> str:
+    from html import escape
     cls = _REGIME_TONE.get(tone, "rg-watch")
     return (
         f'<div class="rg-head {cls}">'
         f'<div class="rg-k">오늘 시장</div>'
-        f'<div class="rg-dir">{direction}</div>'
-        f'<div class="rg-note">{note}</div>'
+        f'<div class="rg-dir">{escape(direction)}</div>'
+        f'<div class="rg-note">{escape(note)}</div>'
         f'</div>'
     )
 
@@ -1363,6 +1368,18 @@ def _regime_signals_strip_html(signals: list[dict]) -> str:
         for s in sigs
     )
     return f'<div class="rg-why"><div class="rg-why-k">왜 — 판정 근거</div><div class="rg-sigs">{chips}</div></div>'
+
+
+def _exposure_bridge_html(suffix: str) -> str:
+    """이 국면이 내 노출에 뭘 의미? — 로그인 시만 노출되는 가벼운 링크 1줄(시장=general 유지)."""
+    import streamlit as st
+    if st.session_state.get("auth_role") == "guest" or not st.session_state.get("username"):
+        return ""
+    href = f"/risk{suffix}"
+    return (
+        f'<a class="rg-bridge" href="{href}" target="_self">'
+        f'이 국면에서 내 노출은? · 리스크 진단 →</a>'
+    )
 
 
 # ── Main render ───────────────────────────────────────────────────────────────
@@ -1418,6 +1435,9 @@ def _live_section(suffix: str = "") -> None:
     # '카테고리별 시장 분석'(TOP12 순환)은 '전체' 탭과 중복 → 무버는 '전체' 탭 단일 소스로 통합.
     # 개별 종목 애널리스트 노트는 미국/한국/매크로 탭의 '애널리스트 전망'에서 확인.
     # (전체 비교 안내는 상단 뷰 토글로 일원화 — 중복 링크·캡션 제거)
+
+    # ── 로그인 전용 '내 노출' 브리지 — 시장은 general 유지, 단 1줄 ─────────────────
+    st.markdown(_exposure_bridge_html(suffix), unsafe_allow_html=True)
 
 
 # ── 쿼리파라미터 기반 서브탭 (딥링크·카드 클릭 이동 지원) ──────────────────────
