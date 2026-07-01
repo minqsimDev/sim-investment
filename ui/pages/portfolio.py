@@ -2399,11 +2399,16 @@ def render():
 
     # ── 서브탭: 내 보유 / 리스크 진단 (segmented control — 비활성 탭은 미실행) ──
     from ui.pages.risk_signals import render_risk_body
-    _default_tab = "리스크 진단" if st.session_state.pop("_pf_open_risk", False) else "내 보유"
+    # keyed 위젯은 값이 세션에 저장되면 default 를 무시한다 → /risk 흡수(_pf_open_risk) 시
+    # 세션 키(pf_subtab)를 직접 지정해야 탭이 실제로 전환된다(브리지·같은세션 재방문에도 정확).
+    if st.session_state.pop("_pf_open_risk", False):
+        st.session_state["pf_subtab"] = "리스크 진단"
+    elif "pf_subtab" not in st.session_state:
+        st.session_state["pf_subtab"] = "내 보유"
     _tab = st.segmented_control(
         "포트폴리오 보기", ["내 보유", "리스크 진단"],
-        default=_default_tab, key="pf_subtab", label_visibility="collapsed",
-    ) or _default_tab
+        key="pf_subtab", label_visibility="collapsed",
+    ) or "내 보유"
 
     if _tab == "리스크 진단":
         render_risk_body()
