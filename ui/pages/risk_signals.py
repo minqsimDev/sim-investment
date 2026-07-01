@@ -339,20 +339,16 @@ def _render_action_checklist(actions: list[str], is_guest: bool) -> None:
 
     with st.container(border=True):
         st.markdown(
-            '<div class="rsk-card-title">오늘 할 일 체크</div>',  # 저장 안내는 하단 '완료 N/3' 줄과 중복이라 제거
+            '<div class="rsk-card-title">오늘 할 일 체크</div>',
             unsafe_allow_html=True)
         done_ct, changed = 0, False
         for i, act in enumerate(actions):
             e = log.get(act, {})
             done = st.checkbox(act, value=bool(e.get("done")), key=f"rsk_act_{i}")
-            memo = st.text_input(
-                "메모", value=e.get("memo", ""), key=f"rsk_actmemo_{i}",
-                placeholder="메모(선택) — 예: 환율 1,500 이하일 때 분할 매수", label_visibility="collapsed")
             done_ct += 1 if done else 0
-            new_e = {"done": done, "memo": memo}
-            if new_e != {"done": bool(e.get("done")), "memo": e.get("memo", "")}:
-                if done or memo:
-                    log[act] = new_e
+            if bool(e.get("done")) != done:          # 순수 체크리스트(메모 제거) — done 상태만 저장
+                if done:
+                    log[act] = {"done": True}
                 else:
                     log.pop(act, None)
                 changed = True
@@ -487,9 +483,7 @@ def render_risk_body(holdings=None, total=None, is_guest=None) -> None:
     _mrows = _matrix_rows(signals_with_na, exposure_map, dim_map)
 
     def _regime_detail_block():
-        # 시장 국면 '근거' — 심각도 분포 + 해석 한 줄 + 점수 산식. 게이지·대응모드는 상단 점수 배너와
-        # 중복이라 제거(2026-06-25, plotly도 제외해 경량화). 점수의 '왜'는 산식이 담당.
-        st.markdown(_severity_block_html(high_sigs, mid_sigs, low_sigs), unsafe_allow_html=True)
+        # 시장 국면 '근거' — 점수 산식(왜) 중심. '리스크 균형' 게이지는 종합리스크 아코디언으로 이동(중복 제거).
         _net = n_high - n_low
         _sign = "+" if _net > 0 else ""
         _net_word = "위험 우위" if _net > 0 else ("완충 우위" if _net < 0 else "균형")
@@ -545,6 +539,7 @@ def render_risk_body(holdings=None, total=None, is_guest=None) -> None:
         f":{_tone_color}[**종합 리스크 {score}/100 · {tone_label}**]  ·  대응 — {summary_short}",
         expanded=True,
     ):
+        st.markdown(_severity_block_html(high_sigs, mid_sigs, low_sigs), unsafe_allow_html=True)  # 리스크 균형 게이지
         st.markdown(_signal_cards_html(_mrows), unsafe_allow_html=True)
     # 오늘 할 일 체크 = 매트릭스의 구체 대응(위험·주의 신호만, 완충은 행동 불필요), 중복 액션 제거.
     _todo = list(dict.fromkeys(r["action"] for r in _mrows if r["col"] in ("high", "mid")))
