@@ -1475,6 +1475,9 @@ def render() -> None:
         key="mkt_asset_tab", label_visibility="collapsed",
     ) or "요약"
     active = _tab_slugs[_tab_labels.index(_sel)]
+    # 사용률 계측(세션당 탭 1회, best-effort) — 시장 탭 가지치기 판단용
+    from core.usage_log import log_tab_view
+    log_tab_view("market", active or "summary")
     suffix = _market_suffix()
 
     # 시장한눈 카드(.mg-card)의 '자세히' 클릭을 위 라디오 선택으로 위임(하드네비 풀리로드 회피).
