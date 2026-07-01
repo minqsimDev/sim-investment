@@ -975,10 +975,9 @@ def render_shell_header(pages=None):
     # 비주얼 핀은 JS 브리지로 클라이언트사이드 page_link 를 클릭한다(하드네비=프록시 뒤 라우팅 깨짐 회피).
     # href 는 새 탭/모디파이어 클릭·JS 미동작 시의 폴백(세션 복원 위해 _suffix 유지).
     nav_items = [
-        ("전체 현황",  f"/{_suffix}",              "/",          "home"),
-        ("포트폴리오", f"/portfolio{_suffix}",     "/portfolio", "portfolio"),
-        ("시장",       f"/market{_suffix}",         "/market",    "market"),
-        ("리스크",     f"/risk{_suffix}",           "/risk",      "risk"),
+        ("전체 현황",  f"/{_suffix}",            "/",          "overview"),
+        ("시장",       f"/market{_suffix}",       "/market",    "market"),
+        ("포트폴리오", f"/portfolio{_suffix}",    "/portfolio", "portfolio"),
     ]
     nav_html = "".join(
         f'<a href="{html_escape(href)}" data-path="{html_escape(path)}" '
@@ -1024,7 +1023,7 @@ def render_shell_header(pages=None):
     # → 숨긴 st.page_link(네이티브 클라이언트사이드)를 만들고, 위 비주얼 핀 클릭을 JS로 그쪽에 위임.
     if pages:
         _by_path = {getattr(p, "url_path", ""): p for p in pages}
-        _order = ["", "portfolio", "market", "risk"]   # default(home) 의 url_path 는 ""
+        _order = ["overview", "market", "portfolio"]   # 비주얼 핀과 동일 순서
         _cs_pages = [_by_path[u] for u in _order if u in _by_path]
         if len(_cs_pages) == len(_order):
             # 숨긴 page_link + 부트용 srcdoc iframe(conn·liquid·브리지, 전부 height=0 스크립트) 컨테이너를
@@ -1049,8 +1048,8 @@ def render_shell_header(pages=None):
   if (pwin.__svNavBridge) return; pwin.__svNavBridge = true;
   // 절대경로 페이지 링크(/, /overview, /portfolio, /market, /risk)를 클릭하면 풀 리로드 대신
   // 숨긴 st.page_link(클라이언트사이드)로 위임 → 프록시 뒤 딥링크 오라우팅(홈으로 빠짐) 회피.
-  // 숨은 page_link 순서: [home(0), portfolio(1), market(2), risk(3)].
-  var MAP = {'/':0, '/overview':0, '/portfolio':1, '/market':2, '/risk':3};
+  // 숨은 page_link 순서: [overview(0), market(1), portfolio(2)].
+  var MAP = {'/':0, '/overview':0, '/home':0, '/market':1, '/portfolio':2, '/risk':2};
   pdoc.addEventListener('click', function(e){
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target.closest('a[href]');
