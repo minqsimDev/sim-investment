@@ -10,7 +10,7 @@ import streamlit as st
 
 import layout as L  # 반응형(뷰포트 감지 + 모바일 CSS)
 from data.loader import load_market_data
-from src.risk import compute_regime_signals
+from ui.components.regime import cached_regime_signals as _cached_regime_signals, compass_model as _compass_model
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton,
@@ -40,14 +40,7 @@ _OV_CSS = """<style>
 </style>"""
 
 # ── Cached loaders ─────────────────────────────────────────────────────────────
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def _cached_regime_signals(fetched_at: str) -> list[dict]:
-    """Cache the regime-signal computation keyed by the market data timestamp.
-    Avoids recomputing identical signals on every Streamlit rerun within the cache window.
-    """
-    # Pull cached market data and compute. The TTL aligns with load_market_data (30 min).
-    return compute_regime_signals(load_market_data())
+# _cached_regime_signals and _compass_model moved to ui/components/regime.py (imported above)
 
 # ── Value helpers ──────────────────────────────────────────────────────────────
 
@@ -58,44 +51,6 @@ def _cached_regime_signals(fetched_at: str) -> list[dict]:
 # ── Summary text ───────────────────────────────────────────────────────────────
 
 # ── Portfolio impact bullets ───────────────────────────────────────────────────
-
-def _compass_model(sig_map: dict, btc_chg: float | None, kweb_chg: float | None) -> tuple[str, str, int, str]:
-    score = 0
-
-    def _col(key: str) -> str:
-        return sig_map.get(key, {}).get("col", "na")
-
-    for key, weight in [("Semiconductor Momentum", 2), ("Tech Momentum", 2)]:
-        col = _col(key)
-        if col == "low":
-            score += weight
-        elif col == "high":
-            score -= weight
-
-    for key, weight in [("Rate Pressure", 2), ("Dollar Strength", 1), ("Korea FX Risk", 1)]:
-        col = _col(key)
-        if col == "high":
-            score -= weight
-        elif col == "low":
-            score += 1
-
-    if btc_chg is not None:
-        if btc_chg > 2:
-            score += 1
-        elif btc_chg < -2:
-            score -= 1
-    if kweb_chg is not None:
-        if kweb_chg > 1.5:
-            score += 1
-        elif kweb_chg < -1.5:
-            score -= 1
-
-    angle = max(-42, min(42, score * 9))
-    if score >= 3:
-        return "우상향 유지", "AI·반도체 중심의 위험선호가 우세합니다. 금리와 달러 변화만 계속 점검하세요.", angle, "good"
-    if score <= -3:
-        return "방어 모드", "금리·달러·위험회피 압력이 커졌습니다. 변동성 큰 자산군의 움직임을 먼저 확인하세요.", angle, "risk"
-    return "혼조 구간", "방향성은 아직 중립입니다. 강한 자산과 약한 자산이 갈리는지 확인하세요.", angle, "watch"
 
 # ── Chart builders ─────────────────────────────────────────────────────────────
 
