@@ -1372,10 +1372,9 @@ def _regime_signals_strip_html(signals: list[dict]) -> str:
 
 def _exposure_bridge_html(suffix: str) -> str:
     """이 국면이 내 노출에 뭘 의미? — 로그인 시만 노출되는 가벼운 링크 1줄(시장=general 유지)."""
-    import streamlit as st
     if st.session_state.get("auth_role") == "guest" or not st.session_state.get("username"):
         return ""
-    qs = ("?" + suffix.lstrip("&")) if suffix else ""
+    qs = ("?" + suffix.removeprefix("&")) if suffix else ""
     href = f"/risk{qs}"
     return (
         f'<a class="rg-bridge" href="{href}" target="_self">'
