@@ -2411,7 +2411,10 @@ def render():
     ) or "내 보유"
 
     if _tab == "리스크 진단":
-        render_risk_body()
+        # DRY — 이미 정규화한 _positions/live_total 을 넘겨 리스크 탭의 중복 정규화(load_market_data·
+        # _normalize_holdings) 제거. (_positions 는 위 _portfolio_summary 로 weight 부착 완료.)
+        from core.pb import holdings_for_pb
+        render_risk_body(holdings=holdings_for_pb(_positions), total=live_total, is_guest=False)
     else:
         _render_portfolio_detail(
             data,

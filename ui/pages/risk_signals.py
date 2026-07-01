@@ -505,15 +505,18 @@ def render():
     render_risk_body()
 
 
-def render_risk_body() -> None:
-    """리스크 진단 콘텐츠(페이지 크롬 없음) — /risk 라우트와 포트폴리오 '리스크 진단' 탭이 공유."""
+def render_risk_body(holdings=None, total=None, is_guest=None) -> None:
+    """리스크 진단 콘텐츠(페이지 크롬 없음) — 포트폴리오 '리스크 진단' 탭·(/risk 흡수)이 공유.
+
+    holdings/total 이 주어지면(포트폴리오가 이미 정규화한 보유·총액) 재계산을 생략(DRY —
+    load_market_data·_normalize_holdings 중복 제거). 없으면 세션에서 자체 산출(게스트·폴백)."""
     st.markdown(_RISK_LOCAL_CSS, unsafe_allow_html=True)
 
-    # 상단 '리스크 모니터링' 배너 제거 — 제목은 네비와 중복, 부제는 아래 점수·신호가 대신 설명.
-    # (불필요 요소 제거 + 상단 여백 축소로 핵심 콘텐츠를 위로)
-
-    # 보유 자동 주입(로그인=내 보유 / 게스트·미연결=샘플)
-    holdings, _is_guest, _impact_total = _my_holdings_for_impact()
+    # 보유 자동 주입 — 호출부가 넘겨주면 그대로(재계산 X), 아니면 세션에서 산출(게스트·미연결=샘플)
+    if holdings is None:
+        holdings, is_guest, total = _my_holdings_for_impact()
+    _is_guest = bool(is_guest)
+    _impact_total = float(total or 0)
 
     # 토글 폐지 — '시장 원인 → 내 노출 → 대응' 단일 서사로 통합. 순수 시장 국면(게이지·산식)은
     # 하단 접힘 '근거'로 강등(광범위 시장 조망은 시장 페이지 담당). 종합점수는 시장+집중 혼합값.
@@ -618,7 +621,8 @@ def render_risk_body() -> None:
                 unsafe_allow_html=True,
             )
 
-    # ── 단일 통합 흐름: [종합점수 아코디언 → 신호×내노출×대응 카드] → 내 집중·환율 → 시나리오 → 오늘 할 일 → (접힘)시장 국면 근거 ──
+    # ── 슬림 흐름(시장신호 중심): [종합점수 아코디언 → 신호×내노출×대응] → 오늘 할 일 → (접힘)근거 → (접힘)알림 ──
+    # 집중·환율·충격 시나리오는 '내 보유' 탭 PB 카드와 중복이라 리스크 탭에서 제거(위험 정보 분산 해소).
     # 종합 리스크를 아코디언 헤더로 — 클릭하면 신호→내 노출→대응 카드가 접힘/펼침(기본 펼침).
     _tone_color = {"risk": "red", "warn": "orange", "good": "green"}.get(tone, "orange")
     with st.expander(
@@ -626,8 +630,6 @@ def render_risk_body() -> None:
         expanded=True,
     ):
         st.markdown(_signal_cards_html(_mrows), unsafe_allow_html=True)
-    st.markdown(_my_portfolio_risk_html(holdings, _is_guest, risk_parts), unsafe_allow_html=True)
-    st.markdown(_scenario_card_html(holdings, _impact_total), unsafe_allow_html=True)  # A2 시나리오
     # 오늘 할 일 체크 = 매트릭스의 구체 대응(위험·주의 신호만, 완충은 행동 불필요), 중복 액션 제거.
     _todo = list(dict.fromkeys(r["action"] for r in _mrows if r["col"] in ("high", "mid")))
     _render_action_checklist(_todo, _is_guest)  # B4 — 매트릭스 대응을 체크/메모로 추적
