@@ -382,6 +382,21 @@ div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_con
 div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_control"]:hover{color:#E7E9EE!important}
 div[data-testid="stButtonGroup"] button[data-testid="stBaseButton-segmented_controlActive"]{
   color:#E7E9EE!important;border-bottom-color:#D9A441!important}
+/* ── 레짐 헤드라인 + 근거 신호 스트립 ────────────────────────────────────────── */
+.rg-head{border:1px solid #262A33;border-radius:16px;padding:16px 18px;margin:2px 0 10px;background:#16181F}
+.rg-head .rg-k{font-size:11px;font-weight:800;color:#7E8694;letter-spacing:.04em}
+.rg-head .rg-dir{font-size:26px;font-weight:950;letter-spacing:-.02em;margin:2px 0 4px}
+.rg-head .rg-note{font-size:13px;font-weight:650;color:#9AA0AD;line-height:1.5}
+.rg-good .rg-dir{color:#3DD68C}.rg-watch .rg-dir{color:#C9CDD6}.rg-risk .rg-dir{color:#E8883A}
+.rg-good{border-color:rgba(61,214,140,.34)}.rg-risk{border-color:rgba(232,136,58,.40)}
+.rg-why{margin:0 0 14px}
+.rg-why-k{font-size:11px;font-weight:800;color:#7E8694;margin:0 0 6px}
+.rg-sigs{display:flex;flex-wrap:wrap;gap:6px}
+.rg-sig{font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;border:1px solid #262A33;color:#9AA0AD;background:rgba(255,255,255,.04)}
+.rg-high{color:#E8883A;border-color:rgba(232,136,58,.38);background:rgba(232,136,58,.10)}
+.rg-mid{color:#D9A441;border-color:rgba(217,164,65,.34);background:rgba(217,164,65,.10)}
+.rg-low{color:#9AA0AD}
+@media(max-width:768px){.rg-head .rg-dir{font-size:22px}}
 </style>"""
 
 
@@ -1321,6 +1336,35 @@ def _build_news_grid(data: dict) -> str:
     return f'<div class="mkt-news-grid">{cards_html}</div>'
 
 
+# ── 레짐 헤드라인 + 근거 신호 스트립 HTML 빌더 ───────────────────────────────
+
+_REGIME_TONE = {"good": "rg-good", "watch": "rg-watch", "risk": "rg-risk"}
+
+
+def _regime_headline_html(direction: str, note: str, tone: str) -> str:
+    cls = _REGIME_TONE.get(tone, "rg-watch")
+    return (
+        f'<div class="rg-head {cls}">'
+        f'<div class="rg-k">오늘 시장</div>'
+        f'<div class="rg-dir">{direction}</div>'
+        f'<div class="rg-note">{note}</div>'
+        f'</div>'
+    )
+
+
+def _regime_signals_strip_html(signals: list[dict]) -> str:
+    from ui.pages.risk_signals import _SIG_KOR
+    order = {"high": 0, "mid": 1, "low": 2, "na": 3}
+    lab = {"high": "위험", "mid": "주의", "low": "완충", "na": "중립"}
+    sigs = sorted(signals, key=lambda s: order.get(s.get("col", "na"), 3))
+    chips = "".join(
+        f'<span class="rg-sig rg-{s.get("col","na")}">'
+        f'{_SIG_KOR.get(s["signal"], s["signal"])} · {lab.get(s.get("col","na"),"중립")}</span>'
+        for s in sigs
+    )
+    return f'<div class="rg-why"><div class="rg-why-k">왜 — 판정 근거</div><div class="rg-sigs">{chips}</div></div>'
+
+
 # ── Main render ───────────────────────────────────────────────────────────────
 
 def _pulse_chips(data: dict) -> str:
@@ -1346,6 +1390,12 @@ def _live_section(suffix: str = "") -> None:
         sparks = _fs.result()
         target_prices = _ft.result()
     ph.empty()
+
+    # ── 레짐 헤드라인 + 근거 신호 스트립 (요약 최상단 — 전체현황 나침반과 동일 판정) ───
+    from ui.components.regime import regime_verdict
+    _rg = regime_verdict(data)
+    st.markdown(_regime_headline_html(_rg["direction"], _rg["note"], _rg["tone"]), unsafe_allow_html=True)
+    st.markdown(_regime_signals_strip_html(_rg["signals"]), unsafe_allow_html=True)
 
     # 오늘의 핵심 지표 펄스 (요약 상단 — 지수·환율·원자재·크립토 1D)
     pulse = _pulse_chips(data)
