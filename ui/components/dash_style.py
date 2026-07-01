@@ -975,10 +975,9 @@ def render_shell_header(pages=None):
     # 비주얼 핀은 JS 브리지로 클라이언트사이드 page_link 를 클릭한다(하드네비=프록시 뒤 라우팅 깨짐 회피).
     # href 는 새 탭/모디파이어 클릭·JS 미동작 시의 폴백(세션 복원 위해 _suffix 유지).
     nav_items = [
-        ("전체 현황",  f"/{_suffix}",              "/",          "home"),
-        ("포트폴리오", f"/portfolio{_suffix}",     "/portfolio", "portfolio"),
-        ("시장",       f"/market{_suffix}",         "/market",    "market"),
-        ("리스크",     f"/risk{_suffix}",           "/risk",      "risk"),
+        ("전체 현황",  f"/{_suffix}",            "/",          "overview"),
+        ("시장",       f"/market{_suffix}",       "/market",    "market"),
+        ("포트폴리오", f"/portfolio{_suffix}",    "/portfolio", "portfolio"),
     ]
     nav_html = "".join(
         f'<a href="{html_escape(href)}" data-path="{html_escape(path)}" '
@@ -1024,9 +1023,9 @@ def render_shell_header(pages=None):
     # → 숨긴 st.page_link(네이티브 클라이언트사이드)를 만들고, 위 비주얼 핀 클릭을 JS로 그쪽에 위임.
     if pages:
         _by_path = {getattr(p, "url_path", ""): p for p in pages}
-        _order = ["", "portfolio", "market", "risk"]   # default(home) 의 url_path 는 ""
+        _order = ["overview", "market", "portfolio", "risk"]   # 비주얼 핀 + 숨은 /risk
         _cs_pages = [_by_path[u] for u in _order if u in _by_path]
-        if len(_cs_pages) == len(_order):
+        if len(_cs_pages) >= 3:
             # 숨긴 page_link + 부트용 srcdoc iframe(conn·liquid·브리지, 전부 height=0 스크립트) 컨테이너를
             # display:none → 공간·블록간격 0. JS 프로그램 클릭은 display:none 에서도 동작(검증).
             # js_eval(너비감지)은 src=URL 이라 매칭 안 됨(영향 없음).
@@ -1038,8 +1037,8 @@ def render_shell_header(pages=None):
                 '</style>',
                 unsafe_allow_html=True,
             )
-            for _p, (_lbl, *_rest) in zip(_cs_pages, nav_items):
-                st.page_link(_p, label=_lbl)
+            for _p in _cs_pages:
+                st.page_link(_p, label=getattr(_p, "title", ""))
             import streamlit.components.v1 as _components
             _components.html(
                 """
@@ -1047,10 +1046,11 @@ def render_shell_header(pages=None):
 (function(){
   var pdoc = window.parent.document, pwin = window.parent;
   if (pwin.__svNavBridge) return; pwin.__svNavBridge = true;
-  // 절대경로 페이지 링크(/, /overview, /portfolio, /market, /risk)를 클릭하면 풀 리로드 대신
+  // 절대경로 페이지 링크(/, /overview, /home, /portfolio, /market, /risk)를 클릭하면 풀 리로드 대신
   // 숨긴 st.page_link(클라이언트사이드)로 위임 → 프록시 뒤 딥링크 오라우팅(홈으로 빠짐) 회피.
-  // 숨은 page_link 순서: [home(0), portfolio(1), market(2), risk(3)].
-  var MAP = {'/':0, '/overview':0, '/portfolio':1, '/market':2, '/risk':3};
+  // 숨은 page_link 순서(stPageLink-NavLink DOM 인덱스): [market(0), portfolio(1), risk(2)].
+  // overview는 default=True라 Streamlit이 stPageLink-NavLink를 달지 않으므로 MAP에 포함 안 함.
+  var MAP = {'/market':0, '/portfolio':1, '/risk':2};
   pdoc.addEventListener('click', function(e){
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target.closest('a[href]');
