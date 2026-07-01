@@ -1375,7 +1375,8 @@ def _exposure_bridge_html(suffix: str) -> str:
     import streamlit as st
     if st.session_state.get("auth_role") == "guest" or not st.session_state.get("username"):
         return ""
-    href = f"/risk{suffix}"
+    qs = ("?" + suffix.lstrip("&")) if suffix else ""
+    href = f"/risk{qs}"
     return (
         f'<a class="rg-bridge" href="{href}" target="_self">'
         f'이 국면에서 내 노출은? · 리스크 진단 →</a>'
