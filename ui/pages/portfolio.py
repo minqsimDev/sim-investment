@@ -916,6 +916,77 @@ def _holdings_table_html(positions: list[dict], target_prices: dict[str, float],
     return '<div class="pd-table-card hl-card">' + "".join(rows) + '</div>'
 
 
+_CONTRIB_CSS = """<style>
+.pc-card{background:#16181F;border:1px solid #262A33;border-radius:14px;padding:6px 14px 10px;margin:2px 0 14px}
+.pc-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) auto;align-items:center;
+  gap:10px;padding:8px 2px;border-bottom:1px solid rgba(38,42,51,.6)}
+.pc-row:last-of-type{border-bottom:none}
+.pc-nm{font-size:12px;font-weight:900;color:#E7E9EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-nm small{display:block;font-size:9.5px;color:#7E8694;font-weight:800}
+.pc-bar{position:relative;height:14px}
+.pc-bar .pc-zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#262A33}
+.pc-bar i{position:absolute;top:2px;bottom:2px;border-radius:3px}
+.pc-bar i.p{left:50%;background:linear-gradient(90deg,rgba(242,85,96,.9),rgba(242,85,96,.45))}
+.pc-bar i.n{right:50%;background:linear-gradient(270deg,rgba(77,144,240,.9),rgba(77,144,240,.45))}
+.pc-amt{font-size:12px;font-weight:900;font-family:'SF Mono',ui-monospace,monospace;
+  font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.pc-amt.pos{color:#F25560}.pc-amt.neg{color:#4D90F0}
+.pc-amt small{display:block;font-size:9px;color:#7E8694;font-weight:700}
+.pc-sum{font-size:10.5px;color:#7E8694;font-weight:750;margin-top:8px;line-height:1.55}
+.pc-sum b{color:#E7E9EE}
+@media(max-width:640px){.pc-row{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;gap:7px}}
+</style>"""
+
+
+def _contribution_html(positions: list[dict], summary: dict, mode: str = "오늘") -> str:
+    """'누가 계좌를 움직였나' — 손익 기여 랭킹(상승·하락 상위 2 + 요약 한 줄).
+    기여 %p = 금액 ÷ 기준값(오늘=현재총액, 누적=총원금) × 100. 기존 포지션 데이터만 사용(신규 호출 없음)."""
+    key = "today_change_amount" if mode == "오늘" else "gain_loss"
+    base = (summary.get("total_market_value") if mode == "오늘"
+            else summary.get("total_cost_basis")) or 0
+    # 표기상 0.00%p 로 반올림되는 미미한 기여는 노이즈 → 제외
+    rows = [p for p in positions
+            if p.get("category") != "현금"
+            and abs((p.get(key) or 0) / base * 100 if base else 0) >= 0.005]
+    if not rows or not base:
+        return ""
+    ups = sorted((p for p in rows if (p.get(key) or 0) > 0), key=lambda p: p[key], reverse=True)[:2]
+    dns = sorted((p for p in rows if (p.get(key) or 0) < 0), key=lambda p: p[key])[:2]
+    picks = ups + dns
+    max_abs = max(abs(p[key]) for p in picks)
+
+    def _row(p: dict) -> str:
+        v = p[key]
+        pp = v / base * 100
+        width = abs(v) / max_abs * 46 if max_abs else 0
+        sign, cls, bar = ("+", "pos", "p") if v > 0 else ("−", "neg", "n")
+        code = _escape(str(p.get("ticker") or ""))
+        return (
+            '<div class="pc-row">'
+            f'<div class="pc-nm">{_escape(p.get("name") or code)}'
+            f'<small>{code} · 비중 {p.get("weight", 0):.0f}%</small></div>'
+            f'<div class="pc-bar"><span class="pc-zero"></span><i class="{bar}" style="width:{width:.1f}%"></i></div>'
+            f'<div class="pc-amt {cls}">{sign}₩{abs(v):,.0f}<small>{pp:+.2f}%p</small></div>'
+            '</div>'
+        )
+
+    up_pp = sum((p.get(key) or 0) for p in rows if (p.get(key) or 0) > 0) / base * 100
+    dn_pp = sum((p.get(key) or 0) for p in rows if (p.get(key) or 0) < 0) / base * 100
+    mover = max(rows, key=lambda p: abs(p.get(key) or 0))
+    mover_dir = "끌어올림" if (mover.get(key) or 0) > 0 else "끌어내림"
+    _nm = str(mover.get("name") or "")
+    # 이/가 조사 — 한글 종성 유무로 선택, 비한글 끝 글자는 '가'
+    mover_josa = "이" if _nm and "가" <= _nm[-1] <= "힣" and (ord(_nm[-1]) - 0xAC00) % 28 else "가"
+    net_pct = summary.get("today_change_pct") if mode == "오늘" else summary.get("total_gain_loss_pct")
+    net_s = f"{net_pct:+.2f}%" if net_pct is not None else "—"
+    label = "오늘 계좌 변동" if mode == "오늘" else "누적 수익률"
+    summary_line = (
+        f'<div class="pc-sum">{label} <b>{net_s}</b> 중 상승 기여 {up_pp:+.2f}%p · '
+        f'하락 기여 {dn_pp:+.2f}%p — <b>{_escape(_nm)}</b>{mover_josa} 가장 크게 {mover_dir}</div>'
+    )
+    return _CONTRIB_CSS + '<div class="pc-card">' + "".join(_row(p) for p in picks) + summary_line + '</div>'
+
+
 def _holdings_panel_html(
     title: str,
     subtitle: str,
@@ -1549,6 +1620,11 @@ def _journey_settings_panel(target: int, start_date, username: str | None, is_gu
         new_start_date = st.date_input(
             "투자 시작일", value=start_date, max_value=_date.today(), key="aj_start_date",
         )
+        # 목표 기한 — 목표 엔진의 필요수익률(연복리) 역산 분모. 기본 5년 뒤.
+        _td = _journey_target_date(username, is_guest)
+        new_target_date = st.date_input(
+            "목표 기한", value=_td, min_value=_date.today() + timedelta(days=30), key="aj_target_date",
+        )
         st.caption("초기 투자금은 보유 원가로 자동 산출 · 시작일로 연 성장률(CAGR)·예상 기간을 계산합니다.")
         new_target = int(round(new_target_eok * 1e8))
         changed = False
@@ -1556,8 +1632,159 @@ def _journey_settings_panel(target: int, start_date, username: str | None, is_gu
             _journey_set("target_value", new_target, username, is_guest); changed = True
         if new_start_date.isoformat() != start_date.isoformat():
             _journey_set("start_date", new_start_date.isoformat(), username, is_guest); changed = True
+        if new_target_date.isoformat() != _td.isoformat():
+            _journey_set("target_date", new_target_date.isoformat(), username, is_guest); changed = True
         if changed:
             st.rerun()  # 전체 리런 — 벤치마크 비교·PB 진단도 새 시작일 반영
+
+
+def _journey_target_date(username: str | None, is_guest: bool):
+    """목표 기한 조회(기본 5년 뒤) — 설정 패널·목표 엔진 공용."""
+    from datetime import date as _date
+    raw = _journey_get("target_date", username, is_guest,
+                       (_date.today() + timedelta(days=365 * 5)).isoformat())
+    return _date.fromisoformat(raw) if isinstance(raw, str) else raw
+
+
+_GOAL_CSS = """<style>
+.ge-head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;background:#16181F;
+  border:1px solid #262A33;border-radius:14px;padding:12px 16px;margin:12px 0 0}
+.ge-req{font-size:15px;font-weight:950;color:#E7E9EE}
+.ge-req b{color:#D9A441}
+.ge-act{font-size:12px;font-weight:800;color:#9AA0AD}
+.ge-act b.pos{color:#F25560}.ge-act b.neg{color:#4D90F0}
+.ge-eta{flex-basis:100%;font-size:11.5px;color:#9AA0AD;font-weight:750}
+.ge-eta b{color:#E7E9EE}.ge-eta .late{color:#E8883A;font-weight:900}.ge-eta .early{color:#3DD68C;font-weight:900}
+.ge-split{flex-basis:100%;font-size:10.5px;color:#7E8694;font-weight:750}
+.ge-split b{color:#D9A441}
+.ge-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+@media(max-width:760px){.ge-grid{grid-template-columns:1fr}}
+.ge-card{background:#16181F;border:1px solid #262A33;border-radius:14px;padding:11px 13px}
+.ge-card .t{font-size:11px;font-weight:900;color:#E7E9EE}
+.ge-card .v{font-size:14px;font-weight:950;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.ge-card .v.gold{color:#D9A441}.ge-card .v.warn{color:#E8883A}.ge-card .v.good{color:#3DD68C}
+.ge-card .s{font-size:10px;color:#7E8694;font-weight:750;line-height:1.55}
+.ge-card .s b{color:#E7E9EE}
+.ge-shock{display:inline-flex;align-items:center;margin-top:10px;font-size:11px;font-weight:800;
+  padding:6px 12px;border-radius:999px;color:#E8883A;background:rgba(232,136,58,.10);
+  border:1px solid rgba(232,136,58,.38)}
+</style>"""
+
+
+def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
+                       positions: list[dict], username: str | None) -> None:
+    """목표 엔진 — 필요수익률 vs 실제 페이스, 갭을 메우는 3레버, 충격→도달 지연, 입금 기록.
+    페이스는 journey_metrics 의 원가 기준 CAGR(입금이 수익으로 잡히지 않음)."""
+    from datetime import date as _date
+    from core.goal_engine import (years_to_target, required_cagr, monthly_topup_needed,
+                                  shock_delay_years, monthly_avg_deposit)
+    from core.journey import krw_compact
+
+    today = _date.today()
+    target_date = _journey_target_date(username, False)
+    t_goal = (target_date - today).days / 365.25
+    r_act = (m.get("cagr_pct") or 0) / 100
+    r_req = required_cagr(current, target, t_goal)
+    if r_req is None:
+        st.markdown(_GOAL_CSS + '<div class="ge-head"><span class="ge-act">'
+                    '목표 기한이 지났어요 — ⚙️ 설정에서 기한을 다시 잡아주세요.</span></div>',
+                    unsafe_allow_html=True)
+        return
+
+    deposits = _journey_get("deposits", username, False, []) or []
+    avg_dep = monthly_avg_deposit(deposits)
+
+    # 도달 예상(현행 페이스, 적립 미반영 보수 추정)
+    eta_y = years_to_target(current, target, r_act)
+    if eta_y is not None:
+        eta = today + timedelta(days=eta_y * 365.25)
+        dy = eta_y - t_goal
+        gap_html = (f'목표({target_date.year}년 {target_date.month}월)보다 '
+                    + (f'<span class="late">+{dy:.1f}년 늦음</span>' if dy > 0.05
+                       else f'<span class="early">{abs(dy):.1f}년 여유</span>' if dy < -0.05 else '<b>정확히 페이스</b>'))
+        eta_html = f'이 페이스면 <b>{eta.year}년 {eta.month}월</b> 도달 — {gap_html}'
+    else:
+        eta_html = '현행 페이스(≤0%)로는 도달 불가 — 아래 레버를 확인하세요'
+
+    profit = current - start_value
+    split_html = (f'원금(투입) {krw_compact(start_value)} + 수익 <b>{"+" if profit >= 0 else ""}'
+                  f'{krw_compact(profit)}</b> = 현재 {krw_compact(current)}')
+
+    act_cls = "pos" if r_act >= r_req else "neg"
+    head = (f'<div class="ge-head">'
+            f'<span class="ge-req">필요 연 <b>{r_req * 100:+.1f}%</b></span>'
+            f'<span class="ge-act">실제 페이스 <b class="{act_cls}">{r_act * 100:+.1f}%</b> (원가 기준 · 입금 제외)</span>'
+            f'<span class="ge-eta">{eta_html}</span>'
+            f'<span class="ge-split">{split_html}</span>'
+            f'</div>')
+
+    # ── 3레버 — 갭을 메우는 선택지(리스크 증폭이 아닌 적립·기간 먼저) ────────────
+    topup = monthly_topup_needed(current, target, r_act, t_goal) or 0.0
+    extra = max(0.0, topup - avg_dep)
+    if topup <= 0:
+        l1v, l1s = ('<div class="v good">추가 적립 불필요</div>',
+                    '현행 페이스만으로 기한 내 도달')
+    else:
+        l1v = f'<div class="v gold">월 +{krw_compact(extra if avg_dep else topup)}</div>'
+        l1s = (f'필요 월 적립 <b>{krw_compact(topup)}</b>'
+               + (f' (현 월평균 {krw_compact(avg_dep)} 반영)' if avg_dep else ' · 현행 수익률 유지 가정'))
+
+    if eta_y is not None and eta_y - t_goal > 0.05:
+        l2v = f'<div class="v">+{eta_y - t_goal:.1f}년</div>'
+        l2s = f'기한을 <b>{eta.year}년 {eta.month}월</b>로 늦추면 필요수익률이 연 {r_act * 100:.0f}%로 내려옴'
+    elif eta_y is None:
+        l2v, l2s = '<div class="v warn">—</div>', '페이스가 0 이하 — 기간 연장만으론 부족'
+    else:
+        l2v, l2s = '<div class="v good">연장 불필요</div>', '현행 페이스가 기한을 앞섬'
+
+    r_next = required_cagr(current * (1 + r_act), target, t_goal - 1) if t_goal > 1 else None
+    if r_act >= r_req:
+        l3v, l3s = ('<div class="v good">여유</div>',
+                    f'페이스가 필요수익률을 {(r_act - r_req) * 100:.1f}%p 웃돎 — 유지가 곧 전략')
+    else:
+        l3v = f'<div class="v warn">필요 연 {r_req * 100:.0f}%↑</div>'
+        l3s = ('페이스 유지 시 1년 뒤 필요수익률 <b>연 '
+               + (f'{r_next * 100:.0f}%' if r_next is not None else '—') + '</b>로 상승 — 갭은 적립·기간으로')
+
+    grid = (f'<div class="ge-grid">'
+            f'<div class="ge-card"><div class="t">① 적립 늘리기</div>{l1v}<div class="s">{l1s}</div></div>'
+            f'<div class="ge-card"><div class="t">② 기간 늘리기</div>{l2v}<div class="s">{l2s}</div></div>'
+            f'<div class="ge-card"><div class="t">③ 현행 유지</div>{l3v}<div class="s">{l3s}</div></div>'
+            f'</div>')
+
+    # ── 충격 → 도달 지연 환산 — 집중 경고를 '목표 언어'로 번역 ───────────────────
+    shock_html = ""
+    nc = [p for p in positions if p.get("category") != "현금" and (p.get("weight") or 0) > 0]
+    if nc and r_act > 0:
+        top = max(nc, key=lambda p: p.get("weight") or 0)
+        delay = shock_delay_years(r_act, top.get("weight") or 0)
+        if delay is not None and delay >= 0.1:
+            shock_html = (f'<span class="ge-shock">⚠ 최대종목 {_escape(top.get("name") or "")} '
+                          f'({top.get("weight", 0):.0f}%) −30% 충격 시 도달 <b>&nbsp;+{delay:.1f}년 지연</b></span>')
+
+    st.markdown(mkt_section_header("목표 엔진", f"{krw_compact(target)} · 기한 {target_date.year}년 {target_date.month}월 · 입금 분리 페이스"),
+                unsafe_allow_html=True)
+    st.markdown(_GOAL_CSS + head + grid + shock_html, unsafe_allow_html=True)
+
+    # ── 입금 기록 — 페이스 왜곡 방지(원금·수익 분리)의 데이터 원천 + 레버① 실측 ────
+    _dep_label = f"💰 입금 기록 — 월평균 {krw_compact(avg_dep)} (최근 6개월)" if avg_dep else "💰 입금 기록"
+    with st.expander(_dep_label, expanded=False):
+        c1, c2, c3 = st.columns([1.2, 1.2, 0.8], vertical_alignment="bottom")
+        with c1:
+            amt_man = st.number_input("금액 (만원)", min_value=1.0, value=100.0, step=10.0,
+                                      format="%.0f", key="ge_dep_amt")
+        with c2:
+            dep_date = st.date_input("입금일", value=today, max_value=today, key="ge_dep_date")
+        with c3:
+            if st.button("기록", key="ge_dep_add", use_container_width=True):
+                deposits = list(deposits) + [{"date": dep_date.isoformat(),
+                                              "amount": int(amt_man * 10_000)}]
+                _journey_set("deposits", deposits, username, False)
+                st.rerun(scope="fragment")
+        if deposits:
+            recent = sorted(deposits, key=lambda d: str(d.get("date", "")), reverse=True)[:5]
+            st.caption("최근: " + " · ".join(f"{d['date']} +{krw_compact(d['amount'])}" for d in recent))
+        st.caption("입금은 수익과 분리 기록됩니다 — 페이스(CAGR)는 원가 기준이라 입금이 수익으로 잡히지 않아요.")
 
 
 # NOTE: @st.fragment 제거 — 로그인 경로는 상위 _render_asset_section(fragment) 안에서 호출돼
@@ -1587,7 +1814,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
         st.markdown('<div class="aj-marker"></div>', unsafe_allow_html=True)
         title_col, badge_col, gear_col = st.columns([6.2, 2.6, 0.7], gap="small")
 
-        target_date = st.session_state.get("portfolio_target_date") or (_date.today() + timedelta(days=365 * 5))
+        target_date = _journey_target_date(username, is_guest)   # 설정 패널과 동일 키(목표 엔진 공용)
         m = journey_metrics(start_date, start_value, current_value, target, target_date)
         # 상태 배지 = '같은 기간 시장(내 카테고리 벤치마크 비중블렌드) 대비' 단일 평가.
         # (이전: phase '순항 중'(진행률) + pace '목표 페이스 하회'(목표 CAGR) 2배지 → 서로 모순돼 보임.)
@@ -1635,6 +1862,9 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                 st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
                 st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
                             unsafe_allow_html=True)
+        # ── 목표 엔진(E) — 필요수익률 역산·3레버·충격 지연·입금 기록(로그인 전용) ──
+        if positions is not None and not is_guest and username:
+            _goal_engine_block(current_value, target, start_value, m, positions, username)
         # 목표·시작일 설정 — 전폭 인라인 expander(헤더 톱니 popover 대체: 모바일 위치/떨림 해결)
         _journey_settings_panel(target, start_date, username, is_guest)
 
@@ -1979,6 +2209,20 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
         _bm = _benchmark_compare_html(_diag, _bench) if _diag else ""
         if _bm:
             st.markdown(_bm, unsafe_allow_html=True)
+
+        # ── 계좌를 움직인 종목 — 손익 기여 랭킹(오늘/누적, 히트맵의 '누가 얼마나' 즉답) ──
+        st.markdown(mkt_section_header("계좌를 움직인 종목", "손익 기여 = 비중 × 등락 · 상승·하락 상위"),
+                    unsafe_allow_html=True)
+        _cmode = st.segmented_control(
+            "기여도 기간", ["오늘", "누적"], key="pf_contrib_mode",
+            label_visibility="collapsed",
+        ) or "오늘"
+        _contrib = _contribution_html(sorted_by_weight, summary, _cmode)
+        if _contrib:
+            st.markdown(_contrib, unsafe_allow_html=True)
+        else:
+            st.caption("아직 오늘 변동 데이터가 없어요 (장 시작 전)" if _cmode == "오늘" else "누적 손익 데이터가 없어요")
+
         st.markdown(
             _holdings_panel_html("핵심 보유종목", "비중 상위 5종목 · 상세는 펼쳐보기", sorted_by_weight,
                                  target_prices, limit=5, action=_hold_action),
@@ -2404,10 +2648,29 @@ def render():
     if st.session_state.pop("_pf_open_risk", False):
         st.session_state["pf_subtab"] = "리스크 진단"
     elif "pf_subtab" not in st.session_state:
-        st.session_state["pf_subtab"] = "내 보유"
+        # 리로드·모바일 웹소켓 재연결로 세션이 초기화돼도 ?pf=risk 면 리스크 탭 유지
+        st.session_state["pf_subtab"] = (
+            "리스크 진단" if st.query_params.get("pf") == "risk" else "내 보유"
+        )
+
+    def _sync_pf_subtab() -> None:
+        # 서브탭 선택을 URL(?pf=risk)에 반영 — 리로드/재연결에도 탭이 살아남게.
+        # 서버측 쿼리 갱신은 브라우저 URL 전체를 다시 쓰므로(브리지가 살린 토큰 유실 방지)
+        # 인증 suffix(_user/_auth)도 함께 재기입한다.
+        if st.session_state.get("pf_subtab") == "리스크 진단":
+            st.query_params["pf"] = "risk"
+        elif st.query_params.get("pf") == "risk":
+            del st.query_params["pf"]
+        if st.session_state.get("auth_role") == "guest":
+            st.query_params["_auth"] = "guest"
+        elif st.session_state.get("username"):
+            from core.auth_token import make_token
+            st.query_params["_user"] = make_token(st.session_state["username"])
+
     _tab = st.segmented_control(
         "포트폴리오 보기", ["내 보유", "리스크 진단"],
         key="pf_subtab", label_visibility="collapsed",
+        on_change=_sync_pf_subtab,
     ) or "내 보유"
 
     if _tab == "리스크 진단":

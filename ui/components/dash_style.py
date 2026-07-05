@@ -1064,7 +1064,23 @@ def render_shell_header(pages=None):
     e.preventDefault(); e.stopPropagation();
     var links = pdoc.querySelectorAll('[data-testid="stPageLink-NavLink"]');
     var t = links[MAP[path]];
-    if (t) t.click();
+    if (!t) return;
+    t.click();
+    // page_link 클라이언트사이드 nav 는 URL 쿼리(?_user=/_auth=)를 지운다 → 모바일 웹소켓
+    // 재연결·리로드 시 세션 복원 토큰이 없어 로그인/첫 페이지로 튕김. href 에 담긴 인증
+    // 쿼리를 path 전환 완료 후 replaceState 로 되살린다(서버 왕복 없음).
+    var qs = '';
+    try { qs = new URL(href, pwin.location.origin).search; } catch (_) {}
+    if (!qs) return;
+    var tries = 0;
+    var keep = pwin.setInterval(function(){
+      if (++tries > 25) { pwin.clearInterval(keep); return; }
+      var loc = pwin.location;
+      if (loc.pathname.replace(/\\/+$/, '').slice(-path.length) === path && !loc.search) {
+        pwin.history.replaceState(null, '', loc.pathname + qs);
+        pwin.clearInterval(keep);
+      }
+    }, 80);
   }, true);
 })();
 </script>
