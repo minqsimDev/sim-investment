@@ -448,8 +448,13 @@ def _live_section(suffix: str = "") -> None:
 # ── 쿼리파라미터 기반 서브탭 (딥링크·카드 클릭 이동 지원) ──────────────────────
 # 자산군 7개만 일반 탭으로. '요약/전체'는 탭이 아니라 진입 기본 화면 + 뷰 토글로 흡수.
 _MARKET_TABS = [
-    ("미국", "us"), ("한국", "kr"), ("ETF", "etf"), ("원자재", "commodities"),
-    ("크립토", "crypto"), ("외환", "fx"), ("채권·금리", "rates"),
+    ("미국", "us"), ("한국", "kr"), ("기타", "etc"),
+]
+# '기타' 하위 자산군 — 상위 8탭이 과다(사용률상 요약 위주 소비)해 2단으로 강등.
+# 구 딥링크(?market_tab=etf 등)는 etc 탭 + 하위 선택으로 자동 매핑(글랜스 카드·북마크 보호).
+_ETC_TABS = [
+    ("ETF", "etf"), ("원자재", "commodities"), ("크립토", "crypto"),
+    ("외환", "fx"), ("채권·금리", "rates"),
 ]
 def _market_suffix() -> str:
     """탭 링크에 세션(로그인/게스트) 유지용 파라미터 부착."""
@@ -515,18 +520,20 @@ def render() -> None:
     # 리버스 프록시 뒤에서 /market 풀로드가 홈으로 오라우팅돼 멈췄다(Streamlit 멀티페이지 딥링크 한계).
     # 라디오는 풀 리로드 없이 이 세션에서 다시 그려 정상 동작. 요약/전체비교 토글과 동일 양식.
     _asset_tabs = {s for _, s in _MARKET_TABS}
+    _etc_slugs = [s for _, s in _ETC_TABS]
     _tab_labels = ["요약"] + [l for l, _ in _MARKET_TABS]
     _tab_slugs  = [""]     + [s for _, s in _MARKET_TABS]
     _entry = st.query_params.get("market_tab", "")     # 딥링크 진입(가능 시)용 초기값
+    # 구 딥링크(etf·commodities·crypto·fx·rates) → '기타' 탭 + 하위 선택으로 매핑
+    _entry_etc = _entry if _entry in _etc_slugs else ""
+    if _entry_etc:
+        _entry = "etc"
     _idx = _tab_slugs.index(_entry) if _entry in _tab_slugs else 0
     _sel = st.radio(
         "시장 자산군", _tab_labels, index=_idx, horizontal=True,
         key="mkt_asset_tab", label_visibility="collapsed",
     ) or "요약"
     active = _tab_slugs[_tab_labels.index(_sel)]
-    # 사용률 계측(세션당 탭 1회, best-effort) — 시장 탭 가지치기 판단용
-    from core.usage_log import log_tab_view
-    log_tab_view("market", active or "summary")
     suffix = _market_suffix()
 
     # 시장한눈 카드(.mg-card)의 '자세히' 클릭을 위 라디오 선택으로 위임(하드네비 풀리로드 회피).
@@ -542,12 +549,13 @@ def render() -> None:
     var card=e.target.closest('.mg-card[data-mkt-tab]');
     if(!card) return;
     if(e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey) return;
-    e.preventDefault(); e.stopPropagation();
     var tab=card.getAttribute('data-mkt-tab');
     var rg=pdoc.querySelector('[role=radiogroup]');
     if(!rg) return;
     var lbl=[].slice.call(rg.querySelectorAll('label')).filter(function(l){return l.textContent.trim()===tab;})[0];
-    if(lbl) lbl.click();
+    if(!lbl) return;          // 라디오 라벨 미매칭(예: '원자재'→'기타' 하위) → 기본 href(쿼리 링크)로 폴백
+    e.preventDefault(); e.stopPropagation();
+    lbl.click();
   }, true);
 })();
 </script>
@@ -555,23 +563,38 @@ def render() -> None:
         height=0,
     )
 
+    # 사용률 계측(세션당 탭 1회, best-effort) — 시장 탭 가지치기 판단용(하위 슬러그로 기록)
+    from core.usage_log import log_tab_view
+
     if active in _asset_tabs:
-        # 자산군 7개 탭
         if active == "us":
+            log_tab_view("market", "us")
             us_stocks.render(embedded=True)
         elif active == "kr":
+            log_tab_view("market", "kr")
             kr_stocks.render(embedded=True)
-        elif active == "crypto":
-            crypto.render(embedded=True)
-        elif active == "etf":
-            etf.render(embedded=True)
-        elif active == "commodities":
-            commodities.render(embedded=True)
-        elif active == "fx":
-            fx_rates.render(embedded=True, section="fx")
-        elif active == "rates":
-            fx_rates.render_rates(embedded=True)
+        else:
+            # '기타' — 하위 자산군은 2단 라디오로 한 번에 하나만 렌더(무거운 섹션 동시 로드 방지)
+            _e_labels = [l for l, _ in _ETC_TABS]
+            _eidx = _etc_slugs.index(_entry_etc) if _entry_etc in _etc_slugs else 0
+            _esel = st.radio(
+                "기타 자산군", _e_labels, index=_eidx, horizontal=True,
+                key="mkt_etc_tab", label_visibility="collapsed",
+            ) or _e_labels[0]
+            sub = _etc_slugs[_e_labels.index(_esel)]
+            log_tab_view("market", sub)
+            if sub == "etf":
+                etf.render(embedded=True)
+            elif sub == "commodities":
+                commodities.render(embedded=True)
+            elif sub == "crypto":
+                crypto.render(embedded=True)
+            elif sub == "fx":
+                fx_rates.render(embedded=True, section="fx")
+            elif sub == "rates":
+                fx_rates.render_rates(embedded=True)
     else:
+        log_tab_view("market", "summary")
         # 진입 기본 화면 = 요약/전체. 토글은 fragment 안의 위젯 — 누르면 페이지 전체가 아니라
         # 이 섹션만 다시 그린다(하드 nav·CSS 재주입·스크롤 점프 제거). 초기값은 쿼리파라미터(딥링크).
         _market_summary_all(suffix, "all" if active == "all" else "summary")
