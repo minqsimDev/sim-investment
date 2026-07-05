@@ -15,7 +15,7 @@ def _cached_regime_signals(fetched_at: str) -> list[dict]:
 from ui.components.dash_style import (
     glossary_expander,
     inject_css, show_skeleton,
-    jj_footer, mark_active_nav, mkt_page_header,
+    jj_footer, mark_active_nav, mkt_page_header, mkt_section_header,
 )
 
 _SIG_KOR = {
@@ -106,6 +106,7 @@ _RISK_LOCAL_CSS = """<style>
 .rsk-formula{margin:0;padding-left:16px;font-weight:650;color:#9AA0AD;line-height:1.7}
 .rsk-formula li{margin:2px 0;font-size:11.5px!important}   /* Streamlit 기본 li(~16px) 오버라이드 */
 .rsk-formula b{color:#E7E9EE;font-weight:850;font-variant-numeric:tabular-nums}
+@media(max-width:768px){.rsk-formula li{font-size:12.5px!important}.rsk-formula-t{font-size:12px!important}}
 /* 5. 매트릭스 3열 */
 .rsk-m3-more{display:block;font-size:10.5px;font-weight:750;color:#7E8694;margin-top:3px;line-height:1.4}
 /* 시나리오(가정) 카드 — 현황 구조카드와 구분: 파랑(=하방 충격) 좌측바 + 옅은 틴트 */
@@ -325,6 +326,74 @@ def _quant_risk_score(holdings: list[dict], mkt_raw: float) -> tuple[int, dict |
                    "conc_single": conc_single, "market_score": market_score}
 
 
+def _risk_dir_html(score: int, is_guest: bool) -> str:
+    """지난 방문 대비 방향 — 계정에 최근 점수 이력(risk_score_hist, 14개) 저장 후 비교.
+    위험 증가=주황 ▲, 감소=초록 ▼ (색 규약: 주황=위험경고, 초록=양호)."""
+    username = st.session_state.get("username")
+    if is_guest or not username:
+        return ""
+    from datetime import date as _d
+    from core.accounts import get_setting, set_setting
+    hist = list(get_setting(username, "risk_score_hist", []) or [])
+    today = _d.today().isoformat()
+    prev = next((h for h in reversed(hist) if str(h.get("date", "")) < today), None)
+    if not hist or hist[-1].get("date") != today:
+        hist = (hist + [{"date": today, "score": int(score)}])[-14:]
+        set_setting(username, "risk_score_hist", hist)
+    elif int(hist[-1].get("score", -1)) != int(score):
+        hist[-1]["score"] = int(score)
+        set_setting(username, "risk_score_hist", hist)
+    if prev is None:
+        return ""
+    d = int(score) - int(prev.get("score", score))
+    if d >= 3:
+        return f'<span class="rskg-dir up">▲ 지난 방문보다 +{d}</span>'
+    if d <= -3:
+        return f'<span class="rskg-dir dn">▼ 지난 방문보다 {d}</span>'
+    return '<span class="rskg-dir">지난 방문과 비슷 →</span>'
+
+
+_GAUGE_CSS = """<style>
+.rskg{background:#16181F;border:1px solid #262A33;border-radius:14px;padding:14px 16px;margin:2px 0 12px}
+.rskg-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.rskg-grade{font-size:17px;font-weight:950}
+.rskg-grade.risk{color:#E8883A}.rskg-grade.warn{color:#D9A441}.rskg-grade.good{color:#3DD68C}
+.rskg-dir{font-size:11px;font-weight:800;color:#7E8694}
+.rskg-dir.up{color:#E8883A}.rskg-dir.dn{color:#3DD68C}
+.rskg-sum{margin-left:auto;font-size:11.5px;font-weight:750;color:#9AA0AD}
+.rskg-sum b{color:#E7E9EE}
+.rskg-bar{position:relative;height:8px;border-radius:99px;margin:10px 0 5px;
+  background:linear-gradient(90deg,#3DD68C,#D9A441 45%,#E8883A 72%,#F25560)}
+.rskg-bar i{position:absolute;top:-3px;width:3px;height:14px;background:#E7E9EE;border-radius:2px}
+.rskg-scale{display:flex;justify-content:space-between;font-size:10px;font-weight:800;color:#7E8694}
+.rskg-link{display:inline-block;margin-top:8px;font-size:11.5px;font-weight:800;color:#D9A441;text-decoration:none}
+.rskg-link:hover{text-decoration:underline}
+.rsk-sigs-mini{display:flex;flex-wrap:wrap;gap:6px}
+@media(max-width:768px){
+  .rskg-dir,.rskg-scale{font-size:12px!important}
+  .rskg-sum,.rskg-link{font-size:12.5px!important}
+  .rskg-grade{font-size:19px!important}
+}
+</style>"""
+
+
+def _grade_gauge_html(score: int, tone: str, tone_label: str, summary_short: str,
+                      dir_html: str, auth_q: str) -> str:
+    """G: '100/100' 점수 오독 제거 — 등급(안정/주의/위험) 게이지 + 방향 + 대응 한 줄.
+    숫자는 게이지 마커 위치로만 표현(정확한 산식·수치는 아래 '근거' expander)."""
+    pos = max(2, min(98, int(score)))
+    link = (f'<a class="rskg-link" href="{auth_q}" target="_self">집중도·재배분은 내 보유 탭 →</a>'
+            if auth_q else "")
+    grade = tone_label.replace(" 구간", "")
+    return (_GAUGE_CSS +
+            f'<div class="rskg"><div class="rskg-top">'
+            f'<span class="rskg-grade {tone}">리스크 {grade}</span>{dir_html}'
+            f'<span class="rskg-sum">대응 — <b>{summary_short}</b></span></div>'
+            f'<div class="rskg-bar"><i style="left:{pos}%"></i></div>'
+            f'<div class="rskg-scale"><span>안정</span><span>주의</span><span>위험</span></div>'
+            f'{link}</div>')
+
+
 def _render_action_checklist(actions: list[str], is_guest: bool) -> None:
     """B4 — '그래서 지금 뭘?' 대응 액션을 체크/메모로 남긴다. 로그인=계정 영속, 게스트=세션."""
     if not actions:
@@ -531,21 +600,42 @@ def render_risk_body(holdings=None, total=None, is_guest=None) -> None:
                 unsafe_allow_html=True,
             )
 
-    # ── 슬림 흐름(시장신호 중심): [종합점수 아코디언 → 신호×내노출×대응] → 오늘 할 일 → (접힘)근거 → (접힘)알림 ──
-    # 집중·환율·충격 시나리오는 '내 보유' 탭 PB 카드와 중복이라 리스크 탭에서 제거(위험 정보 분산 해소).
-    # 종합 리스크를 아코디언 헤더로 — 클릭하면 신호→내 노출→대응 카드가 접힘/펼침(기본 펼침).
-    _tone_color = {"risk": "red", "warn": "orange", "good": "green"}.get(tone, "orange")
-    with st.expander(
-        f":{_tone_color}[**종합 리스크 {score}/100 · {tone_label}**]  ·  대응 — {summary_short}",
-        expanded=True,
-    ):
-        st.markdown(_severity_block_html(high_sigs, mid_sigs, low_sigs), unsafe_allow_html=True)  # 리스크 균형 게이지
-        st.markdown(_signal_cards_html(_mrows), unsafe_allow_html=True)
-    # 오늘 할 일 체크 = 매트릭스의 구체 대응(위험·주의 신호만, 완충은 행동 불필요), 중복 액션 제거.
-    _todo = list(dict.fromkeys(r["action"] for r in _mrows if r["col"] in ("high", "mid")))
+    # ── G: 등급 게이지("100/100" 오독 제거) → 유관 신호 카드 → 무관 신호 접기 → 할 일 ──
+    # 집중·환율·충격 시나리오는 '내 보유' 탭 PB 카드 담당 — 게이지에 위임 링크로 경계 명시.
+    _dir_html = _risk_dir_html(score, _is_guest)
+    _u = st.session_state.get("username", "")
+    if not _is_guest and _u:
+        from core.auth_token import user_param
+        _auth_q = f"?{user_param(_u)}"
+    else:
+        _auth_q = ""
+    st.markdown(_grade_gauge_html(score, tone, tone_label, summary_short, _dir_html, _auth_q),
+                unsafe_allow_html=True)
+
+    # 유관/무관 분리 — 내 노출이 없는 신호는 카드 자리를 주지 않는다(노이즈 절반).
+    def _no_expo(r: dict) -> bool:
+        return "없음" in r["expo"] or r["expo"] == "직접 연결 낮음"
+    _rel = [r for r in _mrows if not _no_expo(r)]
+    _irr = [r for r in _mrows if _no_expo(r)]
+    if _rel:
+        st.markdown(mkt_section_header("내 계좌에 걸린 신호", "신호 → 내 노출 → 대응"),
+                    unsafe_allow_html=True)
+        st.markdown(_signal_cards_html(_rel), unsafe_allow_html=True)
+    else:
+        st.caption("현재 시장 신호 중 내 계좌에 직접 걸린 것이 없어요.")
+    if _irr:
+        _sev_kor = {"high": "위험", "mid": "주의", "low": "완충"}
+        with st.expander(f"내 노출 없는 시장 신호 {len(_irr)}개", expanded=False):
+            st.markdown('<div class="rsk-sigs-mini">' + "".join(
+                f'<span class="rsk-sev-badge {r["col"] if r["col"] in ("high", "mid", "low") else "na"}">'
+                f'{r["name_html"]} · {_sev_kor.get(r["col"], "중립")}</span>'
+                for r in _irr) + '</div>', unsafe_allow_html=True)
+
+    # 오늘 할 일 체크 = 내 노출이 있는 신호의 대응만(위험·주의) — 노출 없는 신호의 '숙제' 제외.
+    _todo = list(dict.fromkeys(r["action"] for r in _rel if r["col"] in ("high", "mid")))
     _render_action_checklist(_todo, _is_guest)  # B4 — 매트릭스 대응을 체크/메모로 추적
-    # '내 보유·오늘' 스냅샷 제거(2026-06-25) — 당일 손익은 전체현황 히어로·포트폴리오와 중복, 리스크 관련성 약함.
-    with st.expander("시장 국면 근거 (심각도 · 점수 산식)", expanded=False):
+    with st.expander("시장 국면 근거 (심각도 · 리스크 균형 · 점수 산식)", expanded=False):
+        st.markdown(_severity_block_html(high_sigs, mid_sigs, low_sigs), unsafe_allow_html=True)  # 리스크 균형 게이지
         _regime_detail_block()
 
     _telegram_settings()
