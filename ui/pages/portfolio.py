@@ -175,11 +175,20 @@ def _market_price_maps(data: dict) -> dict[str, dict]:
     return maps
 
 
+def _is_kr_listed(ticker: str, name: str = "") -> bool:
+    """한국 상장 여부 — 판정 로직은 인제스트 게이트(core.holdings_ingest)와 단일 출처 공유."""
+    from core.holdings_ingest import is_kr_listed
+    return is_kr_listed(ticker, name)
+
+
 def _quote_ticker(ticker: str, category: str) -> str:
-    """보유 티커 → 시세 조회용 티커. 크립토는 -USD 접미사 보정(BTC→BTC-USD, yfinance 형식)."""
+    """보유 티커 → 시세 조회용 티커. 크립토는 -USD 접미사, 한국 6자리 코드는 .KS 부착
+    (국내 ETF/주식이 코드만으로 저장돼도 토스/yfinance 조회 가능하게)."""
     t = ticker.upper().strip()
     if category == "크립토" and t and not t.endswith("-USD"):
         return f"{t}-USD"
+    if re.fullmatch(r"\d{6}", t):
+        return f"{t}.KS"
     return t
 
 
@@ -338,7 +347,9 @@ def _holding_currency(row: dict, ticker: str = "", category: str = "") -> str:
     크립토를 USD로 보면 국내거래소 원화 평가금액에 ×환율되어 총액 폭증(예: 1,200만→184억)이라 KRW 고정."""
     cat = category or _category_for_holding(row, ticker)
     t = (ticker or "").upper()
-    if cat in ("국내주식", "크립토", "현금", "원자재") or t.endswith(".KS") or t.endswith(".KQ"):
+    _nm = str(_first(row, "name", "asset_name", "display_name") or "")
+    # 국내 상장(코드 6자리·발행사 접두 포함) — 국내 ETF가 .KS 없이 와도 USD 오판 금지(평가액 ×환율 폭증 방지)
+    if cat in ("국내주식", "크립토", "현금", "원자재") or _is_kr_listed(t, _nm):
         return "KRW"
     if cat in ("미국주식", "ETF", "기타"):   # 해외 상장(비한국 티커) — 매입·평가금액이 USD
         return "USD"
@@ -2035,7 +2046,10 @@ def _benchmark_compare_html(d: dict, bench: dict) -> str:
 
 
 def _persist_holdings(holdings: list[dict]) -> None:
-    """세션 + 계정 저장소에 보유를 반영. 로그인 유저만 영속화(스크린샷 적용 경로와 동일 패턴)."""
+    """세션 + 계정 저장소에 보유를 반영. 로그인 유저만 영속화(스크린샷 적용 경로와 동일 패턴).
+    저장 전 인제스트 게이트로 티커·통화·자산군을 표준형으로 확정(모든 저장 경로의 단일 관문)."""
+    from core.holdings_ingest import canonicalize_holdings
+    holdings, _ = canonicalize_holdings(holdings)
     st.session_state["brokerage_holdings"] = holdings
     _uname = st.session_state.get("username")
     if st.session_state.get("auth_role") == "user" and _uname:
@@ -2529,9 +2543,12 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
                 raw = parse_portfolio_image(_imgs[0][0], _imgs[0][1], extra_images=_imgs[1:])
                 merged = _filter_valid_holdings(raw)
                 deduped = _merge_holdings(merged)
+                # 인제스트 게이트 — 티커/통화/자산군 확정 + 못 읽은 행은 사유와 함께 노출
+                from core.holdings_ingest import canonicalize_holdings
+                clean, dropped = canonicalize_holdings(deduped)
                 st.session_state[cache_key] = {
-                    "holdings": deduped, "cash_balance": 0.0, "n_img": _n_img,
-                    "raw_count": len(merged),
+                    "holdings": clean, "dropped": dropped, "cash_balance": 0.0,
+                    "n_img": _n_img, "raw_count": len(merged),
                 }
                 # 계정에도 임시 저장(30분) — 모바일 세션 리셋에도 결과·버튼이 살아남게
                 from datetime import datetime as _dt
@@ -2567,12 +2584,30 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     if _dups:
         _summary += f" · 중복 {_dups}건 병합"
     st.markdown(_summary)
+    # 못 읽은 행 — 조용히 버리지 않고 사유를 그대로 노출(무엇이 부족했는지 사용자가 알게)
+    for _d in result.get("dropped") or []:
+        st.warning(f"**{_d['name']}** 은(는) 반영에서 제외돼요 — {_d['reason']}")
+    # 시세 조회 가능 여부 사전 확인 — 반영 후 '현재가 공백'을 미리보기에서 잡아냄
+    _chk_tks = tuple(sorted({str(h.get("ticker")) for h in holdings
+                             if h.get("ticker") and h.get("asset_class") != "cash"}))
+    try:
+        _chk_quotes = _cached_bulk_quotes(_chk_tks) if _chk_tks else {}
+    except Exception:
+        _chk_quotes = {}
+
+    def _quote_ok(h: dict) -> str:
+        tk = str(h.get("ticker") or "")
+        if not tk:
+            return "코드 없음"
+        return "✓" if _chk_quotes.get(tk) else "확인 필요"
+
     preview_rows = [
         {
             "종목명": h.get("name", ""),
             "코드": h.get("ticker", ""),
             "평가금액": _cur(_amt(h), "KRW"),
             "수익률": f"{float(h.get('수익률') or h.get('profit_loss_pct') or 0):+.2f}%",
+            "시세": _quote_ok(h),
         }
         for h in holdings
     ]
