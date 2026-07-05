@@ -110,13 +110,6 @@ _MARKET_LOCAL_CSS = """<style>
 [data-testid="stElementContainer"]:has(>[data-testid="stRadio"]){width:100%!important}
 [data-testid="stRadio"]{display:flex!important;width:100%!important;justify-content:flex-end!important}
 [data-testid="stRadio"] div[role="radiogroup"]{justify-content:flex-end!important;flex-wrap:wrap}
-div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_control"]{
-  background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important;
-  border-bottom:2px solid transparent!important;color:#9AA0AD!important;
-  font-size:14px!important;font-weight:700!important;padding:8px 2px!important;margin:0!important}
-div[data-testid="stButtonGroup"] button[data-testid^="stBaseButton-segmented_control"]:hover{color:#E7E9EE!important}
-div[data-testid="stButtonGroup"] button[data-testid="stBaseButton-segmented_controlActive"]{
-  color:#E7E9EE!important;border-bottom-color:#D9A441!important}
 /* ── 레짐 슬림 바 + 근거 신호 스트립 ─────────────────────────────────────────── */
 .rg-slim{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid #262A33;
   border-radius:999px;padding:9px 16px;margin:2px 0 10px;background:#16181F}

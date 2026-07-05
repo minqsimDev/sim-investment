@@ -2213,9 +2213,10 @@ def _render_portfolio_detail(data: dict, journey: dict | None = None) -> None:
         # ── 계좌를 움직인 종목 — 손익 기여 랭킹(오늘/누적, 히트맵의 '누가 얼마나' 즉답) ──
         st.markdown(mkt_section_header("계좌를 움직인 종목", "손익 기여 = 비중 × 등락 · 상승·하락 상위"),
                     unsafe_allow_html=True)
-        _cmode = st.segmented_control(
+        # st.radio horizontal — 전역 골드칩 세그먼트 스타일(시장 탭과 동일 위치·색)
+        _cmode = st.radio(
             "기여도 기간", ["오늘", "누적"], key="pf_contrib_mode",
-            label_visibility="collapsed",
+            horizontal=True, label_visibility="collapsed",
         ) or "오늘"
         _contrib = _contribution_html(sorted_by_weight, summary, _cmode)
         if _contrib:
@@ -2667,9 +2668,10 @@ def render():
             from core.auth_token import make_token
             st.query_params["_user"] = make_token(st.session_state["username"])
 
-    _tab = st.segmented_control(
+    # st.radio horizontal — 시장 자산군 탭과 동일한 전역 골드칩 세그먼트 스타일·좌측 배치
+    _tab = st.radio(
         "포트폴리오 보기", ["내 보유", "리스크 진단"],
-        key="pf_subtab", label_visibility="collapsed",
+        key="pf_subtab", horizontal=True, label_visibility="collapsed",
         on_change=_sync_pf_subtab,
     ) or "내 보유"
 
