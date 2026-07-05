@@ -2406,9 +2406,46 @@ def _merge_into_existing(existing: list[dict], new: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
+_PENDING_SCR_TTL_MIN = 30
+
+
+def _pending_scr_get() -> dict | None:
+    """계정에 임시 저장된 스크린샷 인식 결과(30분) — 모바일에서 캡처하러 앱을 오가거나 분석 중
+    화면이 꺼지면 웹소켓 재연결로 세션이 초기화되는데, 세션에만 있던 결과가 사라져
+    '버튼을 눌러도 반영이 안 되는' 문제의 근본 원인이었다. 서버(계정)에 두면 살아남는다."""
+    from datetime import datetime, timedelta as _td
+    uname = st.session_state.get("username")
+    if st.session_state.get("auth_role") != "user" or not uname:
+        return None
+    from core.accounts import get_setting
+    p = get_setting(uname, "pending_screenshot", None)
+    if not p or not p.get("holdings"):
+        return None
+    try:
+        ts = datetime.fromisoformat(str(p.get("ts", "")))
+    except ValueError:
+        return None
+    if datetime.now() - ts > _td(minutes=_PENDING_SCR_TTL_MIN):
+        return None
+    return p
+
+
+def _pending_scr_set(payload: dict | None) -> None:
+    uname = st.session_state.get("username")
+    if st.session_state.get("auth_role") != "user" or not uname:
+        return
+    from core.accounts import set_setting
+    set_setting(uname, "pending_screenshot", payload)
+
+
 def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool = True) -> None:
     from core.vision_parser import parse_portfolio_image
     from ui.pages.login import _filter_valid_holdings
+
+    # 직전 rerun 에서 적용 완료 → 확인 피드백(반영 여부가 안 보인다는 혼선 방지)
+    _applied_n = st.session_state.pop("_scr_applied_n", None)
+    if _applied_n:
+        st.success(f"✅ 보유 {_applied_n}종목 반영 완료 — 위 목록이 갱신됐어요")
 
     # 드롭존·프라이버시 스타일은 항상 주입. 헤더는 onboarding(메인 CTA)에서만 — 접는 유틸 안에선 생략(라벨 중복 방지).
     st.markdown("""
@@ -2466,12 +2503,22 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
     )
 
     if not uploaded:   # None 또는 빈 리스트
-        return
+        # 세션이 초기화됐어도(모바일 재연결 등) 계정에 남은 최근 인식 결과가 있으면 복원
+        pending = _pending_scr_get()
+        if not pending:
+            return
+        cache_key = f"_scr_pending_{key}"
+        st.session_state[cache_key] = pending
+        st.caption("📌 조금 전 분석한 결과를 불러왔어요 — 연결이 잠시 끊겨도 30분간 유지됩니다")
+        _has_upload = False
+    else:
+        _has_upload = True
 
     # 파일 집합(이름·크기) 기준 캐시 키 — 같은 집합이면 재분석 안 함
-    sig = "|".join(f"{u.name}:{u.size}" for u in uploaded)
-    cache_key = f"_screenshot_parsed_{key}_{abs(hash(sig))}"
-    if cache_key not in st.session_state:
+    if _has_upload:
+        sig = "|".join(f"{u.name}:{u.size}" for u in uploaded)
+        cache_key = f"_screenshot_parsed_{key}_{abs(hash(sig))}"
+    if _has_upload and cache_key not in st.session_state:
         from core.vision_parser import VisionBusyError
         import logging
         _n_img = len(uploaded)
@@ -2486,6 +2533,9 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
                     "holdings": deduped, "cash_balance": 0.0, "n_img": _n_img,
                     "raw_count": len(merged),
                 }
+                # 계정에도 임시 저장(30분) — 모바일 세션 리셋에도 결과·버튼이 살아남게
+                from datetime import datetime as _dt
+                _pending_scr_set({**st.session_state[cache_key], "ts": _dt.now().isoformat()})
             except Exception as e:
                 logging.getLogger("siminvest").warning("screenshot parse failed: %s", e)
                 if isinstance(e, VisionBusyError):
@@ -2540,11 +2590,14 @@ def _render_screenshot_upload(key: str = "screenshot_upload", show_header: bool 
         st.session_state["brokerage_provider"] = "screenshot"
         # 세션+계정 영속화는 공통 헬퍼로(하드 nav 후 옛 보유로 복원되는 것 방지). cash 는 위에서 세션에 반영됨.
         _persist_holdings(final_holdings)
+        _pending_scr_set(None)                     # 임시 저장 정리(재노출 방지)
+        st.session_state["_scr_applied_n"] = len(final_holdings)  # 다음 rerun 에서 완료 피드백
         st.session_state.pop(cache_key, None)
         st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1  # 업로더 비우기
         st.rerun()
 
     def _clear() -> None:
+        _pending_scr_set(None)
         st.session_state.pop(cache_key, None)
         st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
         st.rerun()
