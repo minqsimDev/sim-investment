@@ -558,9 +558,14 @@ div[role="radiogroup"] > label > div:first-child {{ display:none !important; }}
 div[role="radiogroup"] > label div, div[role="radiogroup"] > label p {{
     color:#9AA0AD; font-size:13px; font-weight:800; text-align:center; width:100%;
 }}
-/* 시장 자산군 탭(8개) — 한 줄 깔끔하게. 데스크톱은 균등 분할, 모바일은 가로 스크롤(줄바꿈·잘림 없음) */
-.st-key-mkt_asset_tab div[role="radiogroup"] {{ display:flex !important; flex-wrap:nowrap !important; width:100% !important; }}
-.st-key-mkt_asset_tab div[role="radiogroup"] > label {{ flex:1 1 0 !important; min-width:0; padding:7px 8px !important; }}
+/* 페이지 레벨 탭(시장 자산군 8개 · 포트폴리오 서브탭 2개) — 전체 폭 균등 분할로 한 줄.
+   모바일은 가로 스크롤(줄바꿈·잘림 없음). 컨트롤성 라디오(기간·오늘/누적 등)는 기본 캡슐 유지. */
+.st-key-pf_subtab,
+.st-key-pf_subtab [data-testid="stRadio"] {{ display:block !important; width:100% !important; }}
+.st-key-mkt_asset_tab div[role="radiogroup"],
+.st-key-pf_subtab div[role="radiogroup"] {{ display:flex !important; flex-wrap:nowrap !important; width:100% !important; }}
+.st-key-mkt_asset_tab div[role="radiogroup"] > label,
+.st-key-pf_subtab div[role="radiogroup"] > label {{ flex:1 1 0 !important; min-width:0; padding:7px 8px !important; }}
 @media(max-width:680px) {{
   .st-key-mkt_asset_tab div[role="radiogroup"] {{ overflow-x:auto !important; -webkit-overflow-scrolling:touch; }}
   .st-key-mkt_asset_tab div[role="radiogroup"]::-webkit-scrollbar {{ display:none; }}
