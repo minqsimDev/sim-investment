@@ -175,11 +175,24 @@ def _market_price_maps(data: dict) -> dict[str, dict]:
     return maps
 
 
+def _is_kr_listed(ticker: str, name: str = "") -> bool:
+    """한국 상장 여부 — .KS/.KQ 접미, 6자리 숫자 코드, 또는 국내 ETF 발행사 접두 이름.
+    스크린샷 파서가 국내 ETF 티커를 6자리 코드(.KS 없이)나 null 로 주는 경우 대비."""
+    t = (ticker or "").upper().strip()
+    if t.endswith(".KS") or t.endswith(".KQ") or re.fullmatch(r"\d{6}", t):
+        return True
+    nu = (name or "").upper()
+    return bool(nu) and any(nu.startswith(p) for p in _ISSUER_CLASSES)
+
+
 def _quote_ticker(ticker: str, category: str) -> str:
-    """보유 티커 → 시세 조회용 티커. 크립토는 -USD 접미사 보정(BTC→BTC-USD, yfinance 형식)."""
+    """보유 티커 → 시세 조회용 티커. 크립토는 -USD 접미사, 한국 6자리 코드는 .KS 부착
+    (국내 ETF/주식이 코드만으로 저장돼도 토스/yfinance 조회 가능하게)."""
     t = ticker.upper().strip()
     if category == "크립토" and t and not t.endswith("-USD"):
         return f"{t}-USD"
+    if re.fullmatch(r"\d{6}", t):
+        return f"{t}.KS"
     return t
 
 
@@ -338,7 +351,9 @@ def _holding_currency(row: dict, ticker: str = "", category: str = "") -> str:
     크립토를 USD로 보면 국내거래소 원화 평가금액에 ×환율되어 총액 폭증(예: 1,200만→184억)이라 KRW 고정."""
     cat = category or _category_for_holding(row, ticker)
     t = (ticker or "").upper()
-    if cat in ("국내주식", "크립토", "현금", "원자재") or t.endswith(".KS") or t.endswith(".KQ"):
+    _nm = str(_first(row, "name", "asset_name", "display_name") or "")
+    # 국내 상장(코드 6자리·발행사 접두 포함) — 국내 ETF가 .KS 없이 와도 USD 오판 금지(평가액 ×환율 폭증 방지)
+    if cat in ("국내주식", "크립토", "현금", "원자재") or _is_kr_listed(t, _nm):
         return "KRW"
     if cat in ("미국주식", "ETF", "기타"):   # 해외 상장(비한국 티커) — 매입·평가금액이 USD
         return "USD"

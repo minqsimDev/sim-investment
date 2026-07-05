@@ -47,7 +47,7 @@ _PROMPT = """이 이미지(들)는 증권사 앱/HTS/MTS의 보유종목 또는 
 [
   {
     "name": "종목명",
-    "ticker": "종목코드 (한국주식: XXXXXX.KS, 미국주식/ETF: TICKER, 모를 경우 null)",
+    "ticker": "종목코드 (한국 주식·ETF(TIGER/KODEX 등): 6자리코드.KS 형식 예 360750.KS, 미국 주식·ETF: TICKER, 모를 경우 null)",
     "shares": 보유수량_숫자_또는_null,
     "avg_price": 평균단가_숫자_또는_null,
     "current_price": 현재가_숫자_또는_null,
