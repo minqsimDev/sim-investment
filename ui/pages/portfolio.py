@@ -1527,9 +1527,9 @@ def _journey_bench_badge_html(positions: list[dict] | None, current: float,
     elif excess > -_AJ_BAND:
         cls, txt = "ontrack", "순항 · 시장 수준"
     elif excess > -_AJ_BIG:
-        cls, txt = "behind", f'목표 페이스 하회 −{abs(excess):.1f}%p'
+        cls, txt = "behind", f'시장 하회 −{abs(excess):.1f}%p'      # 벤치마크 대비(목표 대비 아님) — 명칭 혼동 방지
     else:
-        cls, txt = "behind", f'목표 페이스 크게 하회 −{abs(excess):.1f}%p'
+        cls, txt = "behind", f'시장 크게 하회 −{abs(excess):.1f}%p'
     return f'<div class="aj-badgewrap"><span class="aj-pace {cls}">{txt}</span></div>'
 
 
@@ -1660,6 +1660,13 @@ def _journey_target_date(username: str | None, is_guest: bool):
 _GOAL_CSS = """<style>
 .ge-head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;background:#16181F;
   border:1px solid #262A33;border-radius:14px;padding:12px 16px;margin:12px 0 0}
+.ge-prog-row{flex-basis:100%;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ge-prog-k{font-size:11.5px;font-weight:800;color:#9AA0AD}
+.ge-prog-k b{color:#E7E9EE;font-size:14px}
+.ge-prog{flex-basis:100%;display:block;height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin:2px 0 6px}
+.ge-prog i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,rgba(217,164,65,.55),#D9A441)}
+.ge-prog-row .aj-badgewrap{margin:0}
+@media(max-width:768px){.ge-prog-k{font-size:12.5px!important}.ge-prog-k b{font-size:15px!important}}
 .ge-req{font-size:15px;font-weight:950;color:#E7E9EE}
 .ge-req b{color:#D9A441}
 .ge-act{font-size:12px;font-weight:800;color:#9AA0AD}
@@ -1683,8 +1690,10 @@ _GOAL_CSS = """<style>
 
 
 def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
-                       positions: list[dict], username: str | None) -> None:
-    """목표 엔진 — 필요수익률 vs 실제 페이스, 갭을 메우는 3레버, 충격→도달 지연, 입금 기록.
+                       positions: list[dict], username: str | None,
+                       badge_html: str = "") -> None:
+    """자산 여정(통합) — 진행률·필요수익률 vs 실제 페이스·3레버·충격 지연·입금 기록.
+    H: 구 여정 카드 4개를 흡수해 한 섹션·한 벌의 숫자로(기간 표현도 '도달 예상일' 단일화).
     페이스는 journey_metrics 의 원가 기준 CAGR(입금이 수익으로 잡히지 않음)."""
     from datetime import date as _date
     from core.goal_engine import (years_to_target, required_cagr, monthly_topup_needed,
@@ -1721,8 +1730,15 @@ def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
     split_html = (f'원금(투입) {krw_compact(start_value)} + 수익 <b>{"+" if profit >= 0 else ""}'
                   f'{krw_compact(profit)}</b> = 현재 {krw_compact(current)}')
 
+    # 진행률 행(구 여정 카드의 도달률·목표까지 흡수) + 벤치마크 배지
+    _prog = max(0.0, min(100.0, m.get("progress_pct") or 0))
+    prog_row = (f'<span class="ge-prog-row"><span class="ge-prog-k">도달률 <b>{_prog:.1f}%</b> · '
+                f'목표까지 {krw_compact(m.get("remaining") or 0)}</span>{badge_html}</span>'
+                f'<span class="ge-prog"><i style="width:{max(2.0, _prog):.1f}%"></i></span>')
+
     act_cls = "pos" if r_act >= r_req else "neg"
     head = (f'<div class="ge-head">'
+            f'{prog_row}'
             f'<span class="ge-req">필요 연 <b>{r_req * 100:+.1f}%</b></span>'
             f'<span class="ge-act">실제 페이스 <b class="{act_cls}">{r_act * 100:+.1f}%</b> (원가 기준 · 입금 제외)</span>'
             f'<span class="ge-eta">{eta_html}</span>'
@@ -1773,7 +1789,7 @@ def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
             shock_html = (f'<span class="ge-shock">⚠ 최대종목 {_escape(top.get("name") or "")} '
                           f'({top.get("weight", 0):.0f}%) −30% 충격 시 도달 <b>&nbsp;+{delay:.1f}년 지연</b></span>')
 
-    st.markdown(mkt_section_header("목표 엔진", f"{krw_compact(target)} · 기한 {target_date.year}년 {target_date.month}월 · 입금 분리 페이스"),
+    st.markdown(mkt_section_header("자산 여정", f"목표 {krw_compact(target)} · 기한 {target_date.year}년 {target_date.month}월 · 입금 분리 페이스"),
                 unsafe_allow_html=True)
     st.markdown(_GOAL_CSS + head + grid + shock_html, unsafe_allow_html=True)
 
@@ -1820,62 +1836,28 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
     sd_raw = _journey_get("start_date", username, is_guest, (_date.today() - timedelta(days=730)).isoformat())
     start_date = _date.fromisoformat(sd_raw) if isinstance(sd_raw, str) else sd_raw
 
-    # ── 자산 여정: 카드(border) 없이 플랫 — 헤더(제목 좌 / [순항중·페이스·목표수정] 우측 한 줄) + 그리드 ──
+    # ── 자산 여정 ──────────────────────────────────────────────────────────────
     with st.container(border=False):
         st.markdown('<div class="aj-marker"></div>', unsafe_allow_html=True)
-        title_col, badge_col, gear_col = st.columns([6.2, 2.6, 0.7], gap="small")
-
         target_date = _journey_target_date(username, is_guest)   # 설정 패널과 동일 키(목표 엔진 공용)
         m = journey_metrics(start_date, start_value, current_value, target, target_date)
         # 상태 배지 = '같은 기간 시장(내 카테고리 벤치마크 비중블렌드) 대비' 단일 평가.
-        # (이전: phase '순항 중'(진행률) + pace '목표 페이스 하회'(목표 CAGR) 2배지 → 서로 모순돼 보임.)
         _badge_html = _journey_bench_badge_html(positions, current_value, start_value, start_date)
-        with title_col:
-            st.markdown(_AJ_CSS + '<div class="aj-top aj-top-row"><h3>자산 여정</h3></div>',
-                        unsafe_allow_html=True)
-        # 배지+설정 위치: 컬럼 레이아웃(로그인·positions有)에선 우측 '카드 윗부분'에 맞춰 카드 위로 내려 렌더.
-        # 게스트/블록(positions=None)에선 종전대로 헤더 우측 한 줄.
-        if positions is None:
+
+        if positions is None or is_guest or not username:
+            # 게스트 — 종전 헤더+그리드 유지(엔진은 로그인 가치)
+            title_col, badge_col, _gear = st.columns([6.2, 2.6, 0.7], gap="small")
+            with title_col:
+                st.markdown(_AJ_CSS + '<div class="aj-top aj-top-row"><h3>자산 여정</h3></div>',
+                            unsafe_allow_html=True)
             with badge_col:
                 st.markdown(_badge_html, unsafe_allow_html=True)
-        # 자산 추이(투자 시작 이후 %) 비활성: 과거 시계열을 '현재 수량을 줄곧 보유했다'고 가정해 재구성하는
-        # 근사라, 수량 변동·불완전 이력에 +5407% 같은 왜곡이 나옴. 정확한 진행바·카드만 표시.
-        # (정확한 추이는 일별 스냅샷 적재가 전제 — 별도 작업.)
-        open_ = False
-        chart_svg = _hl_label = _hl_val = None
-        if open_:
-            _si = start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
-            _s = _portfolio_value_series(positions, "", fx, start=_si)
-            if _s is not None and len(_s) > 180:
-                _s = _s.resample("W").last().dropna()   # 주봉 다운샘플 → 더 매끈
-            chart_svg = _asset_trend_svg(_s)
-            # 추이 표시 중엔 헤드라인을 '투자 시작 이후 +N%'(상승=빨강/하락=파랑)로 교체
-            if _s is not None and len(_s) >= 2 and float(_s.iloc[0]):
-                _tp = (float(_s.iloc[-1]) / float(_s.iloc[0]) - 1) * 100
-                _cls = "aj-val-up" if _tp >= 0 else "aj-val-down"
-                _hl_label = "투자 시작 이후"
-                _hl_val = f'<span class="{_cls}">{"+" if _tp >= 0 else ""}{_tp:.1f}%</span>'
-        if positions is None:
-            # 게스트 등 — 클릭 없이 단일 그리드
-            st.markdown(_journey_block_html(current_value, target, m, chart_svg=chart_svg,
-                        headline_label=_hl_label, headline_val_html=_hl_val), unsafe_allow_html=True)
+            st.markdown(_journey_block_html(current_value, target, m), unsafe_allow_html=True)
         else:
-            # 바 자체 클릭으로 전환 — 차트 셀(좌) 위에 투명 오버레이 버튼을 겹쳐 '바 클릭'을 토글로.
-            # vertical_alignment="center": 우측(배지·설정+카드)을 좌측 그래프 높이 중앙에 맞춰 정렬
-            # (bottom 은 '지나온 경로 보기'까지 내려가 과해 center 로 미세조정).
-            _lc, _rc = st.columns([1.5, 1], gap="medium", vertical_alignment="center")
-            with _lc:
-                st.markdown(_AJ_CSS + _journey_leftcell_html(current_value, target, m, chart_svg=chart_svg,
-                            headline_label=_hl_label, headline_val_html=_hl_val, clickable=False),
-                            unsafe_allow_html=True)
-            with _rc:
-                # 배지(초반 구간 등)는 카드 바로 위 우측 정렬 — 설정은 아래 전폭 expander로 분리(모바일 안정).
-                st.markdown(_AJ_CSS + _badge_html, unsafe_allow_html=True)
-                st.markdown(_AJ_CSS + f'<div class="aj-cards">{_journey_cards_html(current_value, m, target)}</div>',
-                            unsafe_allow_html=True)
-        # ── 목표 엔진(E) — 필요수익률 역산·3레버·충격 지연·입금 기록(로그인 전용) ──
-        if positions is not None and not is_guest and username:
-            _goal_engine_block(current_value, target, start_value, m, positions, username)
+            # H: 여정+목표엔진 통합 — 여정 카드 4개(목표까지·예상기간·연성장률·현재자산)와
+            # "예상 14년 5개월" 식 이중 기간표현을 제거하고, 진행률·페이스·레버를 한 벌의 숫자로.
+            _goal_engine_block(current_value, target, start_value, m, positions, username,
+                               badge_html=_badge_html)
         # 목표·시작일 설정 — 전폭 인라인 expander(헤더 톱니 popover 대체: 모바일 위치/떨림 해결)
         _journey_settings_panel(target, start_date, username, is_guest)
 
