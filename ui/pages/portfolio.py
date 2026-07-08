@@ -1475,9 +1475,10 @@ def _stitch_series(approx, snaps: list[dict]):
     return pd.concat([approx[approx.index < first], measured]), first.date()
 
 
-def _asset_trend_svg(series) -> str:
-    """자산 추이를 자산 여정 바와 '동일한 슬롯(viewBox 1000x150)'에 그리는 인라인 SVG.
-    Catmull-Rom 곡선(부드러움) + 골드 영역 채움 + 시작·현재 값 라벨. 바 자리에서 in-place 교체용."""
+def _asset_trend_svg(series, baseline: float | None = None) -> str:
+    """자산 추이 인라인 SVG(viewBox 1000x150) — Catmull-Rom 곡선 + 골드 영역 채움 +
+    시작·현재 값 라벨. baseline(투입 원금)이 주어지면 점선 기준선을 함께 그려
+    곡선과 기준선의 간격이 곧 수익으로 읽히게 한다(y 범위에 원금 포함)."""
     from core.journey import krw_compact
     if series is None or len(series) < 2:
         return ('<div style="height:103px;display:grid;place-items:center;color:#7E8694;'
@@ -1486,6 +1487,8 @@ def _asset_trend_svg(series) -> str:
     n = len(ys)
     W, H, PL, PR, PT, PB = 1000, 150, 12, 12, 18, 26
     span, lo, hi = W - PL - PR, min(ys), max(ys)
+    if baseline and baseline > 0:
+        lo, hi = min(lo, baseline), max(hi, baseline)
     rng = (hi - lo) or 1.0
     pts = [(PL + (i / (n - 1)) * span, PT + (1 - (ys[i] - lo) / rng) * (H - PT - PB)) for i in range(n)]
     # Catmull-Rom → cubic bezier 로 부드러운 path
@@ -1499,19 +1502,32 @@ def _asset_trend_svg(series) -> str:
     base = H - PB
     area = d + f' L {pts[-1][0]:.1f} {base:.1f} L {pts[0][0]:.1f} {base:.1f} Z'
     col = "#D9A441"
+    base_svg = ""
+    if baseline and baseline > 0:
+        by = PT + (1 - (baseline - lo) / rng) * (H - PT - PB)
+        # 라벨은 기준선 위, 단 선이 상단에 붙으면 아래로 내려 잘림 방지
+        ly = by + 15 if by < PT + 16 else by - 6
+        base_svg = (
+            f'<line x1="{PL}" y1="{by:.1f}" x2="{W - PR}" y2="{by:.1f}" stroke="#8B93A3" '
+            f'stroke-width="1.2" stroke-dasharray="5 5" opacity="0.85"/>'
+            f'<text x="{W - PR}" y="{ly:.1f}" text-anchor="end" fill="#9AA0AD" '
+            f'font-size="11.5" font-weight="750">원금 {krw_compact(baseline)}</text>'
+        )
     svg = (
         f'<defs><linearGradient id="atg" x1="0" x2="0" y1="0" y2="1">'
         f'<stop offset="0" stop-color="{col}" stop-opacity="0.30"/>'
         f'<stop offset="1" stop-color="{col}" stop-opacity="0.02"/></linearGradient></defs>'
         f'<path d="{area}" fill="url(#atg)"/>'
+        + base_svg +
         f'<path d="{d}" fill="none" stroke="{col}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
         f'<circle cx="{pts[0][0]:.1f}" cy="{pts[0][1]:.1f}" r="3.5" fill="#16181F" stroke="{col}" stroke-width="2"/>'
         f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="4.5" fill="{col}" stroke="#16181F" stroke-width="2"/>'
         f'<text x="{pts[0][0]:.1f}" y="{base + 18:.1f}" text-anchor="start" fill="#7E8694" font-size="12" font-weight="700">{krw_compact(ys[0])}</text>'
         f'<text x="{pts[-1][0]:.1f}" y="{base + 18:.1f}" text-anchor="end" fill="#E7E9EE" font-size="12" font-weight="800">{krw_compact(ys[-1])}</text>'
     )
+    # height:100% — 부모 슬롯 높이를 따른다(auto 면 전폭 expander 에서 세로가 뻥튀기돼 캡션과 겹침)
     return (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-            f'preserveAspectRatio="none" style="width:100%;height:auto;display:block">{svg}</svg>')
+            f'preserveAspectRatio="none" style="width:100%;height:100%;display:block">{svg}</svg>')
 
 
 def _journey_eta_display(m: dict, current: float, target: float) -> str:
@@ -1841,20 +1857,29 @@ def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
 # NOTE: @st.fragment 제거 — 로그인 경로는 상위 _render_asset_section(fragment) 안에서 호출돼
 # fragment 중첩이 됐고, 그 탓에 st.rerun(scope="fragment")가 "can only be specified from
 # within a fragment"로 깨졌다. 외부 _render_asset_section 의 fragment scope 를 쓰면 정상.
+_AT_WRAP_CSS = ('<style>.at-wrap{height:170px;margin:2px 0 4px}'
+                '.at-wrap svg{width:100%;height:100%;display:block}</style>')
+
+
 def _render_asset_trend(positions: list[dict], fx: float | None,
-                        start_date, username: str) -> None:
+                        start_date, username: str, cost_basis: float = 0.0) -> None:
     """📈 자산 추이 — 근사+실측 스냅샷 하이브리드(H 통합 때 토글이 빠지며 죽었던 추이 부활).
-    첫 스냅샷 이전 구간은 '현재 보유 기준' 추정, 이후는 방문일마다 쌓인 실측으로 대체."""
+    첫 스냅샷 이전 구간은 '현재 보유 기준' 추정, 이후는 방문일마다 쌓인 실측으로 대체.
+    cost_basis(투입 원금)는 점선 기준선 — 곡선과의 간격이 곧 수익."""
     from core.accounts import get_snapshots
+    from core.journey import krw_compact
     with st.expander("📈 자산 추이 — 투자 시작일부터", expanded=False):
         approx = _portfolio_value_series(positions, fx or _FX_FALLBACK, start_date)
         series, measured_from = _stitch_series(approx, get_snapshots(username))
-        st.markdown(f'<div class="aj-chart aj-chart-trend">{_asset_trend_svg(series)}</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'{_AT_WRAP_CSS}<div class="at-wrap">{_asset_trend_svg(series, baseline=cost_basis)}</div>',
+            unsafe_allow_html=True,
+        )
+        base_txt = f"점선 = 투입 원금 {krw_compact(cost_basis)} · " if cost_basis > 0 else ""
         if measured_from:
-            st.caption(f"{measured_from.strftime('%Y.%m.%d')}부터 실측(일별 스냅샷) · 이전 구간은 현재 보유 기준 추정")
+            st.caption(f"{base_txt}{measured_from.strftime('%Y.%m.%d')}부터 실측(일별 스냅샷) · 이전 구간은 현재 보유 기준 추정")
         else:
-            st.caption("현재 보유 기준 추정 — 방문할 때마다 실측 스냅샷이 쌓여 실제 기록으로 대체돼요")
+            st.caption(f"{base_txt}현재 보유 기준 추정 — 방문할 때마다 실측 스냅샷이 쌓여 실제 기록으로 대체돼요")
 
 
 # (게스트 경로는 positions=None 이라 scope="fragment" 분기에 도달하지 않음.)
@@ -1898,7 +1923,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             # "예상 14년 5개월" 식 이중 기간표현을 제거하고, 진행률·페이스·레버를 한 벌의 숫자로.
             _goal_engine_block(current_value, target, start_value, m, positions, username,
                                badge_html=_badge_html)
-            _render_asset_trend(positions, fx, start_date, username)
+            _render_asset_trend(positions, fx, start_date, username, cost_basis=start_value)
         # 목표·시작일 설정 — 전폭 인라인 expander(헤더 톱니 popover 대체: 모바일 위치/떨림 해결)
         _journey_settings_panel(target, start_date, username, is_guest)
 
