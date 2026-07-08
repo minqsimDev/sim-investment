@@ -61,6 +61,14 @@ def _warm_caches_once():
         _warm(force=False)          # 부팅 직후 1회 — 콜드 스타트 제거
         while True:                 # 이후 keep-warm: stale-while-revalidate
             time.sleep(_WARM_INTERVAL)
+            try:
+                from core.market_hours import any_open
+                # 미국·한국 둘 다 마감(밤·주말)이면 시세가 안 변하므로 강제 예열 스킵.
+                # 크립토는 09:00 배치 스냅샷 고정 정책이라 판단에서 제외.
+                if not any_open(["US", "KR"]):
+                    continue
+            except Exception:
+                pass
             _warm(force=True)       # 네트워크 강제 갱신으로 디스크를 항상 신선하게
             try:
                 from data.loader import clear_market_cache

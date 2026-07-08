@@ -235,6 +235,15 @@ def record_snapshot(username: str, snapshot: dict) -> None:
         _save(data)
 
 
+def get_snapshots(username: str) -> list[dict]:
+    """저장된 일별 자산 스냅샷 목록(날짜 오름차순) — record_snapshot 의 읽기 대칭."""
+    username = (username or "").strip()
+    if not username:
+        return []
+    acc = _load()["accounts"].get(username)
+    return list(acc.get("snapshots") or []) if acc else []
+
+
 def users_with_telegram() -> list[tuple[str, int]]:
     """telegram_chat_id 가 설정된 (username, chat_id) 목록."""
     data = _load()

@@ -1409,13 +1409,22 @@ def _yf_history_symbol(ticker: str, currency, category) -> tuple[str, object]:
     return ticker, currency
 
 
-def _portfolio_value_series(positions: list[dict], period: str, fx: float, start: str | None = None):
-    """보유 × 기간 일별 종가 → 일별 총 평가액(원화) 시계열. 현재 수량을 기간 내 보유했다고 가정(추세 근사).
+def _period_for_start(start) -> str:
+    """시작일→batch_close_history period 토큰(그 구간을 덮는 최소 기간)."""
+    from datetime import date as _d
+    days = (_d.today() - start).days
+    for tok, d in (("1mo", 33), ("3mo", 96), ("6mo", 190), ("1y", 372),
+                   ("2y", 740), ("5y", 1850)):
+        if days <= d:
+            return tok
+    return "max"
 
-    start(YYYY-MM-DD)가 주어지면 그 날짜~현재 구간으로 받는다('전체=투자 시작일~현재'용). 없으면 period 사용.
-    """
+
+def _portfolio_value_series(positions: list[dict], fx: float, start):
+    """보유 × 시작일~현재 일별 종가 → 일별 총 평가액(원화) 시계열. 현재 수량을 기간 내
+    보유했다고 가정한 추세 근사. 시세는 batch_close_history(DB-우선) 경유 — SSOT."""
     import pandas as pd
-    from data.session import cached_download
+    from data.loader import batch_close_history
     holds = []
     for p in positions:
         if not p.get("ticker") or not ((p.get("quantity") or 0) > 0):
@@ -1424,31 +1433,46 @@ def _portfolio_value_series(positions: list[dict], period: str, fx: float, start
         holds.append((sym, float(p.get("quantity") or 0), cur))
     if not holds:
         return None
-    tickers = [t for t, _, _ in holds]
-    try:
-        if start:
-            raw = cached_download(tickers, start=start, interval="1d", progress=False, auto_adjust=True)
-        else:
-            raw = cached_download(tickers, period=period, interval="1d", progress=False, auto_adjust=True)
-    except Exception:
-        return None
-    if raw is None or raw.empty:
-        return None
-    multi = len(tickers) > 1
+    closes_map = batch_close_history(",".join(sorted({t for t, _, _ in holds})),
+                                     _period_for_start(start))
     frames = []
     for tk, qty, cur in holds:
-        try:
-            closes = (raw["Close"][tk] if multi else raw["Close"]).dropna()
-        except Exception:
+        closes = closes_map.get(tk)
+        if closes is None or getattr(closes, "empty", True):
             continue
-        if closes.empty:
-            continue
-        v = closes * qty * (fx if cur == "USD" else 1.0)
+        v = closes.dropna() * qty * (fx if cur == "USD" else 1.0)
         v.name = tk
         frames.append(v)
     if not frames:
         return None
-    return pd.concat(frames, axis=1).sort_index().ffill().sum(axis=1).dropna()
+    total = pd.concat(frames, axis=1).sort_index().ffill().sum(axis=1).dropna()
+    return total[total.index >= pd.Timestamp(start)]
+
+
+def _stitch_series(approx, snaps: list[dict]):
+    """근사(현재수량×과거종가)와 실측 스냅샷의 하이브리드 이어붙임 — (시계열, 실측 시작일).
+
+    첫 스냅샷 날짜 이전은 근사 그대로, 이후는 실측만 사용(미방문일은 직전 실측 ffill).
+    스냅샷이 없으면 근사 그대로(+None) — 배포 직후에도 현행과 동일하게 동작."""
+    import pandas as pd
+    pts = {}
+    for s in snaps or []:
+        try:
+            d, t = pd.Timestamp(s["date"]), float(s.get("total") or 0)
+        except Exception:
+            continue
+        if not pd.isna(d) and t > 0:   # 빈 날짜는 NaT(예외 아님) → 명시 가드
+            pts[d] = t
+    if not pts:
+        return approx, None
+    snap = pd.Series(pts).sort_index()
+    first = snap.index[0]
+    if approx is None or getattr(approx, "empty", True):
+        daily = snap.reindex(pd.date_range(first, snap.index[-1], freq="D")).ffill()
+        return daily, first.date()
+    idx = approx.index[approx.index >= first].union(snap.index)
+    measured = snap.reindex(idx.sort_values()).ffill()
+    return pd.concat([approx[approx.index < first], measured]), first.date()
 
 
 def _asset_trend_svg(series) -> str:
@@ -1817,6 +1841,22 @@ def _goal_engine_block(current: float, target: int, start_value: float, m: dict,
 # NOTE: @st.fragment 제거 — 로그인 경로는 상위 _render_asset_section(fragment) 안에서 호출돼
 # fragment 중첩이 됐고, 그 탓에 st.rerun(scope="fragment")가 "can only be specified from
 # within a fragment"로 깨졌다. 외부 _render_asset_section 의 fragment scope 를 쓰면 정상.
+def _render_asset_trend(positions: list[dict], fx: float | None,
+                        start_date, username: str) -> None:
+    """📈 자산 추이 — 근사+실측 스냅샷 하이브리드(H 통합 때 토글이 빠지며 죽었던 추이 부활).
+    첫 스냅샷 이전 구간은 '현재 보유 기준' 추정, 이후는 방문일마다 쌓인 실측으로 대체."""
+    from core.accounts import get_snapshots
+    with st.expander("📈 자산 추이 — 투자 시작일부터", expanded=False):
+        approx = _portfolio_value_series(positions, fx or _FX_FALLBACK, start_date)
+        series, measured_from = _stitch_series(approx, get_snapshots(username))
+        st.markdown(f'<div class="aj-chart aj-chart-trend">{_asset_trend_svg(series)}</div>',
+                    unsafe_allow_html=True)
+        if measured_from:
+            st.caption(f"{measured_from.strftime('%Y.%m.%d')}부터 실측(일별 스냅샷) · 이전 구간은 현재 보유 기준 추정")
+        else:
+            st.caption("현재 보유 기준 추정 — 방문할 때마다 실측 스냅샷이 쌓여 실제 기록으로 대체돼요")
+
+
 # (게스트 경로는 positions=None 이라 scope="fragment" 분기에 도달하지 않음.)
 def _render_asset_journey(current_value: float, *, is_guest: bool = False,
                           positions: list[dict] | None = None, fx: float | None = None) -> None:
@@ -1858,6 +1898,7 @@ def _render_asset_journey(current_value: float, *, is_guest: bool = False,
             # "예상 14년 5개월" 식 이중 기간표현을 제거하고, 진행률·페이스·레버를 한 벌의 숫자로.
             _goal_engine_block(current_value, target, start_value, m, positions, username,
                                badge_html=_badge_html)
+            _render_asset_trend(positions, fx, start_date, username)
         # 목표·시작일 설정 — 전폭 인라인 expander(헤더 톱니 popover 대체: 모바일 위치/떨림 해결)
         _journey_settings_panel(target, start_date, username, is_guest)
 
